@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { KeyVaultService, type KeyEncryptionMode } from '$lib/services/keyVaultService';
+  import { ModelDiscoveryService, type DiscoveredModel } from '$lib/services/modelDiscoveryService';
 
   interface Props {
     isOpen?: boolean;
@@ -15,6 +16,12 @@
   let masterPassword = $state<string>('');
   let showKey = $state<boolean>(false);
   let statusMessage = $state<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // Dynamic Model Discovery States
+  let discoveredModels = $state<DiscoveredModel[]>([]);
+  let selectedModelId = $state<string | null>(null);
+  let isDiscoveringModels = $state<boolean>(false);
+  let discoveryTimer: any = null;
 
   // Stored key status
   let vaultStatus = $state<{ exists: boolean; mode: KeyEncryptionMode | null; updatedAt: string | null }>({
@@ -32,11 +39,41 @@
     statusMessage = null;
   }
 
+  function handleKeyInputChange(newVal: string) {
+    apiKeyInput = newVal;
+
+    // Auto-detect provider if key matches signature
+    const detected = ModelDiscoveryService.detectProviderFromKey(newVal);
+    if (detected && detected !== selectedProvider) {
+      selectedProvider = detected;
+    }
+
+    // Debounced dynamic model discovery
+    clearTimeout(discoveryTimer);
+    discoveredModels = [];
+    selectedModelId = null;
+
+    if (newVal.trim().length > 10) {
+      isDiscoveringModels = true;
+      discoveryTimer = setTimeout(async () => {
+        try {
+          const res = await ModelDiscoveryService.discoverModels(selectedProvider, newVal.trim());
+          discoveredModels = res.models;
+          selectedModelId = res.recommendedModelId;
+        } finally {
+          isDiscoveringModels = false;
+        }
+      }, 500);
+    }
+  }
+
   $effect(() => {
     if (selectedProvider) {
       refreshStatus();
       apiKeyInput = '';
       masterPassword = '';
+      discoveredModels = [];
+      selectedModelId = null;
     }
   });
 
@@ -211,10 +248,67 @@
             <input 
               type={showKey ? 'text' : 'password'} 
               placeholder={`請輸入 ${selectedProvider === 'gemini' ? 'AIza...' : 'gsk_...'} API Key`}
-              bind:value={apiKeyInput}
+              value={apiKeyInput}
+              oninput={(e) => handleKeyInputChange((e.target as HTMLInputElement).value)}
               class="vault-input font-mono"
             />
           </div>
+        </div>
+
+        <!-- Dynamic Vision Model Discovery (Non-hardcoded) -->
+        <div class="section-block">
+          <div class="section-label font-mono">
+            <span>自動適配視覺模型 (DYNAMIC VISION DISCOVERY)</span>
+            {#if isDiscoveringModels}
+              <span class="detecting-label">
+                <span class="material-symbols-outlined spin" style="font-size: 12px;">sync</span>
+                動態探測中...
+              </span>
+            {/if}
+          </div>
+
+          {#if discoveredModels.length > 0}
+            <div class="model-select-wrapper hairline-all">
+              <select 
+                class="model-dropdown font-mono" 
+                bind:value={selectedModelId}
+              >
+                {#each discoveredModels as model}
+                  <option value={model.id}>
+                    {model.displayName || model.id} {model.recommendationTag ? `[${model.recommendationTag}]` : ''}
+                  </option>
+                {/each}
+              </select>
+            </div>
+
+            <!-- Active Selected Model Card -->
+            {#if selectedModelId}
+              {@const currentModel = discoveredModels.find(m => m.id === selectedModelId)}
+              {#if currentModel}
+                <div class="selected-model-pill hairline-all">
+                  <div class="pill-top">
+                    <span class="pill-name font-mono">{currentModel.displayName}</span>
+                    {#if currentModel.recommendationTag}
+                      <span class="recommend-tag font-mono">⚡ {currentModel.recommendationTag}</span>
+                    {/if}
+                  </div>
+                  {#if currentModel.description}
+                    <div class="pill-desc font-body">{currentModel.description}</div>
+                  {/if}
+                </div>
+              {/if}
+            {/if}
+          {:else if apiKeyInput.length > 10 && !isDiscoveringModels}
+            <div class="model-hint-box hairline-all font-mono">
+              <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">info</span>
+              <span>已啟用離線/預設模型規則匹配；可隨時點擊「驗證解密」測試連線。</span>
+            </div>
+          {:else}
+            <div class="model-hint-box hairline-all font-mono">
+              <span class="material-symbols-outlined" style="font-size: 14px; color: var(--parchment-dim);">troubleshoot</span>
+              <span>輸入 API Key 後將自動經由端點動態探測可用的多模態視覺模型（非寫死名稱）。</span>
+            </div>
+          {/if}
         </div>
 
         <!-- Master Password Input (If Password Mode or Decrypting) -->
@@ -504,6 +598,84 @@
     padding: 8px 0;
     color: var(--parchment-bright);
     font-size: 12px;
+  }
+
+  /* Dynamic Model Discovery Styling */
+  .detecting-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--amber-highlight);
+    font-size: 10px;
+  }
+  .spin {
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  .model-select-wrapper {
+    background-color: var(--canvas-base);
+    border-radius: var(--radius-sm);
+    padding: 2px 8px;
+  }
+  .model-dropdown {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--parchment-bright);
+    font-size: 12px;
+    padding: 6px 0;
+    outline: none;
+    cursor: pointer;
+  }
+  .model-dropdown option {
+    background-color: var(--surface-panel);
+    color: var(--parchment-bright);
+  }
+
+  .selected-model-pill {
+    background-color: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .pill-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .pill-name {
+    font-size: 11px;
+    color: var(--parchment-bright);
+    font-weight: 600;
+  }
+  .recommend-tag {
+    font-size: 9px;
+    color: var(--amber-highlight);
+    background-color: rgba(212, 163, 115, 0.15);
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+  }
+  .pill-desc {
+    font-size: 10px;
+    color: var(--parchment-dim);
+    line-height: 1.35;
+  }
+
+  .model-hint-box {
+    background-color: var(--canvas-base);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: var(--parchment-muted);
   }
 
   .status-banner {
