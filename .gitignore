@@ -2,21 +2,18 @@
 checklist.md
 prototype.txt
 
-# Node / Web dependencies & builds
-node_modules/
-dist/
-.svelte-kit/
-build/
-
-# Rust / Tauri builds
-src-tauri/target/
-target/
-
-# System & OS Files
+# Node / SvelteKit
 .DS_Store
-Thumbs.db
-
-# Environment variables
+node_modules
+/build
+/.svelte-kit
+/package
 .env
 .env.*
 !.env.example
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Rust / Tauri builds
+target/
+src-tauri/target/

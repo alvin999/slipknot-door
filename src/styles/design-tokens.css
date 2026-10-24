@@ -1,0 +1,212 @@
+/**
+ * Alexandria Darkroom Curatorial Design Tokens
+ * Calibrated for high-fidelity darkroom & curatorial review.
+ */
+
+:root {
+  /* Surfaces & Canvas Architecture */
+  --canvas-base: #121316;
+  --surface-panel: #18191d;
+  --surface-elevated: #202227;
+  --surface-overlay: #282b32;
+  --hairline-slate: #2d3039;
+  --hairline-dim: #1f2128;
+
+  /* Archival Accents */
+  --primary-indigo: #6082b6;
+  --primary-hover: #4b6b94;
+  --indigo-archival: #4b6b94;
+  --amber-highlight: #d4a373;
+  --amber-dim: #8b6842;
+  --alert-red: #c94a4a;
+  --success-green: #568f6b;
+
+  /* Text & Metadata Readout (Parchment Scale) */
+  --parchment-bright: #e8e4dc; /* 88% visual luminance ceiling */
+  --parchment-muted: #a8a39a;
+  --parchment-dim: #63605a;
+  --parchment-ghost: #3a3834;
+
+  /* Typography */
+  --font-headline: "Noto Serif TC", "Noto Serif", Georgia, serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-icon: "Material Symbols Outlined";
+
+  /* Border Radius & Geometry */
+  --radius-sharp: 0px;        /* Pure 0px for photographic frame/viewport */
+  --radius-xs: 2px;
+  --radius-sm: 4px;           /* Form inputs, telemetry chips, tool buttons */
+  --radius-md: 8px;           /* Containers, folios & curatorial cards */
+  --radius-full: 9999px;
+
+  /* Layout Constants */
+  --sidebar-width: 260px;
+  --telemetry-width: 320px;
+  --contact-strip-height: 88px;
+}
+
+/* Base Reset & Core Styles */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background-color: var(--canvas-base);
+  color: var(--parchment-bright);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+}
+
+/* Typography Helpers */
+.font-headline {
+  font-family: var(--font-headline);
+}
+
+.font-body {
+  font-family: var(--font-body);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" on, "lnum" on;
+}
+
+.material-symbols-outlined {
+  font-family: var(--font-icon);
+  font-weight: 300;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar elimination */
+::-webkit-scrollbar {
+  display: none;
+}
+* {
+  scrollbar-width: none;
+}
+
+/* Alexandria Hairline Divider */
+.hairline-r {
+  border-right: 1px solid var(--hairline-slate);
+}
+.hairline-l {
+  border-left: 1px solid var(--hairline-slate);
+}
+.hairline-t {
+  border-top: 1px solid var(--hairline-slate);
+}
+.hairline-b {
+  border-bottom: 1px solid var(--hairline-slate);
+}
+.hairline-all {
+  border: 1px solid var(--hairline-slate);
+}
+
+/* Archival Components */
+.archival-btn-primary {
+  background: var(--primary-indigo);
+  color: var(--canvas-base);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: none;
+  padding: 6px 14px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+.archival-btn-primary:hover {
+  background: var(--indigo-archival);
+  color: var(--parchment-bright);
+}
+
+.archival-btn-secondary {
+  background: var(--surface-elevated);
+  border: 1px solid var(--hairline-slate);
+  color: var(--parchment-bright);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+.archival-btn-secondary:hover {
+  border-color: var(--primary-indigo);
+  background: var(--surface-overlay);
+}
+
+.archival-chip {
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-panel);
+  border: 1px solid var(--hairline-slate);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--parchment-muted);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 5px;
+}
+.archival-chip.active {
+  border-color: var(--primary-indigo);
+  color: var(--primary-indigo);
+}
+.archival-chip.amber {
+  border-color: var(--amber-highlight);
+  color: var(--amber-highlight);
+}
+
+/* Precision Range Slider */
+.darkroom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--surface-overlay);
+  border-radius: 2px;
+  outline: none;
+  cursor: ew-resize;
+}
+.darkroom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--amber-highlight);
+  cursor: ew-resize;
+  border: 1px solid var(--canvas-base);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+  transition: background 0.15s;
+}
+.darkroom-slider::-webkit-slider-thumb:hover {
+  background: var(--parchment-bright);
+}
