@@ -1074,85 +1074,110 @@
 
   .plate-canvas-wrapper {
     position: relative;
-    max-height: 100%;
+    width: 100%;
+    height: 100%;
     max-width: 100%;
+    max-height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--surface-panel);
-    border-radius: 0; /* Strictly 0px sharp frame per Alexandria specs */
+    background-color: #08090b;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.8), 0 16px 48px rgba(0, 0, 0, 0.7);
   }
 
   .plate-render-img {
-    max-height: calc(100vh - 200px);
-    max-width: 100%;
+    max-width: 95%;
+    max-height: 92%;
+    width: auto;
+    height: auto;
     object-fit: contain;
     display: block;
     user-select: none;
     -webkit-user-drag: none;
-    transition: filter 0.1s ease;
+    border-radius: 2px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.85);
+    transition: filter 0.1s ease, transform 0.2s ease;
   }
 
   .plate-tag-bar {
     position: absolute;
-    top: 8px;
-    left: 8px;
-    right: 8px;
+    top: 14px;
+    left: 16px;
+    right: 16px;
     display: flex;
     justify-content: space-between;
+    align-items: center;
     pointer-events: none;
+    z-index: 10;
   }
   .plate-id-badge {
-    background-color: rgba(18, 19, 22, 0.85);
-    border: 1px solid var(--hairline-slate);
-    padding: 4px 8px;
-    border-radius: var(--radius-xs);
-    font-size: 11px;
-    display: flex;
-    gap: 8px;
-  }
-  .film-code {
-    color: var(--amber-highlight);
-  }
-  .film-file {
-    color: var(--parchment-bright);
-  }
-
-  .plate-profile-badge {
-    background-color: rgba(18, 19, 22, 0.85);
-    border: 1px solid var(--hairline-slate);
-    padding: 4px 8px;
-    border-radius: var(--radius-xs);
+    background-color: rgba(14, 15, 18, 0.82);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
     font-size: 11px;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  }
+  .film-code {
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+  .film-file {
     color: var(--parchment-bright);
+    letter-spacing: 0.05em;
+  }
+
+  .plate-profile-badge {
+    background-color: rgba(14, 15, 18, 0.82);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--parchment-bright);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   }
   .profile-dot {
-    width: 6px;
-    height: 6px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
   }
 
   .ab-toggle-btn {
     position: absolute;
-    bottom: 12px;
-    right: 12px;
-    background-color: rgba(24, 25, 29, 0.9);
+    bottom: 16px;
+    right: 16px;
+    background-color: rgba(18, 19, 23, 0.88);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     color: var(--parchment-bright);
-    padding: 6px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 8px 16px;
     border-radius: var(--radius-sm);
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     font-size: 11px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
     transition: all 0.15s ease;
+    z-index: 10;
   }
   .ab-toggle-btn:hover {
     background-color: var(--primary-indigo);
     color: var(--canvas-base);
+    border-color: var(--primary-indigo);
   }
 
   /* BOTTOM CONTACT SHEET STRIP */

@@ -284,22 +284,38 @@ export class IngestionService {
 
         let bestStart = -1;
         let bestEnd = -1;
+        let maxPixels = 0;
         let maxLen = 0;
 
         for (let i = 0; i + 3 < len; i++) {
           if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8 && bytes[i + 2] === 0xFF) {
-            const maxSearch = Math.min(len - 1, i + 8 * 1024 * 1024);
-            for (let j = i + 2; j < maxSearch; j++) {
+            const soi = i;
+            for (let j = soi + 2; j + 1 < len; j++) {
               if (bytes[j] === 0xFF && bytes[j + 1] === 0xD9) {
-                const candidateLen = j + 2 - i;
-                if (candidateLen > 40000 && candidateLen > maxLen) {
-                  bestStart = i;
-                  bestEnd = j + 2;
-                  maxLen = candidateLen;
+                const eoi = j + 2;
+                const candidateLen = eoi - soi;
+
+                if (candidateLen > 30000) {
+                  let w = 0, h = 0;
+                  for (let k = soi; k < Math.min(eoi, soi + 1024); k++) {
+                    if (bytes[k] === 0xFF && (bytes[k + 1] === 0xC0 || bytes[k + 1] === 0xC2)) {
+                      h = (bytes[k + 5] << 8) | bytes[k + 6];
+                      w = (bytes[k + 7] << 8) | bytes[k + 8];
+                      break;
+                    }
+                  }
+                  const pixels = w * h;
+                  if (pixels > maxPixels || (pixels === 0 && candidateLen > maxLen)) {
+                    maxPixels = pixels;
+                    maxLen = candidateLen;
+                    bestStart = soi;
+                    bestEnd = eoi;
+                  }
                 }
+                i = eoi - 1; // Advance outer loop past current image
+                break;
               }
             }
-            if (maxLen > 300000) break; // Found high-res preview
           }
         }
 

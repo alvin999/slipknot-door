@@ -192,10 +192,10 @@ function cameraDevMiddlewarePlugin() {
           const filePath = url.searchParams.get("path");
           if (filePath && fs.existsSync(filePath)) {
             // Check memory cache
-            if (!globalThis.__rawPreviewCache) {
-              globalThis.__rawPreviewCache = new Map();
+            if (!globalThis.__rawPreviewCache_v2) {
+              globalThis.__rawPreviewCache_v2 = new Map();
             }
-            const cache = globalThis.__rawPreviewCache;
+            const cache = globalThis.__rawPreviewCache_v2;
             if (cache.has(filePath)) {
               res.setHeader("Content-Type", "image/jpeg");
               res.setHeader("Cache-Control", "public, max-age=86400");
@@ -217,33 +217,54 @@ function cameraDevMiddlewarePlugin() {
                 let fileBuf = Buffer.alloc(stage1Size);
                 fs.readSync(fd, fileBuf, 0, stage1Size, 0);
 
-                const findJpeg = (buf, limit) => {
-                  let found = null;
+                const findLargestJpeg = (buf, limit) => {
+                  let bestJpeg = null;
+                  let maxPixels = 0;
+                  let maxBytes = 0;
+
                   for (let i = 0; i + 3 < limit; i++) {
                     if (buf[i] === 0xFF && buf[i + 1] === 0xD8 && buf[i + 2] === 0xFF) {
-                      for (let j = i + 2; j < Math.min(limit - 1, i + 6000000); j++) {
+                      const soi = i;
+                      // Seek its matching EOI (0xFF 0xD9)
+                      for (let j = soi + 2; j + 1 < limit; j++) {
                         if (buf[j] === 0xFF && buf[j + 1] === 0xD9) {
-                          const len = j + 2 - i;
-                          if (len > 40000) {
-                            found = buf.subarray(i, j + 2);
-                            break;
+                          const eoi = j + 2;
+                          const len = eoi - soi;
+
+                          if (len > 30000) { // Exclude tiny thumbnails (< 30KB)
+                            // Read dimensions from SOF0/SOF2 marker
+                            let w = 0, h = 0;
+                            for (let k = soi; k < Math.min(eoi, soi + 1024); k++) {
+                              if (buf[k] === 0xFF && (buf[k + 1] === 0xC0 || buf[k + 1] === 0xC2)) {
+                                h = buf.readUInt16BE(k + 5);
+                                w = buf.readUInt16BE(k + 7);
+                                break;
+                              }
+                            }
+                            const pixels = w * h;
+                            if (pixels > maxPixels || (pixels === 0 && len > maxBytes)) {
+                              maxPixels = pixels;
+                              maxBytes = len;
+                              bestJpeg = buf.subarray(soi, eoi);
+                            }
                           }
+                          i = eoi - 1; // Advance outer loop past this image
+                          break;
                         }
                       }
-                      if (found && found.length > 150000) break;
                     }
                   }
-                  return found;
+                  return bestJpeg;
                 };
 
-                jpegBuf = findJpeg(fileBuf, stage1Size);
+                jpegBuf = findLargestJpeg(fileBuf, stage1Size);
 
                 // Stage 2 Fallback: If not found in first 4MB, read up to 12MB for deep-offset RAWs
                 if (!jpegBuf && stat.size > stage1Size) {
                   const stage2Size = Math.min(stat.size, 12000000);
                   fileBuf = Buffer.alloc(stage2Size);
                   fs.readSync(fd, fileBuf, 0, stage2Size, 0);
-                  jpegBuf = findJpeg(fileBuf, stage2Size);
+                  jpegBuf = findLargestJpeg(fileBuf, stage2Size);
                 }
                 fs.closeSync(fd);
               }
