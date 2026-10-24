@@ -244,6 +244,8 @@
     flex-direction: column;
     height: 100%;
     width: 100%;
+    min-height: 0;
+    min-width: 0;
     background-color: var(--canvas-base);
     overflow: hidden;
   }
@@ -353,7 +355,10 @@
   /* MAIN GRID CONTAINER */
   .catalog-grid-container {
     flex: 1;
-    overflow-y: auto;
+    min-height: 0;
+    overflow-y: scroll;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
     padding: 20px;
   }
 

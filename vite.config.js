@@ -149,17 +149,36 @@ function cameraDevMiddlewarePlugin() {
         if (url.pathname === "/api/extract-preview") {
           const filePath = url.searchParams.get("path");
           if (filePath && fs.existsSync(filePath)) {
+            // Check memory cache
+            if (!globalThis.__rawPreviewCache) {
+              globalThis.__rawPreviewCache = new Map();
+            }
+            const cache = globalThis.__rawPreviewCache;
+            if (cache.has(filePath)) {
+              res.setHeader("Content-Type", "image/jpeg");
+              res.setHeader("Cache-Control", "public, max-age=86400");
+              res.end(cache.get(filePath));
+              return;
+            }
+
             try {
-              const fileBuf = fs.readFileSync(filePath);
               const ext = path.extname(filePath).toLowerCase();
               let jpegBuf = null;
 
               if (ext === ".jpg" || ext === ".jpeg") {
-                jpegBuf = fileBuf;
+                jpegBuf = fs.readFileSync(filePath);
               } else {
-                for (let i = 0; i < Math.min(fileBuf.length, 16 * 1024 * 1024); i++) {
+                // High-performance read: Read only first 3.5MB where embedded JPEG resides
+                const fd = fs.openSync(filePath, "r");
+                const stat = fs.fstatSync(fd);
+                const readSize = Math.min(stat.size, 3500000);
+                const fileBuf = Buffer.alloc(readSize);
+                fs.readSync(fd, fileBuf, 0, readSize, 0);
+                fs.closeSync(fd);
+
+                for (let i = 0; i + 3 < readSize; i++) {
                   if (fileBuf[i] === 0xFF && fileBuf[i + 1] === 0xD8 && fileBuf[i + 2] === 0xFF) {
-                    for (let j = i + 2; j < Math.min(fileBuf.length, i + 8 * 1024 * 1024); j++) {
+                    for (let j = i + 2; j < Math.min(readSize - 1, i + 3000000); j++) {
                       if (fileBuf[j] === 0xFF && fileBuf[j + 1] === 0xD9) {
                         const len = j + 2 - i;
                         if (len > 40000) {
@@ -168,13 +187,20 @@ function cameraDevMiddlewarePlugin() {
                         }
                       }
                     }
-                    if (jpegBuf && jpegBuf.length > 200000) break;
+                    if (jpegBuf && jpegBuf.length > 150000) break;
                   }
                 }
               }
 
               if (jpegBuf) {
+                if (cache.size > 400) {
+                  const firstKey = cache.keys().next().value;
+                  cache.delete(firstKey);
+                }
+                cache.set(filePath, jpegBuf);
+
                 res.setHeader("Content-Type", "image/jpeg");
+                res.setHeader("Cache-Control", "public, max-age=86400");
                 res.end(jpegBuf);
                 return;
               }

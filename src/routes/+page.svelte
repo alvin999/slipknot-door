@@ -155,32 +155,80 @@
 
   async function loadPhotosFromItems(items: import('$lib/services/ingestionService').RawPhotoItem[]) {
     if (items.length > 0) {
-      const loaded: PhotoPlate[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const preview = await IngestionService.extractPreview(item.file_path, item.fileHandle);
-        latestExtractionMs = preview.extraction_time_ms || 18;
+      const isTauriEnv = IngestionService.isTauri();
 
-        loaded.push({
+      // Step 1: Instant zero-latency initialization (< 5ms) for all frames
+      const loaded: PhotoPlate[] = items.map((item, i) => {
+        const directUrl = !isTauriEnv && item.file_path
+          ? `/api/extract-preview?path=${encodeURIComponent(item.file_path)}`
+          : '';
+        return {
           id: `photo_${i + 1}`,
           frameNo: item.frame_no,
           filename: item.filename,
-          camera: preview.exif.camera_model || `${item.extension.toUpperCase()} 相片`,
-          lens: preview.exif.lens_model || '標準光學鏡頭',
-          iso: preview.exif.iso || 100,
-          shutter: preview.exif.shutter_speed || '--',
-          aperture: preview.exif.aperture || '--',
-          focalLength: preview.exif.focal_length || '--',
-          thumbnail: preview.blob_url || (preview.jpeg_base64 ? `data:image/jpeg;base64,${preview.jpeg_base64}` : ''),
+          camera: `${item.extension.toUpperCase()} 底片`,
+          lens: '標準光學鏡頭',
+          iso: 100,
+          shutter: '--',
+          aperture: '--',
+          focalLength: '--',
+          thumbnail: directUrl,
           sceneTag: '本機相簿幀',
           selected: i === 0,
           appliedProfile: 'Profile_01_MatteShadow',
           fileHandle: item.fileHandle
-        });
-      }
+        };
+      });
+
       photoPlates = loaded;
       activePhoto = loaded[0];
-      activeTab = 'catalog'; // Switch to catalog grid view upon loading
+      activeTab = 'catalog'; // Switch to catalog grid view immediately
+
+      // Step 2: Progressive enhancement for EXIF and thumbnails
+      // Prioritize the first visible frames immediately
+      const initialBatch = Math.min(items.length, 12);
+      for (let i = 0; i < initialBatch; i++) {
+        const item = items[i];
+        if (!photoPlates[i].thumbnail || isTauriEnv || item.fileHandle) {
+          IngestionService.extractPreview(item.file_path, item.fileHandle).then(preview => {
+            if (photoPlates[i]) {
+              if (preview.blob_url || preview.jpeg_base64) {
+                photoPlates[i].thumbnail = preview.blob_url || `data:image/jpeg;base64,${preview.jpeg_base64}`;
+              }
+              photoPlates[i].camera = preview.exif.camera_model || photoPlates[i].camera;
+              photoPlates[i].lens = preview.exif.lens_model || photoPlates[i].lens;
+              photoPlates[i].iso = preview.exif.iso || photoPlates[i].iso;
+              photoPlates[i].shutter = preview.exif.shutter_speed || photoPlates[i].shutter;
+              photoPlates[i].aperture = preview.exif.aperture || photoPlates[i].aperture;
+              photoPlates[i].focalLength = preview.exif.focal_length || photoPlates[i].focalLength;
+              latestExtractionMs = preview.extraction_time_ms || 18;
+            }
+          });
+        }
+      }
+
+      // Step 3: Background chunked ingestion for subsequent frames
+      if (items.length > initialBatch) {
+        setTimeout(async () => {
+          for (let i = initialBatch; i < items.length; i++) {
+            const item = items[i];
+            if (!photoPlates[i]?.thumbnail || isTauriEnv || item.fileHandle) {
+              const preview = await IngestionService.extractPreview(item.file_path, item.fileHandle);
+              if (photoPlates[i]) {
+                if (preview.blob_url || preview.jpeg_base64) {
+                  photoPlates[i].thumbnail = preview.blob_url || `data:image/jpeg;base64,${preview.jpeg_base64}`;
+                }
+                photoPlates[i].camera = preview.exif.camera_model || photoPlates[i].camera;
+                photoPlates[i].lens = preview.exif.lens_model || photoPlates[i].lens;
+                photoPlates[i].iso = preview.exif.iso || photoPlates[i].iso;
+                photoPlates[i].shutter = preview.exif.shutter_speed || photoPlates[i].shutter;
+                photoPlates[i].aperture = preview.exif.aperture || photoPlates[i].aperture;
+                photoPlates[i].focalLength = preview.exif.focal_length || photoPlates[i].focalLength;
+              }
+            }
+          }
+        }, 60);
+      }
     }
   }
 
@@ -995,6 +1043,8 @@
     background-color: var(--canvas-base);
     overflow: hidden;
     position: relative;
+    min-height: 0;
+    min-width: 0;
   }
 
   .photo-stage-viewport {
