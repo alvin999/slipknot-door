@@ -1,9 +1,28 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { IngestionService, type CameraMountInfo } from '$lib/services/ingestionService';
 
   // Active module tabs
   type ModuleTab = 'catalog' | 'retouch' | 'profiles' | 'export' | 'devices';
   let activeTab = $state<ModuleTab>('retouch');
+
+  // Hardware Ingestion State
+  let cameraMounts = $state<CameraMountInfo[]>([]);
+  let isScanningMounts = $state<boolean>(false);
+  let latestExtractionMs = $state<number>(18);
+
+  onMount(async () => {
+    await refreshCameraMounts();
+  });
+
+  async function refreshCameraMounts() {
+    isScanningMounts = true;
+    try {
+      cameraMounts = await IngestionService.detectMounts();
+    } finally {
+      isScanningMounts = false;
+    }
+  }
 
   // Sample Photographic Plates (Simulating 50ms embedded extraction from DCIM)
   interface PhotoPlate {
@@ -215,23 +234,36 @@
       <span class="material-symbols-outlined brand-icon">lens_blur</span>
       <div class="brand-titles">
         <h1 class="brand-title font-headline">大相無形</h1>
-        <span class="brand-sub font-mono">SLIPKNOTTING ON HEAVEN'S DOOR · V2.0</span>
+        <span class="brand-sub font-mono">SLIPKNOTTING ON HEAVEN'S DOOR · 0.1.0</span>
       </div>
     </div>
 
     <!-- Active Hardware Ingestion Indicator -->
-    <div class="device-telemetry hairline-all">
-      <span class="status-dot"></span>
-      <span class="device-name font-mono">Sony A7R V // Type-C 隨插即讀</span>
+    <button 
+      type="button"
+      class="device-telemetry hairline-all" 
+      onclick={refreshCameraMounts}
+      title="點擊重新偵測相機外接裝置"
+    >
+      <span class="status-dot" class:scanning={isScanningMounts}></span>
+      <span class="device-name font-mono">
+        {cameraMounts.length > 0 ? `${cameraMounts[0].volume_name} // 隨插即讀已連線` : '未偵測到相機掛載'}
+      </span>
       <span class="divider">|</span>
-      <span class="device-metric font-mono">342 幀 61MP RAW</span>
-    </div>
+      <span class="device-metric font-mono">
+        {cameraMounts.length > 0 ? `${cameraMounts[0].file_count} 幀 RAW` : '等待接線'}
+      </span>
+    </button>
 
     <!-- Right Controls -->
     <div class="top-actions">
+      <div class="archival-chip font-mono amber">
+        <span class="material-symbols-outlined" style="font-size: 14px;">bolt</span>
+        RAW 預覽 {latestExtractionMs}MS
+      </div>
       <div class="archival-chip font-mono">
         <span class="material-symbols-outlined" style="font-size: 14px;">memory</span>
-        GPU SHADER 60FPS
+        GPU 著色器 60FPS
       </div>
       <button 
         class="archival-btn-primary" 
@@ -615,6 +647,14 @@
     align-items: center;
     gap: 8px;
     font-size: 11px;
+    cursor: pointer;
+    border: 1px solid var(--hairline-slate);
+    color: inherit;
+    transition: all 0.15s ease;
+  }
+  .device-telemetry:hover {
+    border-color: var(--primary-indigo);
+    background-color: var(--surface-overlay);
   }
   .status-dot {
     width: 6px;
@@ -622,6 +662,15 @@
     border-radius: 50%;
     background-color: var(--primary-indigo);
     box-shadow: 0 0 6px var(--primary-indigo);
+  }
+  .status-dot.scanning {
+    background-color: var(--amber-highlight);
+    box-shadow: 0 0 6px var(--amber-highlight);
+    animation: dotPulse 0.8s ease-in-out infinite alternate;
+  }
+  @keyframes dotPulse {
+    from { opacity: 0.4; }
+    to { opacity: 1; }
   }
   .device-name {
     color: var(--parchment-bright);
