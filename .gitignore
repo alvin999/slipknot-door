@@ -1,0 +1,22 @@
+# Project Specifications & Checklists (Ignored per user request)
+checklist.md
+prototype.txt
+
+# Node / Web dependencies & builds
+node_modules/
+dist/
+.svelte-kit/
+build/
+
+# Rust / Tauri builds
+src-tauri/target/
+target/
+
+# System & OS Files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.*
+!.env.example
