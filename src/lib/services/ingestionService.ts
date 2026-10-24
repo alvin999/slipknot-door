@@ -80,11 +80,12 @@ export class IngestionService {
 
   /**
    * Browser Web Fallback: Open directory picker natively without mocks
+   * Supports Modern showDirectoryPicker + Universal HTML5 webkitdirectory fallback
    */
   public static async pickWebDirectory(): Promise<RawPhotoItem[]> {
     if (typeof window === 'undefined') return [];
 
-    // Use Web File System Access API if available
+    // 1. Try Modern File System Access API
     if ('showDirectoryPicker' in window) {
       try {
         const dirHandle = await (window as any).showDirectoryPicker();
@@ -112,13 +113,57 @@ export class IngestionService {
         }
         return items;
       } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          console.error('Directory picker error:', err);
-        }
+        if (err.name === 'AbortError') return [];
+        console.warn('showDirectoryPicker failed, falling back to HTML5 directory picker:', err);
       }
     }
 
-    return [];
+    // 2. Universal Browser Fallback: HTML5 <input type="file" webkitdirectory>
+    return new Promise<RawPhotoItem[]>((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.webkitdirectory = true;
+      (input as any).directory = true;
+      input.multiple = true;
+      input.style.display = 'none';
+      document.body.appendChild(input);
+
+      input.onchange = () => {
+        const files = Array.from(input.files || []);
+        const items: RawPhotoItem[] = [];
+        let index = 1;
+
+        for (const file of files) {
+          const ext = file.name.split('.').pop()?.toLowerCase() || '';
+          if (SUPPORTED_EXTS.includes(ext)) {
+            const blobUrl = URL.createObjectURL(file);
+            items.push({
+              file_path: file.webkitRelativePath || file.name,
+              filename: file.name,
+              file_size: file.size,
+              extension: ext,
+              frame_no: `${String(index).padStart(2, '0')}A`,
+              blobUrl,
+              fileHandle: file
+            });
+            index++;
+          }
+        }
+        if (input.parentNode) {
+          document.body.removeChild(input);
+        }
+        resolve(items);
+      };
+
+      input.oncancel = () => {
+        if (input.parentNode) {
+          document.body.removeChild(input);
+        }
+        resolve([]);
+      };
+
+      input.click();
+    });
   }
 
   /**

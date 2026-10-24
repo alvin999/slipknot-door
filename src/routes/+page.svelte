@@ -2,11 +2,16 @@
   import { onMount } from 'svelte';
   import { IngestionService, type CameraMountInfo } from '$lib/services/ingestionService';
   import { KeyVaultService } from '$lib/services/keyVaultService';
+  import { AiSceneService } from '$lib/services/aiSceneService';
   import KeyVaultModal from '$lib/components/KeyVaultModal.svelte';
+  import CatalogView from '$lib/components/views/CatalogView.svelte';
+  import ProfilesView from '$lib/components/views/ProfilesView.svelte';
+  import ExportView from '$lib/components/views/ExportView.svelte';
+  import DevicesView from '$lib/components/views/DevicesView.svelte';
 
   // Active module tabs
   type ModuleTab = 'catalog' | 'retouch' | 'profiles' | 'export' | 'devices';
-  let activeTab = $state<ModuleTab>('retouch');
+  let activeTab = $state<ModuleTab>('catalog'); // Default to catalog on fresh load for curatorial overview
 
   // Key Vault State
   let isVaultOpen = $state<boolean>(false);
@@ -36,8 +41,6 @@
     }
   }
 
-  import { AiSceneService } from '$lib/services/aiSceneService';
-
   // Photographic Plate Interface
   interface PhotoPlate {
     id: string;
@@ -52,6 +55,7 @@
     thumbnail: string;
     sceneTag: string;
     selected: boolean;
+    flagged?: boolean;
     appliedProfile: string;
     fileHandle?: File;
   }
@@ -74,28 +78,44 @@
       title: 'MatteShadow · 啞光微膠卷',
       tone: '低黑階抬升 · 低飽和綠色調 · 柔和高反差',
       badge: 'FILM_LOOK_01',
-      accent: '#6082b6'
+      accent: '#6082b6',
+      evDefault: 0.1,
+      shadowLiftDefault: 0.25,
+      lutIntensityDefault: 0.85,
+      recommendedScene: '街拍 / 夜間微光'
     },
     {
       id: 'Profile_02_TealEmerald',
       title: 'TealEmerald · 冷青翡翠',
       tone: '陰影注入冷青 · 高光溫潤偏暖 · 膚色隔離保護',
       badge: 'COLOR_GRADE_02',
-      accent: '#4b6b94'
+      accent: '#4b6b94',
+      evDefault: -0.1,
+      shadowLiftDefault: 0.15,
+      lutIntensityDefault: 0.9,
+      recommendedScene: '晨昏藍調 / 戶外景觀'
     },
     {
       id: 'Profile_03_TungstenSoft',
       title: 'TungstenSoft · 溫潤人像',
       tone: '鎢絲燈光感 · 洋紅微量相移 · 高光滾降過渡',
       badge: 'PORTRAIT_03',
-      accent: '#d4a373'
+      accent: '#d4a373',
+      evDefault: 0.2,
+      shadowLiftDefault: 0.3,
+      lutIntensityDefault: 0.8,
+      recommendedScene: '室內溫潤人像 / 靜物'
     },
     {
       id: 'Profile_04_HighContrastMono',
       title: 'HighContrastMono · 高反差單色',
       tone: '紅橙濾鏡感 · 暗部深邃沈穩 · 經典銀鹽紀實',
       badge: 'MONO_SILVER_04',
-      accent: '#e8e4dc'
+      accent: '#e8e4dc',
+      evDefault: 0.0,
+      shadowLiftDefault: -0.1,
+      lutIntensityDefault: 1.0,
+      recommendedScene: '建築幾何 / 經典黑白街頭'
     }
   ];
 
@@ -110,25 +130,26 @@
     photoPlates.forEach(p => p.selected = (p.id === plate.id));
   }
 
+  function openRetouchForPhoto(plate: PhotoPlate) {
+    selectPhoto(plate);
+    activeTab = 'retouch';
+  }
+
   function applyProfile(profileId: string) {
     if (!activePhoto) return;
     activePhoto.appliedProfile = profileId;
-    if (profileId === 'Profile_01_MatteShadow') {
-      exposure = 0.1;
-      shadowLift = 0.25;
-      lutIntensity = 0.85;
-    } else if (profileId === 'Profile_02_TealEmerald') {
-      exposure = -0.1;
-      shadowLift = 0.15;
-      lutIntensity = 0.9;
-    } else if (profileId === 'Profile_03_TungstenSoft') {
-      exposure = 0.2;
-      shadowLift = 0.3;
-      lutIntensity = 0.8;
-    } else if (profileId === 'Profile_04_HighContrastMono') {
-      exposure = 0.0;
-      shadowLift = -0.1;
-      lutIntensity = 1.0;
+    const found = profiles.find(p => p.id === profileId);
+    if (found) {
+      exposure = found.evDefault;
+      shadowLift = found.shadowLiftDefault;
+      lutIntensity = found.lutIntensityDefault;
+    }
+  }
+
+  function applyProfileToAll(profileId: string) {
+    photoPlates.forEach(p => p.appliedProfile = profileId);
+    if (activePhoto) {
+      applyProfile(profileId);
     }
   }
 
@@ -396,105 +417,146 @@
 
     <!-- CENTER STAGE: PHOTOGRAPHIC PLATE VIEWPORT -->
     <section class="center-stage">
-      <!-- Image Stage Container -->
-      <div class="photo-stage-viewport">
-        <!-- Notification Banner -->
-        {#if exportNotice}
-          <div class="export-notice-banner hairline-all font-mono">
-            <span class="material-symbols-outlined" style="color: var(--amber-highlight); font-size: 18px;">check_circle</span>
-            {exportNotice}
-          </div>
-        {/if}
-
-        {#if activePhoto}
-          <div class="plate-canvas-wrapper hairline-all">
-            <img 
-              src={activePhoto.thumbnail} 
-              alt={activePhoto.filename} 
-              class="plate-render-img"
-              style:filter={showABComparison 
-                ? 'none' 
-                : `brightness(${1 + exposure * 0.4}) contrast(${1 + (lutIntensity - 0.5) * 0.3})`}
-            />
-
-            <!-- Overlaid Plate Framing Tag -->
-            <div class="plate-tag-bar font-mono">
-              <div class="plate-id-badge">
-                <span class="film-code">PLATE #{activePhoto.frameNo}</span>
-                <span class="film-file">{activePhoto.filename}</span>
-              </div>
-              <div class="plate-profile-badge">
-                <span class="profile-dot" style:background={activePhoto.appliedProfile ? 'var(--amber-highlight)' : 'var(--parchment-dim)'}></span>
-                <span>{activePhoto.appliedProfile}</span>
-              </div>
+      {#if activeTab === 'catalog'}
+        <!-- MODULE 1: CATALOG MATRIX (Phase 3 Virtual Grid) -->
+        <CatalogView 
+          photos={photoPlates}
+          {activePhoto}
+          {isLoadingPhotos}
+          onSelectPhoto={(p) => selectPhoto(p)}
+          onOpenRetouch={(p) => openRetouchForPhoto(p)}
+          onPickDirectory={handlePickDirectory}
+          onRefreshMounts={refreshCameraMounts}
+        />
+      {:else if activeTab === 'retouch'}
+        <!-- MODULE 2: RETOUCH DARKROOM WORKBENCH -->
+        <div class="photo-stage-viewport">
+          {#if exportNotice}
+            <div class="export-notice-banner hairline-all font-mono">
+              <span class="material-symbols-outlined" style="color: var(--amber-highlight); font-size: 18px;">check_circle</span>
+              {exportNotice}
             </div>
+          {/if}
 
-            <!-- A/B Comparison Toggle Floater -->
-            <button 
-              type="button"
-              class="ab-toggle-btn hairline-all font-mono" 
-              onmousedown={() => showABComparison = true}
-              onmouseup={() => showABComparison = false}
-              onmouseleave={() => showABComparison = false}
-            >
-              <span class="material-symbols-outlined" style="font-size: 15px;">compare</span>
-              <span>{showABComparison ? '原始本相 (RAW)' : '按住 A/B 比對'}</span>
-            </button>
-          </div>
-        {:else}
-          <!-- Empty State: Waiting for camera connection or local directory selection -->
-          <div class="empty-stage-box hairline-all">
-            <span class="material-symbols-outlined empty-stage-icon">camera_roll</span>
-            <h3 class="font-headline empty-stage-title">等待相機裝置連接</h3>
-            <p class="font-body empty-stage-desc">
-              接上相機 USB/Type-C 傳輸線開機自動載入，或手動指定本機 DCIM / RAW 目錄開啟底片作業。
-            </p>
-            <div class="empty-actions">
-              <button type="button" class="archival-btn-primary" onclick={handlePickDirectory} disabled={isLoadingPhotos}>
-                <span class="material-symbols-outlined" style="font-size: 16px;">folder_open</span>
-                <span>{isLoadingPhotos ? '正在解析 RAW/JPG...' : '開啟相片目錄 (RAW / JPG)'}</span>
-              </button>
-              <button type="button" class="archival-btn-secondary" onclick={refreshCameraMounts} disabled={isScanningMounts}>
-                <span class="material-symbols-outlined" style="font-size: 16px;">cable</span>
-                <span>{isScanningMounts ? '正在搜尋掛載...' : '重新偵測隨插即讀設備'}</span>
-              </button>
-            </div>
-          </div>
-        {/if}
-      </div>
+          {#if activePhoto}
+            <div class="plate-canvas-wrapper hairline-all">
+              <img 
+                src={activePhoto.thumbnail} 
+                alt={activePhoto.filename} 
+                class="plate-render-img"
+                style:filter={showABComparison 
+                  ? 'none' 
+                  : `brightness(${1 + exposure * 0.4}) contrast(${1 + (lutIntensity - 0.5) * 0.3})`}
+              />
 
-      <!-- PERSISTENT BOTTOM CONTACT SHEET LIGHT-TABLE STRIP -->
-      <footer class="contact-sheet-strip hairline-t">
-        <div class="strip-header font-mono">
-          <span class="strip-label">CONTACT SHEET // EXPOSURE RACK</span>
-          <span class="strip-count">{photoPlates.length} FRAMES</span>
-        </div>
-        <div class="strip-frames-scroll">
-          {#if photoPlates.length > 0}
-            {#each photoPlates as plate}
+              <!-- Overlaid Plate Framing Tag -->
+              <div class="plate-tag-bar font-mono">
+                <div class="plate-id-badge">
+                  <span class="film-code">PLATE #{activePhoto.frameNo}</span>
+                  <span class="film-file">{activePhoto.filename}</span>
+                </div>
+                <div class="plate-profile-badge">
+                  <span class="profile-dot" style:background={activePhoto.appliedProfile ? 'var(--amber-highlight)' : 'var(--parchment-dim)'}></span>
+                  <span>{activePhoto.appliedProfile}</span>
+                </div>
+              </div>
+
+              <!-- A/B Comparison Toggle Floater -->
               <button 
                 type="button"
-                class="film-frame-card" 
-                class:selected={plate.selected}
-                onclick={() => selectPhoto(plate)}
+                class="ab-toggle-btn hairline-all font-mono" 
+                onmousedown={() => showABComparison = true}
+                onmouseup={() => showABComparison = false}
+                onmouseleave={() => showABComparison = false}
               >
-                <div class="film-frame-outer">
-                  <img src={plate.thumbnail} alt={plate.filename} class="film-frame-thumb" />
-                </div>
-                <div class="film-frame-meta font-mono">
-                  <span class="frame-num">{plate.frameNo}</span>
-                  <span class="frame-tag">{plate.camera.split(' ')[0]}</span>
-                </div>
+                <span class="material-symbols-outlined" style="font-size: 15px;">compare</span>
+                <span>{showABComparison ? '原始本相 (RAW)' : '按住 A/B 比對'}</span>
               </button>
-            {/each}
+            </div>
           {:else}
-            <div class="empty-strip-hint font-mono">
-              <span class="material-symbols-outlined" style="font-size: 14px;">exposure_zero</span>
-              <span>尚無載入幀數 · 請點擊上方「開啟相片目錄」載入 RAW 檔</span>
+            <!-- Empty State: Waiting for camera connection or local directory selection -->
+            <div class="empty-stage-box hairline-all">
+              <span class="material-symbols-outlined empty-stage-icon">camera_roll</span>
+              <h3 class="font-headline empty-stage-title">等待相機裝置連接</h3>
+              <p class="font-body empty-stage-desc">
+                接上相機 USB/Type-C 傳輸線開機自動載入，或手動指定本機 DCIM / RAW 目錄開啟底片作業。
+              </p>
+              <div class="empty-actions">
+                <button type="button" class="archival-btn-primary" onclick={handlePickDirectory} disabled={isLoadingPhotos}>
+                  <span class="material-symbols-outlined" style="font-size: 16px;">folder_open</span>
+                  <span>{isLoadingPhotos ? '正在解析 RAW/JPG...' : '開啟相片目錄 (RAW / JPG)'}</span>
+                </button>
+                <button type="button" class="archival-btn-secondary" onclick={refreshCameraMounts} disabled={isScanningMounts}>
+                  <span class="material-symbols-outlined" style="font-size: 16px;">cable</span>
+                  <span>{isScanningMounts ? '正在搜尋掛載...' : '重新偵測隨插即讀設備'}</span>
+                </button>
+              </div>
             </div>
           {/if}
         </div>
-      </footer>
+
+        <!-- PERSISTENT BOTTOM CONTACT SHEET LIGHT-TABLE STRIP -->
+        <footer class="contact-sheet-strip hairline-t">
+          <div class="strip-header font-mono">
+            <span class="strip-label">CONTACT SHEET // EXPOSURE RACK</span>
+            <span class="strip-count">{photoPlates.length} FRAMES</span>
+          </div>
+          <div class="strip-frames-scroll">
+            {#if photoPlates.length > 0}
+              {#each photoPlates as plate}
+                <button 
+                  type="button"
+                  class="film-frame-card" 
+                  class:selected={plate.selected}
+                  onclick={() => selectPhoto(plate)}
+                >
+                  <div class="film-frame-outer">
+                    <img src={plate.thumbnail} alt={plate.filename} class="film-frame-thumb" />
+                  </div>
+                  <div class="film-frame-meta font-mono">
+                    <span class="frame-num">{plate.frameNo}</span>
+                    <span class="frame-tag">{plate.camera.split(' ')[0]}</span>
+                  </div>
+                </button>
+              {/each}
+            {:else}
+              <div class="empty-strip-hint font-mono">
+                <span class="material-symbols-outlined" style="font-size: 14px;">exposure_zero</span>
+                <span>尚無載入幀數 · 請點擊上方「開啟相片目錄」載入 RAW 檔</span>
+              </div>
+            {/if}
+          </div>
+        </footer>
+      {:else if activeTab === 'profiles'}
+        <!-- MODULE 3: 3D LUT PROFILES VAULT -->
+        <ProfilesView 
+          {profiles}
+          activeProfileId={activePhoto ? activePhoto.appliedProfile : 'Profile_01_MatteShadow'}
+          activePhotoTitle={activePhoto ? activePhoto.filename : '尚未選取相片'}
+          onApplyProfile={(id) => applyProfile(id)}
+          onApplyToAll={(id) => applyProfileToAll(id)}
+        />
+      {:else if activeTab === 'export'}
+        <!-- MODULE 4: DUAL PIPELINE EXPORT DOCK -->
+        <ExportView 
+          photos={photoPlates}
+          {exportMode}
+          {isExporting}
+          {exportProgress}
+          {exportNotice}
+          onSetExportMode={(m) => exportMode = m}
+          onTriggerExport={triggerExport}
+        />
+      {:else if activeTab === 'devices'}
+        <!-- MODULE 5: HARDWARE MOUNTS & STORAGE SETTINGS -->
+        <DevicesView 
+          {cameraMounts}
+          {isScanningMounts}
+          {geminiKeyStatus}
+          onRefreshMounts={refreshCameraMounts}
+          onOpenVault={() => isVaultOpen = true}
+        />
+      {/if}
     </section>
 
     <!-- RIGHT SIDEBAR: DARKROOM TELEMETRY & COLOR DOCK -->
