@@ -14,6 +14,22 @@ impl StorageDetector {
 
         #[cfg(target_os = "linux")]
         {
+            if let Ok(run_media) = fs::read_dir("/run/media") {
+                for u in run_media.flatten() {
+                    let u_path = u.path();
+                    if u_path.is_dir() {
+                        potential_mount_roots.push(u_path);
+                    }
+                }
+            }
+            if let Ok(media) = fs::read_dir("/media") {
+                for u in media.flatten() {
+                    let u_path = u.path();
+                    if u_path.is_dir() {
+                        potential_mount_roots.push(u_path);
+                    }
+                }
+            }
             if let Ok(user) = std::env::var("USER") {
                 potential_mount_roots.push(PathBuf::from(format!("/media/{}", user)));
                 potential_mount_roots.push(PathBuf::from(format!("/run/media/{}", user)));
@@ -47,7 +63,12 @@ impl StorageDetector {
                 for entry in entries.flatten() {
                     let mount_path = entry.path();
                     if mount_path.is_dir() {
-                        let vol_name = entry.file_name().to_string_lossy().to_string();
+                        let raw_name = entry.file_name().to_string_lossy().to_string();
+                        // Ignore known vendor utility partitions like Sony PMHOME
+                        if raw_name == "PMHOME" {
+                            continue;
+                        }
+
                         let dcim_candidate = mount_path.join("DCIM");
                         let dcim_lower = mount_path.join("dcim");
 
@@ -64,6 +85,21 @@ impl StorageDetector {
                             Self::count_raw_files(d)
                         } else {
                             0
+                        };
+
+                        // Smart vendor detection based on camera filesystem signatures
+                        let vol_name = if mount_path.join("AVF_INFO").exists() 
+                            || mount_path.join("PRIVATE").exists()
+                            || root.join("PMHOME").exists() {
+                            format!("Sony 相機 ({})", raw_name)
+                        } else if mount_path.join("CANONMSC").exists() {
+                            format!("Canon 相機 ({})", raw_name)
+                        } else if mount_path.join("NIKON").exists() {
+                            format!("Nikon 相機 ({})", raw_name)
+                        } else if mount_path.join("FFUSER").exists() {
+                            format!("Fujifilm 相機 ({})", raw_name)
+                        } else {
+                            raw_name
                         };
 
                         results.push(CameraMountInfo {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { CameraMountInfo } from '$lib/services/ingestionService';
+  import { IngestionService, type CameraMountInfo } from '$lib/services/ingestionService';
 
   interface Props {
     cameraMounts: CameraMountInfo[];
@@ -7,6 +7,8 @@
     geminiKeyStatus: { exists: boolean; mode: string | null };
     onRefreshMounts: () => void;
     onOpenVault: () => void;
+    onLoadMount?: (mount: CameraMountInfo) => void;
+    onPickDirectory?: () => void;
   }
 
   let {
@@ -14,11 +16,14 @@
     isScanningMounts = false,
     geminiKeyStatus,
     onRefreshMounts,
-    onOpenVault
+    onOpenVault,
+    onLoadMount,
+    onPickDirectory
   }: Props = $props();
 
   let autoPolling = $state<boolean>(true);
   let cacheStatusText = $state<string>('極速預覽快取良好（50ms 記憶體抽取）');
+  let isWebMode = $derived(!IngestionService.isTauri());
 
   function clearPreviewCache() {
     cacheStatusText = '已清理暫存快取標頭';
@@ -57,7 +62,7 @@
           <div class="status-indicator-box">
             <span class="live-dot" class:active={cameraMounts.length > 0}></span>
             <span class="section-heading font-headline">
-              {cameraMounts.length > 0 ? '相機硬體已掛載' : '等待相機設備連線'}
+              {cameraMounts.length > 0 ? '相機硬體已掛載' : isWebMode ? '網頁預覽環境 (沙盒限制)' : '等待相機設備連線'}
             </span>
           </div>
           <label class="auto-poll-label font-mono">
@@ -88,12 +93,40 @@
                     {/if}
                   </div>
                 </div>
-                <div class="mount-count-pill font-mono">
-                  <span class="num">{mount.file_count}</span>
-                  <span class="lbl">FRAMES</span>
+                <div class="mount-action-box">
+                  <div class="mount-count-pill font-mono">
+                    <span class="num">{mount.file_count}</span>
+                    <span class="lbl">FRAMES</span>
+                  </div>
+                  {#if onLoadMount}
+                    <button 
+                      type="button" 
+                      class="archival-btn-primary compact-load"
+                      onclick={() => onLoadMount?.(mount)}
+                    >
+                      <span class="material-symbols-outlined" style="font-size: 14px;">input</span>
+                      <span>載入相片</span>
+                    </button>
+                  {/if}
                 </div>
               </div>
             {/each}
+          </div>
+        {:else if isWebMode}
+          <div class="empty-device-hint font-mono hairline-all web-notice">
+            <span class="material-symbols-outlined" style="font-size: 32px; color: var(--amber-highlight);">info</span>
+            <div class="hint-text">
+              <div class="hint-title">目前在瀏覽器網頁模式中執行</div>
+              <div class="hint-desc">
+                因瀏覽器安全沙盒規範，一般 Web 網頁無法主動探測作業系統層級的外接 USB 磁碟（例如 <code>/run/media/...</code>）。
+                您可以直接點擊下方按鈕手動選取相機記憶卡資料夾；或執行 <code>npm run tauri dev</code> 啟動桌面版以享有自動隨插即讀探測！
+              </div>
+            </div>
+            {#if onPickDirectory}
+              <button type="button" class="archival-btn-primary" onclick={onPickDirectory}>
+                手動開啟相機目錄 (DCIM)
+              </button>
+            {/if}
           </div>
         {:else}
           <div class="empty-device-hint font-mono hairline-all">
@@ -363,6 +396,32 @@
   .mount-count-pill .lbl {
     font-size: 9px;
     color: var(--parchment-dim);
+  }
+
+  .mount-action-box {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .compact-load {
+    padding: 6px 12px;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .web-notice {
+    border-left: 3px solid var(--amber-highlight);
+  }
+
+  .web-notice code {
+    background-color: var(--canvas-base);
+    color: var(--amber-highlight);
+    padding: 1px 4px;
+    border-radius: var(--radius-xs);
+    font-family: inherit;
   }
 
   .empty-device-hint {

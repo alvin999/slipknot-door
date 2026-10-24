@@ -41,7 +41,7 @@ export interface EmbeddedPreviewResult {
 const SUPPORTED_EXTS = ['arw', 'cr2', 'cr3', 'nef', 'raf', 'dng', 'jpg', 'jpeg'];
 
 export class IngestionService {
-  private static isTauri(): boolean {
+  public static isTauri(): boolean {
     return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
   }
 

@@ -153,38 +153,55 @@
     }
   }
 
+  async function loadPhotosFromItems(items: import('$lib/services/ingestionService').RawPhotoItem[]) {
+    if (items.length > 0) {
+      const loaded: PhotoPlate[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const preview = await IngestionService.extractPreview(item.file_path, item.fileHandle);
+        latestExtractionMs = preview.extraction_time_ms || 18;
+
+        loaded.push({
+          id: `photo_${i + 1}`,
+          frameNo: item.frame_no,
+          filename: item.filename,
+          camera: preview.exif.camera_model || `${item.extension.toUpperCase()} 相片`,
+          lens: preview.exif.lens_model || '標準光學鏡頭',
+          iso: preview.exif.iso || 100,
+          shutter: preview.exif.shutter_speed || '--',
+          aperture: preview.exif.aperture || '--',
+          focalLength: preview.exif.focal_length || '--',
+          thumbnail: preview.blob_url || (preview.jpeg_base64 ? `data:image/jpeg;base64,${preview.jpeg_base64}` : ''),
+          sceneTag: '本機相簿幀',
+          selected: i === 0,
+          appliedProfile: 'Profile_01_MatteShadow',
+          fileHandle: item.fileHandle
+        });
+      }
+      photoPlates = loaded;
+      activePhoto = loaded[0];
+      activeTab = 'catalog'; // Switch to catalog grid view upon loading
+    }
+  }
+
   // Open directory and load real photos
   async function handlePickDirectory() {
     isLoadingPhotos = true;
     try {
       const items = await IngestionService.pickWebDirectory();
-      if (items.length > 0) {
-        const loaded: PhotoPlate[] = [];
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          const preview = await IngestionService.extractPreview(item.file_path, item.fileHandle);
-          latestExtractionMs = preview.extraction_time_ms || 18;
+      await loadPhotosFromItems(items);
+    } finally {
+      isLoadingPhotos = false;
+    }
+  }
 
-          loaded.push({
-            id: `photo_${i + 1}`,
-            frameNo: item.frame_no,
-            filename: item.filename,
-            camera: preview.exif.camera_model || `${item.extension.toUpperCase()} 相片`,
-            lens: preview.exif.lens_model || '標準光學鏡頭',
-            iso: preview.exif.iso || 100,
-            shutter: preview.exif.shutter_speed || '--',
-            aperture: preview.exif.aperture || '--',
-            focalLength: preview.exif.focal_length || '--',
-            thumbnail: preview.blob_url || (preview.jpeg_base64 ? `data:image/jpeg;base64,${preview.jpeg_base64}` : ''),
-            sceneTag: '本機相簿幀',
-            selected: i === 0,
-            appliedProfile: 'Profile_01_MatteShadow',
-            fileHandle: item.fileHandle
-          });
-        }
-        photoPlates = loaded;
-        activePhoto = loaded[0];
-      }
+  // Load photos directly from camera mount
+  async function handleLoadCameraMount(mount: CameraMountInfo) {
+    const targetPath = mount.dcim_path || mount.mount_path;
+    isLoadingPhotos = true;
+    try {
+      const items = await IngestionService.scanDirectory(targetPath);
+      await loadPhotosFromItems(items);
     } finally {
       isLoadingPhotos = false;
     }
@@ -271,16 +288,36 @@
     <button 
       type="button"
       class="device-telemetry hairline-all" 
-      onclick={refreshCameraMounts}
-      title="點擊重新偵測相機外接裝置"
+      onclick={() => {
+        if (cameraMounts.length > 0) {
+          handleLoadCameraMount(cameraMounts[0]);
+        } else if (!IngestionService.isTauri()) {
+          handlePickDirectory();
+        } else {
+          refreshCameraMounts();
+        }
+      }}
+      title={cameraMounts.length > 0 ? '點擊一鍵載入相機 DCIM 底片' : !IngestionService.isTauri() ? '瀏覽器環境：點擊手動選取相機資料夾 (或執行桌面版自動偵測)' : '點擊重新偵測相機外接裝置'}
     >
-      <span class="status-dot" class:scanning={isScanningMounts}></span>
+      <span class="status-dot" class:scanning={isScanningMounts} class:connected={cameraMounts.length > 0}></span>
       <span class="device-name font-mono">
-        {cameraMounts.length > 0 ? `${cameraMounts[0].volume_name} // 隨插即讀已連線` : '未偵測到相機掛載'}
+        {#if cameraMounts.length > 0}
+          {cameraMounts[0].volume_name} // 隨插即讀已連線
+        {:else if !IngestionService.isTauri()}
+          瀏覽器模式 // 點擊開啟相機目錄 (RAW/JPG)
+        {:else}
+          未偵測到相機掛載
+        {/if}
       </span>
       <span class="divider">|</span>
       <span class="device-metric font-mono">
-        {cameraMounts.length > 0 ? `${cameraMounts[0].file_count} 幀 RAW` : '等待接線'}
+        {#if cameraMounts.length > 0}
+          載入 {cameraMounts[0].file_count} 幀 RAW ↵
+        {:else if !IngestionService.isTauri()}
+          支援手動載入
+        {:else}
+          等待接線
+        {/if}
       </span>
     </button>
 
@@ -555,6 +592,8 @@
           {geminiKeyStatus}
           onRefreshMounts={refreshCameraMounts}
           onOpenVault={() => isVaultOpen = true}
+          onLoadMount={(m: CameraMountInfo) => handleLoadCameraMount(m)}
+          onPickDirectory={handlePickDirectory}
         />
       {/if}
     </section>
