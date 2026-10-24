@@ -1,46 +1,131 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use crate::models::{CameraMountInfo, RawPhotoItem};
+use crate::ingestion::raw_extractor::RawExtractor;
 
 const RAW_EXTENSIONS: &[&str] = &["arw", "cr2", "cr3", "nef", "raf", "dng", "jpg", "jpeg"];
 
 pub struct StorageDetector;
 
 impl StorageDetector {
-    /// Detect external storage mounts and camera DCIM directories
+    /// Detect external storage mounts and camera DCIM directories using OS mount tables
+    /// Zero hardcoded vendor names, zero hardcoded path assumptions.
     pub fn detect_mounts() -> Vec<CameraMountInfo> {
         let mut results = Vec::new();
-        let mut potential_mount_roots = Vec::new();
+        let mount_points = Self::get_system_mount_points();
+
+        for mount_path in mount_points {
+            if !mount_path.exists() || !mount_path.is_dir() {
+                continue;
+            }
+
+            let raw_dirname = mount_path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| mount_path.to_string_lossy().to_string());
+
+            // Check for standard DCF (Design rule for Camera File system) directory
+            let dcim_candidate = mount_path.join("DCIM");
+            let dcim_lower = mount_path.join("dcim");
+
+            let dcim_path = if dcim_candidate.exists() && dcim_candidate.is_dir() {
+                Some(dcim_candidate)
+            } else if dcim_lower.exists() && dcim_lower.is_dir() {
+                Some(dcim_lower)
+            } else {
+                None
+            };
+
+            let is_camera = dcim_path.is_some();
+            let file_count = if let Some(ref d) = dcim_path {
+                Self::count_raw_files(d)
+            } else {
+                0
+            };
+
+            // Dynamically resolve real camera model from image binary EXIF header
+            let volume_name = if is_camera && file_count > 0 {
+                if let Some(ref d) = dcim_path {
+                    if let Some(first_photo) = Self::find_first_image(d) {
+                        if let Ok(preview) = RawExtractor::extract_preview(&first_photo.to_string_lossy()) {
+                            let model = preview.exif.camera_model.trim();
+                            if !model.is_empty() {
+                                format!("{} ({})", model, raw_dirname)
+                            } else {
+                                raw_dirname
+                            }
+                        } else {
+                            raw_dirname
+                        }
+                    } else {
+                        raw_dirname
+                    }
+                } else {
+                    raw_dirname
+                }
+            } else {
+                raw_dirname
+            };
+
+            // Include only external storage with camera DCIM or active volume
+            if is_camera || file_count > 0 {
+                results.push(CameraMountInfo {
+                    mount_path: mount_path.to_string_lossy().to_string(),
+                    volume_name,
+                    dcim_path: dcim_path.map(|p| p.to_string_lossy().to_string()),
+                    file_count,
+                    is_camera,
+                });
+            }
+        }
+
+        results
+    }
+
+    /// Read dynamic mount points directly from standard OS system tables
+    fn get_system_mount_points() -> Vec<PathBuf> {
+        let mut mount_points = Vec::new();
 
         #[cfg(target_os = "linux")]
         {
-            if let Ok(run_media) = fs::read_dir("/run/media") {
-                for u in run_media.flatten() {
-                    let u_path = u.path();
-                    if u_path.is_dir() {
-                        potential_mount_roots.push(u_path);
+            // Read active kernel mount table from /proc/mounts
+            if let Ok(contents) = fs::read_to_string("/proc/mounts") {
+                for line in contents.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        let dev = parts[0];
+                        let target = parts[1];
+
+                        // Filter for real block devices (e.g., /dev/sd*, /dev/nvme*, /dev/mmcblk*)
+                        if dev.starts_with("/dev/") {
+                            let path = PathBuf::from(target);
+                            // Exclude system core root/boot/home directories
+                            if target != "/"
+                                && !target.starts_with("/boot")
+                                && !target.starts_with("/sys")
+                                && !target.starts_with("/proc")
+                                && !target.starts_with("/dev")
+                            {
+                                if path.exists() && path.is_dir() {
+                                    mount_points.push(path);
+                                }
+                            }
+                        }
                     }
                 }
             }
-            if let Ok(media) = fs::read_dir("/media") {
-                for u in media.flatten() {
-                    let u_path = u.path();
-                    if u_path.is_dir() {
-                        potential_mount_roots.push(u_path);
-                    }
-                }
-            }
-            if let Ok(user) = std::env::var("USER") {
-                potential_mount_roots.push(PathBuf::from(format!("/media/{}", user)));
-                potential_mount_roots.push(PathBuf::from(format!("/run/media/{}", user)));
-            }
-            potential_mount_roots.push(PathBuf::from("/media"));
-            potential_mount_roots.push(PathBuf::from("/mnt"));
         }
 
         #[cfg(target_os = "macos")]
         {
-            potential_mount_roots.push(PathBuf::from("/Volumes"));
+            if let Ok(entries) = fs::read_dir("/Volumes") {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        mount_points.push(p);
+                    }
+                }
+            }
         }
 
         #[cfg(target_os = "windows")]
@@ -49,72 +134,31 @@ impl StorageDetector {
                 let drive_str = format!("{}:\\", drive_letter as char);
                 let path = PathBuf::from(&drive_str);
                 if path.exists() {
-                    potential_mount_roots.push(path);
+                    mount_points.push(path);
                 }
             }
         }
 
-        for root in potential_mount_roots {
-            if !root.exists() || !root.is_dir() {
-                continue;
-            }
+        mount_points
+    }
 
-            if let Ok(entries) = fs::read_dir(&root) {
-                for entry in entries.flatten() {
-                    let mount_path = entry.path();
-                    if mount_path.is_dir() {
-                        let raw_name = entry.file_name().to_string_lossy().to_string();
-                        // Ignore known vendor utility partitions like Sony PMHOME
-                        if raw_name == "PMHOME" {
-                            continue;
-                        }
-
-                        let dcim_candidate = mount_path.join("DCIM");
-                        let dcim_lower = mount_path.join("dcim");
-
-                        let dcim_path = if dcim_candidate.exists() && dcim_candidate.is_dir() {
-                            Some(dcim_candidate)
-                        } else if dcim_lower.exists() && dcim_lower.is_dir() {
-                            Some(dcim_lower)
-                        } else {
-                            None
-                        };
-
-                        let is_camera = dcim_path.is_some();
-                        let file_count = if let Some(ref d) = dcim_path {
-                            Self::count_raw_files(d)
-                        } else {
-                            0
-                        };
-
-                        // Smart vendor detection based on camera filesystem signatures
-                        let vol_name = if mount_path.join("AVF_INFO").exists() 
-                            || mount_path.join("PRIVATE").exists()
-                            || root.join("PMHOME").exists() {
-                            format!("Sony 相機 ({})", raw_name)
-                        } else if mount_path.join("CANONMSC").exists() {
-                            format!("Canon 相機 ({})", raw_name)
-                        } else if mount_path.join("NIKON").exists() {
-                            format!("Nikon 相機 ({})", raw_name)
-                        } else if mount_path.join("FFUSER").exists() {
-                            format!("Fujifilm 相機 ({})", raw_name)
-                        } else {
-                            raw_name
-                        };
-
-                        results.push(CameraMountInfo {
-                            mount_path: mount_path.to_string_lossy().to_string(),
-                            volume_name: vol_name,
-                            dcim_path: dcim_path.map(|p| p.to_string_lossy().to_string()),
-                            file_count,
-                            is_camera,
-                        });
+    /// Find the first image in directory recursively for binary EXIF extraction
+    fn find_first_image(dir: &Path) -> Option<PathBuf> {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(found) = Self::find_first_image(&path) {
+                        return Some(found);
+                    }
+                } else if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                    if RAW_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
+                        return Some(path);
                     }
                 }
             }
         }
-
-        results
+        None
     }
 
     /// Count supported RAW & JPEG images in directory recursively
@@ -171,7 +215,7 @@ impl StorageDetector {
                             file_size,
                             extension: ext_lower,
                             frame_no,
-                            exif: None, // extracted on demand
+                            exif: None,
                         });
                     }
                 }
