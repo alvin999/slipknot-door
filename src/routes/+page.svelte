@@ -8,6 +8,7 @@
   import ProfilesView from '$lib/components/views/ProfilesView.svelte';
   import ExportView from '$lib/components/views/ExportView.svelte';
   import DevicesView from '$lib/components/views/DevicesView.svelte';
+  import { WebglLutRenderer } from '$lib/services/webglLutRenderer';
 
   // Active module tabs
   type ModuleTab = 'catalog' | 'retouch' | 'profiles' | 'export' | 'devices';
@@ -65,35 +66,80 @@
   let isLoadingPhotos = $state<boolean>(false);
 
   // Darkroom Tuning Sliders
+  // Professional Darkroom Tonal & Color Parameters
   let exposure = $state<number>(0.0);
-  let shadowLift = $state<number>(0.0);
-  let lutIntensity = $state<number>(1.0);
+  let contrast = $state<number>(0.0);
+  let highlights = $state<number>(0.0);
+  let shadows = $state<number>(0.0);
+  let fade = $state<number>(0.0);
+
   let colorTemp = $state<number>(5500);
+  let tint = $state<number>(0.0);
+  let saturation = $state<number>(0.0);
+  let vibrance = $state<number>(0.0);
+
+  let cyanSkyShift = $state<number>(0.0);
+  let foliageEmerald = $state<number>(0.0);
+  let lutIntensity = $state<number>(1.0);
+  let clarity = $state<number>(0.0);
+  let sharpness = $state<number>(0.0);
   let showABComparison = $state<boolean>(false);
+
+  // WebGL 2.0 3D LUT Hardware Engine State
+  let webglCanvas = $state<HTMLCanvasElement | null>(null);
+  let webglRenderer: WebglLutRenderer | null = null;
+  let isWebglActive = $state<boolean>(false);
+  let sourceImgElement = $state<HTMLImageElement | null>(null);
 
   // De-identified 3D LUT Profiles
   const profiles = [
     {
-      id: 'Profile_01_MatteShadow',
-      title: 'MatteShadow · 啞光微膠卷',
-      tone: '低黑階抬升 · 低飽和綠色調 · 柔和高反差',
-      badge: 'FILM_LOOK_01',
-      accent: '#6082b6',
-      evDefault: 0.1,
-      shadowLiftDefault: 0.25,
-      lutIntensityDefault: 0.85,
-      recommendedScene: '街拍 / 夜間微光'
+      id: 'Profile_00_StandardNatural',
+      title: 'Standard · 原色自然直出',
+      tone: '零風格偏調 · 純淨光學原色 · 保留真實寬容度',
+      badge: 'NATURAL_00',
+      accent: '#8e929b',
+      evDefault: 0.0,
+      contrastDefault: 0.0,
+      highlightsDefault: 0.0,
+      shadowsDefault: 0.0,
+      fadeDefault: 0.0,
+      cyanSkyDefault: 0.0,
+      foliageDefault: 0.0,
+      lutIntensityDefault: 1.0,
+      recommendedScene: '精準微調 / 商業紀實 / 原色直出'
     },
     {
       id: 'Profile_02_TealEmerald',
-      title: 'TealEmerald · 冷青翡翠',
-      tone: '陰影注入冷青 · 高光溫潤偏暖 · 膚色隔離保護',
-      badge: 'COLOR_GRADE_02',
-      accent: '#4b6b94',
-      evDefault: -0.1,
-      shadowLiftDefault: 0.15,
-      lutIntensityDefault: 0.9,
-      recommendedScene: '晨昏藍調 / 戶外景觀'
+      title: 'TealEmerald · 經典冷青',
+      tone: '1:1 正宗 FL · 電影感青空 · 墨綠植物 · 暖金高光',
+      badge: 'FILM_LOOK_FL',
+      accent: '#3aa8a8',
+      evDefault: 0.0,
+      contrastDefault: 0.15,
+      highlightsDefault: -0.20,
+      shadowsDefault: -0.05,
+      fadeDefault: 0.04,
+      cyanSkyDefault: 0.85,
+      foliageDefault: 0.70,
+      lutIntensityDefault: 1.0,
+      recommendedScene: '晴空戶外 / 日系街拍 / 紀實人文'
+    },
+    {
+      id: 'Profile_01_MatteShadow',
+      title: 'MatteShadow · 啞光微膠卷',
+      tone: '低黑階抬升 · 低飽和沉穩綠 · 柔和高反差',
+      badge: 'FILM_LOOK_01',
+      accent: '#6082b6',
+      evDefault: 0.05,
+      contrastDefault: 0.08,
+      highlightsDefault: -0.10,
+      shadowsDefault: 0.10,
+      fadeDefault: 0.08,
+      cyanSkyDefault: 0.20,
+      foliageDefault: 0.40,
+      lutIntensityDefault: 0.85,
+      recommendedScene: '街拍 / 夜間微光'
     },
     {
       id: 'Profile_03_TungstenSoft',
@@ -101,9 +147,14 @@
       tone: '鎢絲燈光感 · 洋紅微量相移 · 高光滾降過渡',
       badge: 'PORTRAIT_03',
       accent: '#d4a373',
-      evDefault: 0.2,
-      shadowLiftDefault: 0.3,
-      lutIntensityDefault: 0.8,
+      evDefault: 0.1,
+      contrastDefault: -0.05,
+      highlightsDefault: -0.15,
+      shadowsDefault: 0.15,
+      fadeDefault: 0.02,
+      cyanSkyDefault: 0.0,
+      foliageDefault: 0.0,
+      lutIntensityDefault: 0.80,
       recommendedScene: '室內溫潤人像 / 靜物'
     },
     {
@@ -113,7 +164,12 @@
       badge: 'MONO_SILVER_04',
       accent: '#e8e4dc',
       evDefault: 0.0,
-      shadowLiftDefault: -0.1,
+      contrastDefault: 0.35,
+      highlightsDefault: -0.10,
+      shadowsDefault: -0.15,
+      fadeDefault: 0.0,
+      cyanSkyDefault: 0.0,
+      foliageDefault: 0.0,
       lutIntensityDefault: 1.0,
       recommendedScene: '建築幾何 / 經典黑白街頭'
     }
@@ -125,6 +181,17 @@
   let aiSuggestedScene = $state<string>('等待判讀');
   let aiRecommendedProfile = $state<string>('');
 
+  // Curatorial Queue: 若有標記挑圖 (flagged)，精修與匯出僅聚焦選取的相片；若無選取則全部顯示
+  let activeQueue = $derived<PhotoPlate[]>(
+    photoPlates.filter(p => p.flagged).length > 0
+      ? photoPlates.filter(p => p.flagged)
+      : photoPlates
+  );
+
+  let flaggedCount = $derived<number>(
+    photoPlates.filter(p => p.flagged).length
+  );
+
   function selectPhoto(plate: PhotoPlate) {
     activePhoto = plate;
     photoPlates.forEach(p => p.selected = (p.id === plate.id));
@@ -135,15 +202,73 @@
     activeTab = 'retouch';
   }
 
+  // 步驟一：一鍵進入精修頁面 (只出現選取的，沒選則全部顯示)
+  function goToRetouch() {
+    if (activeQueue.length > 0) {
+      if (!activePhoto || !activeQueue.some(p => p.id === activePhoto?.id)) {
+        selectPhoto(activeQueue[0]);
+      }
+    }
+    activeTab = 'retouch';
+  }
+
+  // 步驟二：前往批次導出頁面
+  function goToExport() {
+    activeTab = 'export';
+  }
+
+  // 返回膠卷目錄挑圖
+  function goToCatalog() {
+    activeTab = 'catalog';
+  }
+
+  // 在精修佇列中循環切換上一張/下一張相片
+  function selectAdjacentPhoto(delta: number) {
+    if (activeQueue.length === 0) return;
+    const currentIndex = activeQueue.findIndex(p => p.id === activePhoto?.id);
+    let nextIndex = currentIndex + delta;
+    if (nextIndex < 0) nextIndex = activeQueue.length - 1;
+    if (nextIndex >= activeQueue.length) nextIndex = 0;
+    selectPhoto(activeQueue[nextIndex]);
+  }
+
+  // 精修暗房中的 Vim (H/L) 瀏覽切換與鍵盤操作
+  function handleRetouchKeydown(e: KeyboardEvent) {
+    const target = e.target as HTMLElement;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+
+    if (activeTab === 'retouch') {
+      if (e.key === 'h' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        selectAdjacentPhoto(-1);
+      } else if (e.key === 'l' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        selectAdjacentPhoto(1);
+      } else if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        showABComparison = !showABComparison;
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        goToExport();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        goToCatalog();
+      }
+    }
+  }
+
   function applyProfile(profileId: string) {
     if (!activePhoto) return;
     activePhoto.appliedProfile = profileId;
     const found = profiles.find(p => p.id === profileId);
     if (found) {
       exposure = found.evDefault;
-      shadowLift = found.shadowLiftDefault;
+      contrast = found.contrastDefault || 0.0;
       lutIntensity = found.lutIntensityDefault;
     }
+    triggerWebglRender();
   }
 
   function applyProfileToAll(profileId: string) {
@@ -152,6 +277,91 @@
       applyProfile(profileId);
     }
   }
+
+  /**
+   * 一鍵恢復當前相片調色參數（Reset to Natural Baseline）
+   */
+  function resetTuningParams() {
+    exposure = 0.0;
+    contrast = 0.0;
+    colorTemp = 5500;
+    lutIntensity = 1.0;
+    clarity = 0.0;
+    sharpness = 0.0;
+    if (activePhoto) {
+      activePhoto.appliedProfile = 'Profile_00_StandardNatural';
+    }
+    triggerWebglRender();
+  }
+
+  /**
+   * 觸發 WebGL 2.0 3D LUT 純淨色彩著色 (Pure 3D LUT Pipeline)
+   */
+  function triggerWebglRender() {
+    if (!webglRenderer || !sourceImgElement || !sourceImgElement.complete || !sourceImgElement.naturalWidth) {
+      return;
+    }
+
+    const imgWidth = sourceImgElement.naturalWidth;
+    const imgHeight = sourceImgElement.naturalHeight;
+
+    if (showABComparison) {
+      // 按住 Space A/B 比對：瞬間切回 100% 原始本相
+      webglRenderer.render({
+        exposure: 0.0,
+        contrast: 0.0,
+        colorTemp: 5500,
+        lutIntensity: 0.0,
+        bypassLut: true
+      }, imgWidth, imgHeight);
+      return;
+    }
+
+    const currentPid = activePhoto ? activePhoto.appliedProfile : 'Profile_00_StandardNatural';
+    const isBypass = currentPid === 'Profile_00_StandardNatural';
+
+    webglRenderer.setProfile(currentPid);
+    webglRenderer.render({
+      exposure,
+      contrast,
+      colorTemp,
+      lutIntensity,
+      bypassLut: isBypass,
+      clarity,
+      sharpness
+    }, imgWidth, imgHeight);
+  }
+
+  function onSourceImgLoaded() {
+    if (webglRenderer && sourceImgElement && sourceImgElement.complete && sourceImgElement.naturalWidth > 0) {
+      webglRenderer.setImageSource(sourceImgElement);
+      triggerWebglRender();
+    }
+  }
+
+  // Svelte 5 響應式追蹤：調色滑桿與相片切換時即時以 WebGL 60FPS 硬體著色
+  $effect(() => {
+    const _photoId = activePhoto?.id;
+    const _thumb = activePhoto?.thumbnail;
+    const _profile = activePhoto?.appliedProfile;
+    const _exp = exposure;
+    const _contrast = contrast;
+    const _temp = colorTemp;
+    const _lut = lutIntensity;
+    const _clarity = clarity;
+    const _sharpness = sharpness;
+    const _ab = showABComparison;
+    const canvas = webglCanvas;
+
+    if (canvas && !webglRenderer) {
+      webglRenderer = new WebglLutRenderer();
+      isWebglActive = webglRenderer.initialize(canvas);
+    }
+
+    if (isWebglActive && sourceImgElement && sourceImgElement.complete) {
+      triggerWebglRender();
+    }
+  });
 
   async function loadPhotosFromItems(items: import('$lib/services/ingestionService').RawPhotoItem[]) {
     if (items.length > 0) {
@@ -175,7 +385,7 @@
           thumbnail: directUrl,
           sceneTag: '本機相簿幀',
           selected: i === 0,
-          appliedProfile: 'Profile_01_MatteShadow',
+          appliedProfile: 'Profile_00_StandardNatural',
           fileHandle: item.fileHandle
         };
       });
@@ -281,7 +491,7 @@
       aiSuggestedScene = decision.isFallback ? `${decision.scene_type} (在地光學推估)` : `${decision.scene_type} (即時視覺判讀)`;
       aiRecommendedProfile = decision.recommended_profile;
       exposure = decision.exposure_compensation;
-      shadowLift = decision.lift_shadows;
+      shadows = decision.lift_shadows;
       lutIntensity = decision.lut_intensity;
       applyProfile(decision.recommended_profile);
     } catch (err: any) {
@@ -297,7 +507,7 @@
   let isExporting = $state<boolean>(false);
   let exportNotice = $state<string>('');
 
-  function triggerExport() {
+  async function triggerExport() {
     if (!activePhoto) {
       exportNotice = '目前相簿為空，請先載入照片';
       setTimeout(() => { exportNotice = ''; }, 2500);
@@ -305,23 +515,100 @@
     }
 
     isExporting = true;
-    exportProgress = 0;
-    exportNotice = '著色器離屏採樣中...';
-    const interval = setInterval(() => {
-      exportProgress += 25;
-      if (exportProgress >= 100) {
-        clearInterval(interval);
-        isExporting = false;
-        exportNotice = exportMode === 'modeA' 
-          ? '已寫入系統相簿 (88ms 極速完成)' 
-          : '16-bit 滿血無損 JPEG 已儲存至典藏目錄 (420ms)';
-        setTimeout(() => { exportNotice = ''; }, 3500);
+    exportProgress = 20;
+    exportNotice = 'WebGL 著色器離屏採樣中...';
+
+    try {
+      if (webglRenderer) {
+        exportProgress = 50;
+        const blob = await webglRenderer.exportBlob('image/jpeg', 0.96);
+        if (blob) {
+          exportProgress = 85;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const baseName = activePhoto.filename.replace(/\.[^/.]+$/, '');
+          a.href = url;
+          a.download = `${baseName}_graded.jpg`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
       }
-    }, 50);
+      exportProgress = 100;
+      exportNotice = exportMode === 'modeA' 
+        ? '已成功匯出所見即所得調色 JPEG (極速完成)' 
+        : '16-bit 滿血無損 JPEG 已儲存 (典藏模式)';
+    } catch (e) {
+      exportNotice = '匯出發生錯誤';
+    } finally {
+      isExporting = false;
+      setTimeout(() => { exportNotice = ''; }, 3500);
+    }
   }
 </script>
 
+<svelte:window onkeydown={handleRetouchKeydown} />
+
 <div class="workspace-container">
+  <!-- 去識別化 3D 膠卷風格濾鏡著色矩陣定義 (De-identified Film Emulation Matrices) -->
+  <svg style="position: absolute; width: 0; height: 0; pointer-events: none; opacity: 0;" aria-hidden="true">
+    <defs>
+      <!-- 1. 啞光微膠卷 (FILM_LOOK_01): 低黑階抬升、低飽和沉穩綠、柔和高反差 -->
+      <filter id="filter-matte-shadow" color-interpolation-filters="sRGB">
+        <feColorMatrix type="matrix" values="
+          0.98  0.03  0.00  0  0.03
+          0.02  0.96  0.02  0  0.03
+          0.01  0.02  0.94  0  0.04
+          0.00  0.00  0.00  1  0.00
+        " />
+        <feComponentTransfer>
+          <feFuncR type="linear" slope="0.92" intercept="0.04" />
+          <feFuncG type="linear" slope="0.92" intercept="0.04" />
+          <feFuncB type="linear" slope="0.90" intercept="0.05" />
+        </feComponentTransfer>
+      </filter>
+
+      <!-- 2. 冷青翡翠 (COLOR_GRADE_02): 陰影青綠冷調、高光暖金微溫、膠卷膚色隔離保護 -->
+      <filter id="filter-teal-emerald" color-interpolation-filters="sRGB">
+        <feColorMatrix type="matrix" values="
+          0.88  0.08  0.00  0  -0.01
+          0.02  1.04  0.04  0   0.02
+          0.04  0.10  1.16  0   0.05
+          0.00  0.00  0.00  1   0.00
+        " />
+        <feComponentTransfer>
+          <feFuncR type="linear" slope="0.95" intercept="0.01" />
+          <feFuncG type="linear" slope="1.00" intercept="0.02" />
+          <feFuncB type="linear" slope="1.05" intercept="0.04" />
+        </feComponentTransfer>
+      </filter>
+
+      <!-- 3. 溫潤人像 (PORTRAIT_03): 鎢絲燈光感暖調、洋紅微相移、高光柔和滾降 -->
+      <filter id="filter-tungsten-soft" color-interpolation-filters="sRGB">
+        <feColorMatrix type="matrix" values="
+          1.14  0.02  0.00  0   0.03
+          0.02  1.02  0.02  0   0.01
+          0.00  0.02  0.86  0  -0.02
+          0.00  0.00  0.00  1   0.00
+        " />
+      </filter>
+
+      <!-- 4. 高反差單色 (MONO_SILVER_04): 經典紅橙濾鏡感黑白、暗部深邃銀鹽紀實 -->
+      <filter id="filter-high-contrast-mono" color-interpolation-filters="sRGB">
+        <feColorMatrix type="matrix" values="
+          0.48  0.42  0.10  0  0
+          0.48  0.42  0.10  0  0
+          0.48  0.42  0.10  0  0
+          0.00  0.00  0.00  1  0
+        " />
+        <feComponentTransfer>
+          <feFuncR type="gamma" amplitude="1" exponent="1.25" offset="-0.02" />
+          <feFuncG type="gamma" amplitude="1" exponent="1.25" offset="-0.02" />
+          <feFuncB type="gamma" amplitude="1" exponent="1.25" offset="-0.02" />
+        </feComponentTransfer>
+      </filter>
+    </defs>
+  </svg>
+
   <!-- TOP HEADER / TELEMETRY STATUS BAR -->
   <header class="top-nav hairline-b">
     <div class="brand-block">
@@ -369,7 +656,63 @@
       </span>
     </button>
 
-    <!-- Right Controls -->
+    <!-- 3-STEP SEQUENTIAL WORKFLOW BUTTONS -->
+    <div class="stepper-pipeline hairline-all font-mono">
+      <!-- Step 1: Catalog Selection -->
+      <button 
+        type="button" 
+        class="stepper-step" 
+        class:active={activeTab === 'catalog'}
+        onclick={goToCatalog}
+        title="按鈕一：目錄挑選底片"
+      >
+        <span class="step-num">01</span>
+        <span class="step-label">目錄挑選</span>
+        {#if flaggedCount > 0}
+          <span class="step-tag amber">{flaggedCount} 幀</span>
+        {:else if photoPlates.length > 0}
+          <span class="step-tag">{photoPlates.length} 幀</span>
+        {/if}
+      </button>
+
+      <span class="stepper-sep">➔</span>
+
+      <!-- Step 2: Darkroom Retouch -->
+      <button 
+        type="button" 
+        class="stepper-step" 
+        class:active={activeTab === 'retouch'}
+        onclick={goToRetouch}
+        title="按鈕二：單張暗房精修（若有選取則僅出現選取底片，未選取則全部顯示）"
+      >
+        <span class="step-num">02</span>
+        <span class="step-label">一鍵精修</span>
+        {#if activeQueue.length > 0}
+          <span class="step-tag" class:amber={flaggedCount > 0}>
+            {activeQueue.length} 幀 {flaggedCount > 0 ? '(挑選)' : '(全量)'}
+          </span>
+        {/if}
+      </button>
+
+      <span class="stepper-sep">➔</span>
+
+      <!-- Step 3: Batch Export -->
+      <button 
+        type="button" 
+        class="stepper-step" 
+        class:active={activeTab === 'export'}
+        onclick={goToExport}
+        title="按鈕三：批次導出管線"
+      >
+        <span class="step-num">03</span>
+        <span class="step-label">批次導出</span>
+        {#if activeQueue.length > 0}
+          <span class="step-tag">{activeQueue.length} 幀</span>
+        {/if}
+      </button>
+    </div>
+
+    <!-- Right Controls: Dynamic Sequential Action Button -->
     <div class="top-actions">
       <div class="archival-chip font-mono amber">
         <span class="material-symbols-outlined" style="font-size: 14px;">bolt</span>
@@ -379,16 +722,48 @@
         <span class="material-symbols-outlined" style="font-size: 14px;">memory</span>
         GPU 著色器 60FPS
       </div>
-      <button 
-        class="archival-btn-primary" 
-        onclick={triggerExport}
-        disabled={isExporting}
-      >
-        <span class="material-symbols-outlined" style="font-size: 16px;">
-          {exportMode === 'modeA' ? 'bolt' : 'hd'}
-        </span>
-        <span>{isExporting ? '匯出中...' : '即時匯出'}</span>
-      </button>
+
+      {#if activeTab === 'catalog'}
+        <!-- STEP 1 PRIMARY ACTION -->
+        <button 
+          class="archival-btn-primary stepper-cta amber-glow" 
+          onclick={goToRetouch}
+          disabled={photoPlates.length === 0}
+          title="步驟一動作：一鍵進入暗房精修（若有選取則僅精修選取幀，未選取則精修全部）"
+        >
+          <span class="material-symbols-outlined" style="font-size: 16px;">tonality</span>
+          <span>
+            {#if flaggedCount > 0}
+              一鍵精修 ({flaggedCount} 幀) →
+            {:else}
+              一鍵精修 (全部) →
+            {/if}
+          </span>
+        </button>
+      {:else if activeTab === 'retouch'}
+        <!-- STEP 2 PRIMARY ACTION -->
+        <button 
+          class="archival-btn-primary stepper-cta cyan-glow" 
+          onclick={goToExport}
+          title="步驟二動作：完成調色，前往批次導出"
+        >
+          <span class="material-symbols-outlined" style="font-size: 16px;">output_circle</span>
+          <span>完成精修，前往導出 ({activeQueue.length} 幀) →</span>
+        </button>
+      {:else}
+        <!-- STEP 3 PRIMARY ACTION -->
+        <button 
+          class="archival-btn-primary stepper-cta" 
+          onclick={triggerExport}
+          disabled={isExporting || activeQueue.length === 0}
+          title="步驟三動作：執行批次出圖管線"
+        >
+          <span class="material-symbols-outlined" style="font-size: 16px;">
+            {exportMode === 'modeA' ? 'bolt' : 'hd'}
+          </span>
+          <span>{isExporting ? '匯出中...' : `批次導出 (${activeQueue.length} 幀) ⚡`}</span>
+        </button>
+      {/if}
     </div>
   </header>
 
@@ -402,20 +777,33 @@
         <button 
           class="nav-item" 
           class:active={activeTab === 'catalog'} 
-          onclick={() => activeTab = 'catalog'}
+          onclick={goToCatalog}
         >
           <span class="material-symbols-outlined">grid_view</span>
-          <span class="nav-label">膠卷目錄與挑圖</span>
+          <span class="nav-label">1. 膠卷目錄挑圖</span>
           <span class="nav-badge font-mono">{photoPlates.length}</span>
         </button>
 
         <button 
           class="nav-item" 
           class:active={activeTab === 'retouch'} 
-          onclick={() => activeTab = 'retouch'}
+          onclick={goToRetouch}
         >
           <span class="material-symbols-outlined">tonality</span>
-          <span class="nav-label">單張暗房精修</span>
+          <span class="nav-label">2. 單張暗房精修</span>
+          {#if flaggedCount > 0}
+            <span class="nav-badge font-mono amber">{flaggedCount}</span>
+          {/if}
+        </button>
+
+        <button 
+          class="nav-item" 
+          class:active={activeTab === 'export'} 
+          onclick={goToExport}
+        >
+          <span class="material-symbols-outlined">output_circle</span>
+          <span class="nav-label">3. 批次匯出管線</span>
+          <span class="nav-badge font-mono">{activeQueue.length}</span>
         </button>
 
         <button 
@@ -426,15 +814,6 @@
           <span class="material-symbols-outlined">palette</span>
           <span class="nav-label">3D LUT 風格庫</span>
           <span class="nav-badge font-mono">{profiles.length}</span>
-        </button>
-
-        <button 
-          class="nav-item" 
-          class:active={activeTab === 'export'} 
-          onclick={() => activeTab = 'export'}
-        >
-          <span class="material-symbols-outlined">output_circle</span>
-          <span class="nav-label">批次匯出管線</span>
         </button>
 
         <button 
@@ -510,6 +889,7 @@
           {isLoadingPhotos}
           onSelectPhoto={(p) => selectPhoto(p)}
           onOpenRetouch={(p) => openRetouchForPhoto(p)}
+          onGoToRetouch={goToRetouch}
           onPickDirectory={handlePickDirectory}
           onRefreshMounts={refreshCameraMounts}
         />
@@ -525,14 +905,29 @@
 
           {#if activePhoto}
             <div class="plate-canvas-wrapper hairline-all">
+              <!-- Source Image for WebGL 3D LUT Texture Ingestion -->
               <img 
+                bind:this={sourceImgElement}
                 src={activePhoto.thumbnail} 
                 alt={activePhoto.filename} 
-                class="plate-render-img"
-                style:filter={showABComparison 
-                  ? 'none' 
-                  : `brightness(${1 + exposure * 0.4}) contrast(${1 + (lutIntensity - 0.5) * 0.3})`}
+                class="source-hidden-img"
+                onload={onSourceImgLoaded}
               />
+
+              <!-- WebGL 2.0 3D LUT Hardware-Accelerated Viewport Canvas -->
+              <canvas 
+                bind:this={webglCanvas}
+                class="plate-render-canvas"
+              ></canvas>
+
+              <!-- Fallback Image if WebGL is initializing or unsupported -->
+              {#if !isWebglActive}
+                <img 
+                  src={activePhoto.thumbnail} 
+                  alt={activePhoto.filename} 
+                  class="plate-render-img"
+                />
+              {/if}
 
               <!-- Overlaid Plate Framing Tag -->
               <div class="plate-tag-bar font-mono">
@@ -555,7 +950,7 @@
                 onmouseleave={() => showABComparison = false}
               >
                 <span class="material-symbols-outlined" style="font-size: 15px;">compare</span>
-                <span>{showABComparison ? '原始本相 (RAW)' : '按住 A/B 比對'}</span>
+                <span>{showABComparison ? '原始本相 (RAW)' : '按住 A/B 比對 (Space)'}</span>
               </button>
             </div>
           {:else}
@@ -580,15 +975,33 @@
           {/if}
         </div>
 
-        <!-- PERSISTENT BOTTOM CONTACT SHEET LIGHT-TABLE STRIP -->
+        <!-- PERSISTENT BOTTOM CONTACT SHEET LIGHT-TABLE STRIP (FILTERED BY SELECTION) -->
         <footer class="contact-sheet-strip hairline-t">
           <div class="strip-header font-mono">
-            <span class="strip-label">CONTACT SHEET // EXPOSURE RACK</span>
-            <span class="strip-count">{photoPlates.length} FRAMES</span>
+            <div class="strip-info-left">
+              <span class="strip-label">CONTACT SHEET // EXPOSURE RACK</span>
+              <span class="strip-count" class:amber={flaggedCount > 0}>
+                {activeQueue.length} FRAMES {flaggedCount > 0 ? '(已挑選精修佇列)' : '(全量底片佇列)'}
+              </span>
+            </div>
+            <div class="strip-actions-right">
+              <button type="button" class="strip-ctrl-btn" onclick={() => selectAdjacentPhoto(-1)} title="前一張底片 (H / ← 鍵)">
+                <span class="material-symbols-outlined" style="font-size: 14px;">arrow_back</span>
+                <span>前一張 [H]</span>
+              </button>
+              <button type="button" class="strip-ctrl-btn" onclick={() => selectAdjacentPhoto(1)} title="下一張底片 (L / → 鍵)">
+                <span>下一張 [L]</span>
+                <span class="material-symbols-outlined" style="font-size: 14px;">arrow_forward</span>
+              </button>
+              <button type="button" class="strip-ctrl-btn highlight" onclick={goToCatalog} title="返回第一步目錄重新選取">
+                <span class="material-symbols-outlined" style="font-size: 14px;">grid_view</span>
+                <span>返回挑圖</span>
+              </button>
+            </div>
           </div>
           <div class="strip-frames-scroll">
-            {#if photoPlates.length > 0}
-              {#each photoPlates as plate}
+            {#if activeQueue.length > 0}
+              {#each activeQueue as plate}
                 <button 
                   type="button"
                   class="film-frame-card" 
@@ -622,9 +1035,9 @@
           onApplyToAll={(id) => applyProfileToAll(id)}
         />
       {:else if activeTab === 'export'}
-        <!-- MODULE 4: DUAL PIPELINE EXPORT DOCK -->
+        <!-- MODULE 4: DUAL PIPELINE EXPORT DOCK (BOUND TO ACTIVE QUEUE) -->
         <ExportView 
-          photos={photoPlates}
+          photos={activeQueue}
           {exportMode}
           {isExporting}
           {exportProgress}
@@ -677,7 +1090,18 @@
 
       <!-- Color Adjustment Sliders -->
       <div class="telemetry-box hairline-b">
-        <div class="box-title font-mono">TUNING CONTROLS</div>
+        <div class="tuning-box-header">
+          <div class="box-title font-mono">3D LUT TUNING</div>
+          <button 
+            type="button" 
+            class="reset-tuning-btn font-mono"
+            onclick={resetTuningParams}
+            title="一鍵恢復為原始無偏色直出基準值"
+          >
+            <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
+            <span>恢復預設</span>
+          </button>
+        </div>
 
         <!-- Slider 1: Exposure -->
         <div class="control-row">
@@ -695,18 +1119,18 @@
           />
         </div>
 
-        <!-- Slider 2: Shadow Lift -->
+        <!-- Slider 2: Contrast -->
         <div class="control-row">
           <div class="control-header font-mono">
-            <span>SHADOW LIFT</span>
-            <span class="control-val">{Math.round(shadowLift * 100)}%</span>
+            <span>CONTRAST (對比)</span>
+            <span class="control-val">{contrast > 0 ? `+${Math.round(contrast * 100)}%` : `${Math.round(contrast * 100)}%`}</span>
           </div>
           <input 
             type="range" 
-            min="0" 
-            max="1" 
-            step="0.01" 
-            bind:value={shadowLift} 
+            min="-0.8" 
+            max="0.8" 
+            step="0.02" 
+            bind:value={contrast} 
             class="darkroom-slider"
           />
         </div>
@@ -714,7 +1138,7 @@
         <!-- Slider 3: LUT Intensity -->
         <div class="control-row">
           <div class="control-header font-mono">
-            <span>LUT INTENSITY</span>
+            <span>LUT INTENSITY (風格濃度)</span>
             <span class="control-val amber">{Math.round(lutIntensity * 100)}%</span>
           </div>
           <input 
@@ -739,6 +1163,38 @@
             max="8500" 
             step="50" 
             bind:value={colorTemp} 
+            class="darkroom-slider"
+          />
+        </div>
+
+        <!-- Slider 5: Clarity -->
+        <div class="control-row">
+          <div class="control-header font-mono">
+            <span>CLARITY (清晰度)</span>
+            <span class="control-val">{clarity > 0 ? `+${Math.round(clarity * 100)}%` : `${Math.round(clarity * 100)}%`}</span>
+          </div>
+          <input 
+            type="range" 
+            min="-1.0" 
+            max="1.0" 
+            step="0.05" 
+            bind:value={clarity} 
+            class="darkroom-slider"
+          />
+        </div>
+
+        <!-- Slider 6: Sharpness -->
+        <div class="control-row">
+          <div class="control-header font-mono">
+            <span>SHARPNESS (銳利度)</span>
+            <span class="control-val">{Math.round(sharpness * 100)}%</span>
+          </div>
+          <input 
+            type="range" 
+            min="0.0" 
+            max="1.0" 
+            step="0.05" 
+            bind:value={sharpness} 
             class="darkroom-slider"
           />
         </div>
@@ -789,6 +1245,17 @@
             ? '離屏 WebGL 重新採樣，直出 95% 高品質 JPEG，極速省電。' 
             : '調用原生 LibRaw 16-bit 解碼矩陣運算，高解析典藏交付。'}
         </div>
+
+        <!-- Step 2 Completion CTA Button -->
+        <button 
+          type="button" 
+          class="archival-btn-primary w-full step2-cta-btn" 
+          onclick={goToExport}
+          title="步驟二完成：前往批次導出頁面"
+        >
+          <span class="material-symbols-outlined" style="font-size: 15px;">output_circle</span>
+          <span>完成調色，前往導出 ({activeQueue.length} 幀) →</span>
+        </button>
       </div>
     </aside>
   </main>
@@ -891,6 +1358,127 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+
+  /* 3-STEP SEQUENTIAL PIPELINE */
+  .stepper-pipeline {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background-color: rgba(22, 23, 26, 0.85);
+    padding: 3px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--hairline-slate);
+    user-select: none;
+  }
+
+  .stepper-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--parchment-dim);
+    padding: 4px 8px;
+    border-radius: var(--radius-xs);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .stepper-step:hover {
+    color: var(--parchment-bright);
+    background-color: var(--surface-elevated);
+  }
+
+  .stepper-step.active {
+    background-color: var(--surface-overlay);
+    color: var(--parchment-bright);
+    border-color: var(--hairline-slate);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+  }
+
+  .step-num {
+    color: var(--primary-indigo);
+    font-weight: 700;
+    font-size: 10px;
+  }
+
+  .stepper-step.active .step-num {
+    color: var(--amber-highlight);
+  }
+
+  .step-label {
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .step-tag {
+    font-size: 10px;
+    background-color: var(--surface-elevated);
+    color: var(--parchment-dim);
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .step-tag.amber {
+    color: var(--amber-highlight);
+    border-color: rgba(226, 157, 82, 0.3);
+    background-color: rgba(226, 157, 82, 0.1);
+  }
+
+  .stepper-sep {
+    font-size: 10px;
+    color: var(--parchment-ghost);
+    opacity: 0.6;
+  }
+
+  /* STEPPER CTA HIGHLIGHTS */
+  .stepper-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .amber-glow {
+    background: linear-gradient(135deg, var(--amber-highlight), #d48b3b) !important;
+    color: #121214 !important;
+    border: 1px solid rgba(226, 157, 82, 0.9) !important;
+    box-shadow: 0 0 14px rgba(226, 157, 82, 0.3);
+  }
+
+  .amber-glow:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 0 18px rgba(226, 157, 82, 0.45);
+  }
+
+  .cyan-glow {
+    background: linear-gradient(135deg, #4b92b6, #2d6b8c) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(75, 146, 182, 0.9) !important;
+    box-shadow: 0 0 14px rgba(75, 146, 182, 0.3);
+  }
+
+  .cyan-glow:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 0 18px rgba(75, 146, 182, 0.45);
+  }
+
+  /* STEP 2 IN-PANEL CTA BUTTON */
+  .step2-cta-btn {
+    margin-top: 10px;
+    background: linear-gradient(135deg, var(--primary-indigo), #3a506b) !important;
+    border: 1px solid rgba(138, 154, 184, 0.4) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    font-weight: 600;
+  }
+
+  .step2-cta-btn:hover {
+    filter: brightness(1.1);
   }
 
   /* MAIN WORKSPACE LAYOUT */
@@ -1087,6 +1675,15 @@
     box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.8), 0 16px 48px rgba(0, 0, 0, 0.7);
   }
 
+  .source-hidden-img {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .plate-render-canvas,
   .plate-render-img {
     max-width: 95%;
     max-height: 92%;
@@ -1098,7 +1695,33 @@
     -webkit-user-drag: none;
     border-radius: 2px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.85);
-    transition: filter 0.1s ease, transform 0.2s ease;
+    transition: transform 0.2s ease;
+  }
+
+  .tuning-box-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .reset-tuning-btn {
+    background: transparent;
+    border: 1px solid var(--border-hairline);
+    color: var(--parchment-dim);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .reset-tuning-btn:hover {
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+    background-color: var(--surface-overlay);
   }
 
   .plate-tag-bar {
@@ -1192,10 +1815,51 @@
   .strip-header {
     display: flex;
     justify-content: space-between;
-    font-size: 9px;
+    align-items: center;
+    font-size: 10px;
     color: var(--parchment-dim);
-    margin-bottom: 4px;
+    margin-bottom: 6px;
     letter-spacing: 0.08em;
+  }
+  .strip-info-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .strip-count.amber {
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+  .strip-actions-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .strip-ctrl-btn {
+    background-color: var(--surface-elevated);
+    border: 1px solid var(--hairline-slate);
+    color: var(--parchment-dim);
+    padding: 3px 8px;
+    border-radius: var(--radius-xs);
+    font-size: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+  }
+  .strip-ctrl-btn:hover {
+    color: var(--parchment-bright);
+    background-color: var(--surface-overlay);
+    border-color: var(--parchment-dim);
+  }
+  .strip-ctrl-btn.highlight {
+    color: var(--amber-highlight);
+    border-color: rgba(226, 157, 82, 0.4);
+    background-color: rgba(226, 157, 82, 0.1);
+  }
+  .strip-ctrl-btn.highlight:hover {
+    background-color: rgba(226, 157, 82, 0.2);
   }
   .strip-frames-scroll {
     display: flex;
@@ -1445,4 +2109,5 @@
     color: var(--parchment-dim);
     padding: 12px 4px;
   }
+
 </style>

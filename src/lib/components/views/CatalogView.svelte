@@ -22,6 +22,7 @@
     isLoadingPhotos: boolean;
     onSelectPhoto: (p: CatalogPhotoItem) => void;
     onOpenRetouch: (p: CatalogPhotoItem) => void;
+    onGoToRetouch?: () => void;
     onPickDirectory: () => void;
     onRefreshMounts: () => void;
   }
@@ -32,6 +33,7 @@
     isLoadingPhotos = false,
     onSelectPhoto,
     onOpenRetouch,
+    onGoToRetouch,
     onPickDirectory,
     onRefreshMounts
   }: Props = $props();
@@ -49,8 +51,13 @@
     photos.filter(p => p.flagged).length
   );
 
-  function toggleFlag(photo: CatalogPhotoItem, event: MouseEvent) {
-    event.stopPropagation();
+  // Columns calculation for HJKL grid navigation
+  let columns = $derived(
+    gridDensity === 'small' ? 6 : gridDensity === 'medium' ? 4 : 3
+  );
+
+  function toggleFlag(photo: CatalogPhotoItem, event?: MouseEvent) {
+    if (event) event.stopPropagation();
     photo.flagged = !photo.flagged;
   }
 
@@ -61,7 +68,79 @@
   function clearAllFlags() {
     photos.forEach(p => p.flagged = false);
   }
+
+  function scrollToPhoto(photoId: string) {
+    const el = document.getElementById(`film-card-${photoId}`);
+    if (el) {
+      // Why: 使用 'auto' 達成零延遲即時滾動，避免長按 J/K 鍵時因 smooth 動畫覆蓋導致卡頓延遲
+      el.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+    }
+  }
+
+  // Vim Style (HJKL) Keyboard Navigation & Spacebar Selection
+  function handleKeyNavigation(e: KeyboardEvent) {
+    const target = e.target as HTMLElement;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+
+    if (displayedPhotos.length === 0) return;
+
+    const currentIndex = displayedPhotos.findIndex(p => p.id === activePhoto?.id);
+
+    // Space: Toggle selection / flag
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      const current = currentIndex >= 0 ? displayedPhotos[currentIndex] : displayedPhotos[0];
+      if (current) {
+        toggleFlag(current);
+      }
+    } 
+    // H / Left Arrow: Previous photo
+    else if (e.key === 'h' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const nextIndex = currentIndex > 0 ? currentIndex - 1 : displayedPhotos.length - 1;
+      const targetPhoto = displayedPhotos[nextIndex];
+      onSelectPhoto(targetPhoto);
+      scrollToPhoto(targetPhoto.id);
+    } 
+    // L / Right Arrow: Next photo
+    else if (e.key === 'l' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const nextIndex = currentIndex < displayedPhotos.length - 1 ? currentIndex + 1 : 0;
+      const targetPhoto = displayedPhotos[nextIndex];
+      onSelectPhoto(targetPhoto);
+      scrollToPhoto(targetPhoto.id);
+    } 
+    // K / Up Arrow: Up one row
+    else if (e.key === 'k' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const nextIndex = Math.max(0, (currentIndex >= 0 ? currentIndex : 0) - columns);
+      const targetPhoto = displayedPhotos[nextIndex];
+      onSelectPhoto(targetPhoto);
+      scrollToPhoto(targetPhoto.id);
+    } 
+    // J / Down Arrow: Down one row
+    else if (e.key === 'j' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextIndex = Math.min(displayedPhotos.length - 1, (currentIndex >= 0 ? currentIndex : 0) + columns);
+      const targetPhoto = displayedPhotos[nextIndex];
+      onSelectPhoto(targetPhoto);
+      scrollToPhoto(targetPhoto.id);
+    } 
+    // Enter: Trigger Step 1 action (One-click enter retouch)
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (onGoToRetouch) {
+        onGoToRetouch();
+      } else if (activePhoto) {
+        onOpenRetouch(activePhoto);
+      }
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleKeyNavigation} />
 
 <div class="catalog-viewport">
   <!-- CATALOG CURATORIAL SUB-HEADER TOOLBAR -->
@@ -75,6 +154,19 @@
     </div>
 
     <div class="tool-group actions">
+      <!-- Vim Keyboard Shortcuts Hint -->
+      <div class="vim-nav-indicator hairline-all" title="Vim 鍵盤導航：HJKL 移動，空白鍵標記選取，Enter 一鍵進入精修">
+        <span class="material-symbols-outlined" style="font-size: 13px; color: var(--amber-highlight);">keyboard</span>
+        <span class="key-cap">HJKL</span>
+        <span class="key-desc">移動</span>
+        <span class="key-sep">·</span>
+        <span class="key-cap">Space</span>
+        <span class="key-desc">選取</span>
+        <span class="key-sep">·</span>
+        <span class="key-cap">Enter</span>
+        <span class="key-desc">精修</span>
+      </div>
+
       <!-- Flagging Controls -->
       <button 
         type="button" 
@@ -129,11 +221,36 @@
         </button>
       </div>
 
-      <!-- Action Button -->
-      <button type="button" class="archival-btn-primary compact" onclick={onPickDirectory} disabled={isLoadingPhotos}>
+      <!-- Directory Open Button -->
+      <button type="button" class="tool-btn" onclick={onPickDirectory} disabled={isLoadingPhotos} title="載入相片目錄">
         <span class="material-symbols-outlined" style="font-size: 14px;">folder_open</span>
-        <span>{isLoadingPhotos ? '解析中...' : '載入相片目錄'}</span>
+        <span>{isLoadingPhotos ? '解析中...' : '載入目錄'}</span>
       </button>
+
+      <!-- SEQUENTIAL STEP 1 ACTION: ONE-CLICK ENTER RETOUCH -->
+      {#if photos.length > 0}
+        <button 
+          type="button" 
+          class="archival-btn-primary step-btn-highlight" 
+          onclick={() => {
+            if (onGoToRetouch) {
+              onGoToRetouch();
+            } else if (activePhoto) {
+              onOpenRetouch(activePhoto);
+            }
+          }}
+          title="步驟一：一鍵進入暗房精修（若有選取則僅精修選取幀，未選取則精修全部）"
+        >
+          <span class="material-symbols-outlined" style="font-size: 15px;">tonality</span>
+          <span>
+            {#if flaggedCount > 0}
+              一鍵進入精修 (已選 {flaggedCount} 幀) →
+            {:else}
+              一鍵進入精修 (全部 {photos.length} 幀) →
+            {/if}
+          </span>
+        </button>
+      {/if}
     </div>
   </header>
 
@@ -143,6 +260,7 @@
       <div class="film-grid {gridDensity}">
         {#each displayedPhotos as photo}
           <div 
+            id={`film-card-${photo.id}`}
             class="film-card hairline-all" 
             class:selected={activePhoto?.id === photo.id}
             class:flagged={photo.flagged}
@@ -315,6 +433,54 @@
     color: var(--canvas-base);
     border-color: var(--primary-indigo);
     font-weight: 600;
+  }
+
+  /* VIM KEYBOARD SHORTCUTS INDICATOR */
+  .vim-nav-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background-color: rgba(22, 22, 24, 0.85);
+    padding: 3px 8px;
+    border-radius: var(--radius-xs);
+    font-size: 11px;
+    color: var(--parchment-dim);
+    border: 1px solid var(--hairline-slate);
+    user-select: none;
+  }
+
+  .key-cap {
+    color: var(--amber-highlight);
+    background-color: rgba(226, 157, 82, 0.15);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .key-desc {
+    color: var(--parchment-muted);
+  }
+
+  .key-sep {
+    color: var(--parchment-dim);
+    opacity: 0.5;
+  }
+
+  /* STEP 1 HIGHLIGHT BUTTON */
+  .step-btn-highlight {
+    background: linear-gradient(135deg, var(--amber-highlight), #d48b3b) !important;
+    color: #121214 !important;
+    font-weight: 600 !important;
+    box-shadow: 0 0 12px rgba(226, 157, 82, 0.25);
+    border: 1px solid rgba(226, 157, 82, 0.8) !important;
+    padding: 5px 12px !important;
+    gap: 6px;
+    cursor: pointer;
+  }
+
+  .step-btn-highlight:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 0 16px rgba(226, 157, 82, 0.4);
   }
 
   /* DENSITY SWITCH */
