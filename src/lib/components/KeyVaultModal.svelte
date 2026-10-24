@@ -73,7 +73,11 @@
       apiKeyInput = '';
       masterPassword = '';
       discoveredModels = [];
-      selectedModelId = null;
+      if (typeof localStorage !== 'undefined') {
+        selectedModelId = localStorage.getItem(`slipknot_model_${selectedProvider}`) || null;
+      } else {
+        selectedModelId = null;
+      }
     }
   });
 
@@ -90,9 +94,15 @@
         currentMode,
         masterPassword
       );
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('slipknot_active_provider', selectedProvider);
+        if (selectedModelId) {
+          localStorage.setItem(`slipknot_model_${selectedProvider}`, selectedModelId);
+        }
+      }
       refreshStatus();
       statusMessage = {
-        text: `金鑰已成功儲存（${getModeLabel(currentMode)}）`,
+        text: `金鑰已成功儲存（${getModeLabel(currentMode)}）${selectedModelId ? ` · 已綁定模型：${selectedModelId}` : ''}`,
         type: 'success'
       };
       apiKeyInput = '';

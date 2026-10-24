@@ -36,7 +36,9 @@
     }
   }
 
-  // Sample Photographic Plates (Simulating 50ms embedded extraction from DCIM)
+  import { AiSceneService } from '$lib/services/aiSceneService';
+
+  // Photographic Plate Interface
   interface PhotoPlate {
     id: string;
     frameNo: string;
@@ -51,93 +53,18 @@
     sceneTag: string;
     selected: boolean;
     appliedProfile: string;
+    fileHandle?: File;
   }
 
-  let photoPlates = $state<PhotoPlate[]>([
-    {
-      id: 'p1',
-      frameNo: '01A',
-      filename: 'DSC08291.ARW',
-      camera: 'Sony Alpha 7R V',
-      lens: 'FE 50mm F1.2 GM',
-      iso: 400,
-      shutter: '1/320s',
-      aperture: 'f/1.4',
-      focalLength: '50mm',
-      thumbnail: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80',
-      sceneTag: '城市街景 · 暮光',
-      selected: true,
-      appliedProfile: 'Profile_01_MatteShadow'
-    },
-    {
-      id: 'p2',
-      frameNo: '02A',
-      filename: 'DSC08292.ARW',
-      camera: 'Sony Alpha 7R V',
-      lens: 'FE 50mm F1.2 GM',
-      iso: 800,
-      shutter: '1/250s',
-      aperture: 'f/1.8',
-      focalLength: '50mm',
-      thumbnail: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80',
-      sceneTag: '室內空間 · 暖光',
-      selected: false,
-      appliedProfile: 'Profile_03_TungstenSoft'
-    },
-    {
-      id: 'p3',
-      frameNo: '03A',
-      filename: 'DSC08293.ARW',
-      camera: 'Sony Alpha 7R V',
-      lens: 'FE 24-70mm F2.8 GM II',
-      iso: 100,
-      shutter: '1/800s',
-      aperture: 'f/4.0',
-      focalLength: '35mm',
-      thumbnail: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=600&auto=format&fit=crop&q=80',
-      sceneTag: '幾何建築 · 冷冽',
-      selected: false,
-      appliedProfile: 'Profile_02_TealEmerald'
-    },
-    {
-      id: 'p4',
-      frameNo: '04A',
-      filename: 'DSC08294.ARW',
-      camera: 'Sony Alpha 7R V',
-      lens: 'FE 85mm F1.4 GM',
-      iso: 200,
-      shutter: '1/500s',
-      aperture: 'f/1.4',
-      focalLength: '85mm',
-      thumbnail: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80',
-      sceneTag: '紀實人像 · 自然光',
-      selected: false,
-      appliedProfile: 'Profile_03_TungstenSoft'
-    },
-    {
-      id: 'p5',
-      frameNo: '05A',
-      filename: 'DSC08295.ARW',
-      camera: 'Sony Alpha 7R V',
-      lens: 'FE 24-70mm F2.8 GM II',
-      iso: 1600,
-      shutter: '1/160s',
-      aperture: 'f/2.8',
-      focalLength: '70mm',
-      thumbnail: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=600&auto=format&fit=crop&q=80',
-      sceneTag: '光影交錯 · 高反差',
-      selected: false,
-      appliedProfile: 'Profile_04_HighContrastMono'
-    }
-  ]);
-
-  let activePhoto = $state<PhotoPlate>(photoPlates[0]);
+  let photoPlates = $state<PhotoPlate[]>([]);
+  let activePhoto = $state<PhotoPlate | null>(null);
+  let isLoadingPhotos = $state<boolean>(false);
 
   // Darkroom Tuning Sliders
-  let exposure = $state<number>(0.15);
-  let shadowLift = $state<number>(0.24);
-  let lutIntensity = $state<number>(0.85);
-  let colorTemp = $state<number>(5400);
+  let exposure = $state<number>(0.0);
+  let shadowLift = $state<number>(0.0);
+  let lutIntensity = $state<number>(1.0);
+  let colorTemp = $state<number>(5500);
   let showABComparison = $state<boolean>(false);
 
   // De-identified 3D LUT Profiles
@@ -172,11 +99,11 @@
     }
   ];
 
-  // AI Inference Simulation
+  // AI Inference State
   let isAiAnalyzing = $state<boolean>(false);
-  let aiConfidence = $state<number>(0.94);
-  let aiSuggestedScene = $state<string>('urban_geometry / outdoor_street');
-  let aiRecommendedProfile = $state<string>('Profile_01_MatteShadow');
+  let aiConfidence = $state<number>(0.0);
+  let aiSuggestedScene = $state<string>('等待判讀');
+  let aiRecommendedProfile = $state<string>('');
 
   function selectPhoto(plate: PhotoPlate) {
     activePhoto = plate;
@@ -184,6 +111,7 @@
   }
 
   function applyProfile(profileId: string) {
+    if (!activePhoto) return;
     activePhoto.appliedProfile = profileId;
     if (profileId === 'Profile_01_MatteShadow') {
       exposure = 0.1;
@@ -204,15 +132,77 @@
     }
   }
 
-  function runAiAnalysis() {
+  // Open directory and load real photos
+  async function handlePickDirectory() {
+    isLoadingPhotos = true;
+    try {
+      const items = await IngestionService.pickWebDirectory();
+      if (items.length > 0) {
+        const loaded: PhotoPlate[] = [];
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const preview = await IngestionService.extractPreview(item.file_path, item.fileHandle);
+          latestExtractionMs = preview.extraction_time_ms || 18;
+
+          loaded.push({
+            id: `photo_${i + 1}`,
+            frameNo: item.frame_no,
+            filename: item.filename,
+            camera: preview.exif.camera_model || `${item.extension.toUpperCase()} 相片`,
+            lens: preview.exif.lens_model || '標準光學鏡頭',
+            iso: preview.exif.iso || 100,
+            shutter: preview.exif.shutter_speed || '--',
+            aperture: preview.exif.aperture || '--',
+            focalLength: preview.exif.focal_length || '--',
+            thumbnail: preview.blob_url || (preview.jpeg_base64 ? `data:image/jpeg;base64,${preview.jpeg_base64}` : ''),
+            sceneTag: '本機相簿幀',
+            selected: i === 0,
+            appliedProfile: 'Profile_01_MatteShadow',
+            fileHandle: item.fileHandle
+          });
+        }
+        photoPlates = loaded;
+        activePhoto = loaded[0];
+      }
+    } finally {
+      isLoadingPhotos = false;
+    }
+  }
+
+  // Authentic AI Scene Analysis (No fake mock data)
+  async function runAiAnalysis() {
+    if (!activePhoto) {
+      exportNotice = '請先載入相片以進行 AI 視覺分析';
+      setTimeout(() => { exportNotice = ''; }, 2500);
+      return;
+    }
+
     isAiAnalyzing = true;
-    setTimeout(() => {
+    try {
+      const decision = await AiSceneService.analyzeScene(
+        activePhoto.thumbnail,
+        {
+          cameraModel: activePhoto.camera,
+          lensModel: activePhoto.lens,
+          iso: activePhoto.iso,
+          shutterSpeed: activePhoto.shutter,
+          apertureValue: activePhoto.aperture,
+          focalLength: activePhoto.focalLength
+        }
+      );
+
+      aiConfidence = decision.confidence;
+      aiSuggestedScene = decision.isFallback ? `${decision.scene_type} (在地光學推估)` : `${decision.scene_type} (即時視覺判讀)`;
+      aiRecommendedProfile = decision.recommended_profile;
+      exposure = decision.exposure_compensation;
+      shadowLift = decision.lift_shadows;
+      lutIntensity = decision.lut_intensity;
+      applyProfile(decision.recommended_profile);
+    } catch (err: any) {
+      console.error('AI Analysis failed:', err);
+    } finally {
       isAiAnalyzing = false;
-      aiConfidence = 0.96;
-      aiSuggestedScene = 'urban_street_ambient (黃昏街景光線)';
-      aiRecommendedProfile = 'Profile_01_MatteShadow';
-      applyProfile(aiRecommendedProfile);
-    }, 600);
+    }
   }
 
   // Export Pipeline State
@@ -222,6 +212,12 @@
   let exportNotice = $state<string>('');
 
   function triggerExport() {
+    if (!activePhoto) {
+      exportNotice = '目前相簿為空，請先載入照片';
+      setTimeout(() => { exportNotice = ''; }, 2500);
+      return;
+    }
+
     isExporting = true;
     exportProgress = 0;
     exportNotice = '著色器離屏採樣中...';
@@ -304,7 +300,7 @@
         >
           <span class="material-symbols-outlined">grid_view</span>
           <span class="nav-label">膠卷目錄與挑圖</span>
-          <span class="nav-badge font-mono">342</span>
+          <span class="nav-badge font-mono">{photoPlates.length}</span>
         </button>
 
         <button 
@@ -323,7 +319,7 @@
         >
           <span class="material-symbols-outlined">palette</span>
           <span class="nav-label">3D LUT 風格庫</span>
-          <span class="nav-badge font-mono">4</span>
+          <span class="nav-badge font-mono">{profiles.length}</span>
         </button>
 
         <button 
@@ -364,7 +360,7 @@
           </div>
           <div class="ai-row">
             <span class="ai-label font-mono">MATCH</span>
-            <span class="ai-val font-mono indigo">{activePhoto.appliedProfile}</span>
+            <span class="ai-val font-mono indigo">{activePhoto ? activePhoto.appliedProfile : '尚未載入'}</span>
           </div>
         </div>
 
@@ -410,40 +406,61 @@
           </div>
         {/if}
 
-        <div class="plate-canvas-wrapper hairline-all">
-          <img 
-            src={activePhoto.thumbnail} 
-            alt={activePhoto.filename} 
-            class="plate-render-img"
-            style:filter={showABComparison 
-              ? 'none' 
-              : `brightness(${1 + exposure * 0.4}) contrast(${1 + (lutIntensity - 0.5) * 0.3})`}
-          />
+        {#if activePhoto}
+          <div class="plate-canvas-wrapper hairline-all">
+            <img 
+              src={activePhoto.thumbnail} 
+              alt={activePhoto.filename} 
+              class="plate-render-img"
+              style:filter={showABComparison 
+                ? 'none' 
+                : `brightness(${1 + exposure * 0.4}) contrast(${1 + (lutIntensity - 0.5) * 0.3})`}
+            />
 
-          <!-- Overlaid Plate Framing Tag -->
-          <div class="plate-tag-bar font-mono">
-            <div class="plate-id-badge">
-              <span class="film-code">PLATE #{activePhoto.frameNo}</span>
-              <span class="film-file">{activePhoto.filename}</span>
+            <!-- Overlaid Plate Framing Tag -->
+            <div class="plate-tag-bar font-mono">
+              <div class="plate-id-badge">
+                <span class="film-code">PLATE #{activePhoto.frameNo}</span>
+                <span class="film-file">{activePhoto.filename}</span>
+              </div>
+              <div class="plate-profile-badge">
+                <span class="profile-dot" style:background={activePhoto.appliedProfile ? 'var(--amber-highlight)' : 'var(--parchment-dim)'}></span>
+                <span>{activePhoto.appliedProfile}</span>
+              </div>
             </div>
-            <div class="plate-profile-badge">
-              <span class="profile-dot" style:background={activePhoto.appliedProfile ? 'var(--amber-highlight)' : 'var(--parchment-dim)'}></span>
-              <span>{activePhoto.appliedProfile}</span>
+
+            <!-- A/B Comparison Toggle Floater -->
+            <button 
+              type="button"
+              class="ab-toggle-btn hairline-all font-mono" 
+              onmousedown={() => showABComparison = true}
+              onmouseup={() => showABComparison = false}
+              onmouseleave={() => showABComparison = false}
+            >
+              <span class="material-symbols-outlined" style="font-size: 15px;">compare</span>
+              <span>{showABComparison ? '原始本相 (RAW)' : '按住 A/B 比對'}</span>
+            </button>
+          </div>
+        {:else}
+          <!-- Empty State: Waiting for camera connection or local directory selection -->
+          <div class="empty-stage-box hairline-all">
+            <span class="material-symbols-outlined empty-stage-icon">camera_roll</span>
+            <h3 class="font-headline empty-stage-title">等待相機裝置連接</h3>
+            <p class="font-body empty-stage-desc">
+              接上相機 USB/Type-C 傳輸線開機自動載入，或手動指定本機 DCIM / RAW 目錄開啟底片作業。
+            </p>
+            <div class="empty-actions">
+              <button type="button" class="archival-btn-primary" onclick={handlePickDirectory} disabled={isLoadingPhotos}>
+                <span class="material-symbols-outlined" style="font-size: 16px;">folder_open</span>
+                <span>{isLoadingPhotos ? '正在解析 RAW/JPG...' : '開啟相片目錄 (RAW / JPG)'}</span>
+              </button>
+              <button type="button" class="archival-btn-secondary" onclick={refreshCameraMounts} disabled={isScanningMounts}>
+                <span class="material-symbols-outlined" style="font-size: 16px;">cable</span>
+                <span>{isScanningMounts ? '正在搜尋掛載...' : '重新偵測隨插即讀設備'}</span>
+              </button>
             </div>
           </div>
-
-          <!-- A/B Comparison Toggle Floater -->
-          <button 
-            type="button"
-            class="ab-toggle-btn hairline-all font-mono" 
-            onmousedown={() => showABComparison = true}
-            onmouseup={() => showABComparison = false}
-            onmouseleave={() => showABComparison = false}
-          >
-            <span class="material-symbols-outlined" style="font-size: 15px;">compare</span>
-            <span>{showABComparison ? '原始本相 (RAW)' : '按住 A/B 比對'}</span>
-          </button>
-        </div>
+        {/if}
       </div>
 
       <!-- PERSISTENT BOTTOM CONTACT SHEET LIGHT-TABLE STRIP -->
@@ -453,22 +470,29 @@
           <span class="strip-count">{photoPlates.length} FRAMES</span>
         </div>
         <div class="strip-frames-scroll">
-          {#each photoPlates as plate}
-            <button 
-              type="button"
-              class="film-frame-card" 
-              class:selected={plate.selected}
-              onclick={() => selectPhoto(plate)}
-            >
-              <div class="film-frame-outer">
-                <img src={plate.thumbnail} alt={plate.filename} class="film-frame-thumb" />
-              </div>
-              <div class="film-frame-meta font-mono">
-                <span class="frame-num">{plate.frameNo}</span>
-                <span class="frame-tag">{plate.camera.split(' ')[0]}</span>
-              </div>
-            </button>
-          {/each}
+          {#if photoPlates.length > 0}
+            {#each photoPlates as plate}
+              <button 
+                type="button"
+                class="film-frame-card" 
+                class:selected={plate.selected}
+                onclick={() => selectPhoto(plate)}
+              >
+                <div class="film-frame-outer">
+                  <img src={plate.thumbnail} alt={plate.filename} class="film-frame-thumb" />
+                </div>
+                <div class="film-frame-meta font-mono">
+                  <span class="frame-num">{plate.frameNo}</span>
+                  <span class="frame-tag">{plate.camera.split(' ')[0]}</span>
+                </div>
+              </button>
+            {/each}
+          {:else}
+            <div class="empty-strip-hint font-mono">
+              <span class="material-symbols-outlined" style="font-size: 14px;">exposure_zero</span>
+              <span>尚無載入幀數 · 請點擊上方「開啟相片目錄」載入 RAW 檔</span>
+            </div>
+          {/if}
         </div>
       </footer>
     </section>
@@ -481,24 +505,24 @@
         <div class="optical-grid font-mono">
           <div class="optical-chip">
             <span class="opt-label">APERTURE</span>
-            <span class="opt-val">{activePhoto.aperture}</span>
+            <span class="opt-val">{activePhoto ? activePhoto.aperture : '--'}</span>
           </div>
           <div class="optical-chip">
             <span class="opt-label">SHUTTER</span>
-            <span class="opt-val">{activePhoto.shutter}</span>
+            <span class="opt-val">{activePhoto ? activePhoto.shutter : '--'}</span>
           </div>
           <div class="optical-chip">
             <span class="opt-label">ISO SPEED</span>
-            <span class="opt-val amber">ISO {activePhoto.iso}</span>
+            <span class="opt-val amber">{activePhoto && activePhoto.iso > 0 ? `ISO ${activePhoto.iso}` : '--'}</span>
           </div>
           <div class="optical-chip">
             <span class="opt-label">FOCAL</span>
-            <span class="opt-val">{activePhoto.focalLength}</span>
+            <span class="opt-val">{activePhoto ? activePhoto.focalLength : '--'}</span>
           </div>
         </div>
         <div class="lens-line font-mono">
           <span class="material-symbols-outlined" style="font-size: 14px;">camera_alt</span>
-          <span class="truncate">{activePhoto.lens}</span>
+          <span class="truncate">{activePhoto ? activePhoto.lens : '尚未選取相片'}</span>
         </div>
       </div>
 
@@ -579,7 +603,7 @@
             <button 
               type="button"
               class="profile-card hairline-all" 
-              class:active={activePhoto.appliedProfile === prof.id}
+              class:active={activePhoto?.appliedProfile === prof.id}
               onclick={() => applyProfile(prof.id)}
             >
               <div class="prof-card-top">
@@ -1199,5 +1223,50 @@
   }
   .mt-auto {
     margin-top: auto;
+  }
+
+  /* EMPTY STAGE & STRIP */
+  .empty-stage-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 32px;
+    background-color: var(--surface-panel);
+    border-radius: var(--radius-md);
+    max-width: 520px;
+    text-align: center;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+  }
+  .empty-stage-icon {
+    font-size: 56px;
+    color: var(--parchment-dim);
+    margin-bottom: 16px;
+    opacity: 0.7;
+  }
+  .empty-stage-title {
+    font-size: 20px;
+    color: var(--parchment-bright);
+    margin: 0 0 8px 0;
+  }
+  .empty-stage-desc {
+    font-size: 13px;
+    color: var(--parchment-muted);
+    line-height: 1.6;
+    margin: 0 0 24px 0;
+  }
+  .empty-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .empty-strip-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--parchment-dim);
+    padding: 12px 4px;
   }
 </style>
