@@ -38,6 +38,50 @@ export interface EmbeddedPreviewResult {
   };
 }
 
+/**
+ * Generic TIFF/Exif metadata parser for raw camera binary headers.
+ * Zero vendor hardcodes. Standard JEITA CP-3461 / TIFF 6.0 implementation.
+ */
+function parseTiffMetadataFromBytes(bytes: Uint8Array): { make: string; model: string } {
+  if (bytes.length < 16) return { make: '', model: '' };
+  const isLe = bytes[0] === 0x49 && bytes[1] === 0x49; // 'II'
+  const isBe = bytes[0] === 0x4D && bytes[1] === 0x4D; // 'MM'
+  if (!isLe && !isBe) return { make: '', model: '' };
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const readU16 = (o: number) => view.getUint16(o, isLe);
+  const readU32 = (o: number) => view.getUint32(o, isLe);
+
+  let ifdOffset = readU32(4);
+  let make = '';
+  let model = '';
+
+  if (ifdOffset > 0 && ifdOffset < bytes.length - 2) {
+    const numEntries = readU16(ifdOffset);
+    let entryOffset = ifdOffset + 2;
+
+    for (let i = 0; i < numEntries && entryOffset + 12 <= bytes.length; i++) {
+      const tag = readU16(entryOffset);
+      const type = readU16(entryOffset + 2);
+      const count = readU32(entryOffset + 4);
+      const valOffset = entryOffset + 8;
+
+      if (type === 2) { // ASCII string tag
+        const actualOffset = count > 4 ? readU32(valOffset) : valOffset;
+        if (actualOffset + count <= bytes.length) {
+          const strBytes = bytes.subarray(actualOffset, actualOffset + count);
+          const str = new TextDecoder('latin1').decode(strBytes).replace(/\0/g, '').trim();
+          if (tag === 0x010F) make = str;
+          if (tag === 0x0110) model = str;
+        }
+      }
+      entryOffset += 12;
+    }
+  }
+
+  return { make, model };
+}
+
 const SUPPORTED_EXTS = ['arw', 'cr2', 'cr3', 'nef', 'raf', 'dng', 'jpg', 'jpeg'];
 
 export class IngestionService {
@@ -264,14 +308,13 @@ export class IngestionService {
           const jpegBlob = new Blob([jpegBytes], { type: 'image/jpeg' });
           const blobUrl = URL.createObjectURL(jpegBlob);
 
-          // Parse model from raw binary header
-          const headerStr = new TextDecoder('latin1').decode(bytes.subarray(0, 65536));
+          // Dynamically parse make and model using standard TIFF tags (0x010F / 0x0110)
+          const { make, model } = parseTiffMetadataFromBytes(bytes.subarray(0, 65536));
           let cameraModel = `${ext.toUpperCase()} 相機`;
-          if (headerStr.includes('ZV-E10')) cameraModel = 'Sony ZV-E10';
-          else if (headerStr.includes('ILCE-7M4')) cameraModel = 'Sony A7 IV';
-          else if (headerStr.includes('ILCE-')) {
-            const m = headerStr.match(/ILCE-[A-Za-z0-9]+/);
-            if (m) cameraModel = `Sony ${m[0]}`;
+          if (model) {
+            cameraModel = make && !model.toLowerCase().includes(make.toLowerCase())
+              ? `${make} ${model}`
+              : model;
           }
 
           return {

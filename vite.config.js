@@ -9,6 +9,48 @@ import path from "node:path";
 const host = process.env.TAURI_DEV_HOST;
 
 /**
+ * Generic TIFF/Exif Parser for standard RAW camera binary headers.
+ * Zero vendor hardcodes. Standard TIFF CP-3461 implementation.
+ */
+function parseTiffMetadata(buffer) {
+  if (buffer.length < 16) return { make: "", model: "" };
+  const isLe = buffer[0] === 0x49 && buffer[1] === 0x49; // 'II'
+  const isBe = buffer[0] === 0x4D && buffer[1] === 0x4D; // 'MM'
+  if (!isLe && !isBe) return { make: "", model: "" };
+
+  const readU16 = (o) => isLe ? buffer.readUInt16LE(o) : buffer.readUInt16BE(o);
+  const readU32 = (o) => isLe ? buffer.readUInt32LE(o) : buffer.readUInt32BE(o);
+
+  let ifdOffset = readU32(4);
+  let make = "";
+  let model = "";
+
+  if (ifdOffset > 0 && ifdOffset < buffer.length - 2) {
+    const numEntries = readU16(ifdOffset);
+    let entryOffset = ifdOffset + 2;
+
+    for (let i = 0; i < numEntries && entryOffset + 12 <= buffer.length; i++) {
+      const tag = readU16(entryOffset);
+      const type = readU16(entryOffset + 2);
+      const count = readU32(entryOffset + 4);
+      const valOffset = entryOffset + 8;
+
+      if (type === 2) { // ASCII
+        const actualOffset = count > 4 ? readU32(valOffset) : valOffset;
+        if (actualOffset + count <= buffer.length) {
+          const str = buffer.toString("utf8", actualOffset, actualOffset + count).replace(/\0/g, "").trim();
+          if (tag === 0x010F) make = str;
+          if (tag === 0x0110) model = str;
+        }
+      }
+      entryOffset += 12;
+    }
+  }
+
+  return { make, model };
+}
+
+/**
  * Vite Dev Middleware for Camera Mount Detection in Web Browser Mode
  * Enables authentic /proc/mounts reading without mocks during web dev.
  */
@@ -71,11 +113,11 @@ function cameraDevMiddlewarePlugin() {
                                     const fd = fs.openSync(full, "r");
                                     fs.readSync(fd, headerBuf, 0, 65536, 0);
                                     fs.closeSync(fd);
-                                    const headerStr = headerBuf.toString("latin1");
-                                    if (headerStr.includes("ZV-E10")) cameraModel = "ZV-E10";
-                                    else if (headerStr.includes("ILCE-")) {
-                                      const m = headerStr.match(/ILCE-[A-Za-z0-9]+/);
-                                      if (m) cameraModel = m[0];
+                                    const { make, model } = parseTiffMetadata(headerBuf);
+                                    if (model) {
+                                      cameraModel = make && !model.toLowerCase().includes(make.toLowerCase())
+                                        ? `${make} ${model}`
+                                        : model;
                                     }
                                   } catch {}
                                 }
@@ -168,28 +210,42 @@ function cameraDevMiddlewarePlugin() {
               if (ext === ".jpg" || ext === ".jpeg") {
                 jpegBuf = fs.readFileSync(filePath);
               } else {
-                // High-performance read: Read only first 3.5MB where embedded JPEG resides
+                // 2-Stage Adaptive Fast Buffer Read (Sony, Canon, Nikon, Fuji, Leica, DNG)
                 const fd = fs.openSync(filePath, "r");
                 const stat = fs.fstatSync(fd);
-                const readSize = Math.min(stat.size, 3500000);
-                const fileBuf = Buffer.alloc(readSize);
-                fs.readSync(fd, fileBuf, 0, readSize, 0);
-                fs.closeSync(fd);
+                const stage1Size = Math.min(stat.size, 4000000);
+                let fileBuf = Buffer.alloc(stage1Size);
+                fs.readSync(fd, fileBuf, 0, stage1Size, 0);
 
-                for (let i = 0; i + 3 < readSize; i++) {
-                  if (fileBuf[i] === 0xFF && fileBuf[i + 1] === 0xD8 && fileBuf[i + 2] === 0xFF) {
-                    for (let j = i + 2; j < Math.min(readSize - 1, i + 3000000); j++) {
-                      if (fileBuf[j] === 0xFF && fileBuf[j + 1] === 0xD9) {
-                        const len = j + 2 - i;
-                        if (len > 40000) {
-                          jpegBuf = fileBuf.subarray(i, j + 2);
-                          break;
+                const findJpeg = (buf, limit) => {
+                  let found = null;
+                  for (let i = 0; i + 3 < limit; i++) {
+                    if (buf[i] === 0xFF && buf[i + 1] === 0xD8 && buf[i + 2] === 0xFF) {
+                      for (let j = i + 2; j < Math.min(limit - 1, i + 6000000); j++) {
+                        if (buf[j] === 0xFF && buf[j + 1] === 0xD9) {
+                          const len = j + 2 - i;
+                          if (len > 40000) {
+                            found = buf.subarray(i, j + 2);
+                            break;
+                          }
                         }
                       }
+                      if (found && found.length > 150000) break;
                     }
-                    if (jpegBuf && jpegBuf.length > 150000) break;
                   }
+                  return found;
+                };
+
+                jpegBuf = findJpeg(fileBuf, stage1Size);
+
+                // Stage 2 Fallback: If not found in first 4MB, read up to 12MB for deep-offset RAWs
+                if (!jpegBuf && stat.size > stage1Size) {
+                  const stage2Size = Math.min(stat.size, 12000000);
+                  fileBuf = Buffer.alloc(stage2Size);
+                  fs.readSync(fd, fileBuf, 0, stage2Size, 0);
+                  jpegBuf = findJpeg(fileBuf, stage2Size);
                 }
+                fs.closeSync(fd);
               }
 
               if (jpegBuf) {
