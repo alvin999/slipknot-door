@@ -1,10 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { IngestionService, type CameraMountInfo } from '$lib/services/ingestionService';
+  import { KeyVaultService } from '$lib/services/keyVaultService';
+  import KeyVaultModal from '$lib/components/KeyVaultModal.svelte';
 
   // Active module tabs
   type ModuleTab = 'catalog' | 'retouch' | 'profiles' | 'export' | 'devices';
   let activeTab = $state<ModuleTab>('retouch');
+
+  // Key Vault State
+  let isVaultOpen = $state<boolean>(false);
+  let geminiKeyStatus = $state<{ exists: boolean; mode: string | null }>({ exists: false, mode: null });
 
   // Hardware Ingestion State
   let cameraMounts = $state<CameraMountInfo[]>([]);
@@ -13,7 +19,13 @@
 
   onMount(async () => {
     await refreshCameraMounts();
+    refreshKeyStatus();
   });
+
+  function refreshKeyStatus() {
+    const s = KeyVaultService.getKeyStatus('gemini');
+    geminiKeyStatus = { exists: s.exists, mode: s.mode };
+  }
 
   async function refreshCameraMounts() {
     isScanningMounts = true;
@@ -356,16 +368,33 @@
           </div>
         </div>
 
-        <button 
-          class="archival-btn-secondary w-full" 
-          onclick={runAiAnalysis}
-          disabled={isAiAnalyzing}
-        >
-          <span class="material-symbols-outlined" style="font-size: 16px;">
-            {isAiAnalyzing ? 'progress_activity' : 'psychology'}
-          </span>
-          <span>{isAiAnalyzing ? '正在視覺判讀...' : '重新分析當前幀'}</span>
-        </button>
+        <div class="ai-actions-stack">
+          <button 
+            class="archival-btn-secondary w-full" 
+            onclick={runAiAnalysis}
+            disabled={isAiAnalyzing}
+          >
+            <span class="material-symbols-outlined" style="font-size: 16px;">
+              {isAiAnalyzing ? 'progress_activity' : 'psychology'}
+            </span>
+            <span>{isAiAnalyzing ? '正在視覺判讀...' : '重新分析當前幀'}</span>
+          </button>
+
+          <button 
+            type="button"
+            class="vault-trigger-btn font-mono hairline-all" 
+            onclick={() => isVaultOpen = true}
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px;">
+              {geminiKeyStatus.exists ? 'lock' : 'vpn_key'}
+            </span>
+            <span>
+              {geminiKeyStatus.exists 
+                ? (geminiKeyStatus.mode === 'password' ? '金鑰保險庫 (密碼保護)' : geminiKeyStatus.mode === 'transparent' ? '金鑰保險庫 (透明加密)' : '金鑰保險庫 (無加密)') 
+                : '設定 AI 安全金鑰'}
+            </span>
+          </button>
+        </div>
       </div>
     </aside>
 
@@ -590,6 +619,9 @@
       </div>
     </aside>
   </main>
+
+  <!-- AI Key Vault Modal -->
+  <KeyVaultModal bind:isOpen={isVaultOpen} onClose={refreshKeyStatus} />
 </div>
 
 <style>
@@ -804,6 +836,30 @@
   .w-full {
     width: 100%;
     justify-content: center;
+  }
+  .ai-actions-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vault-trigger-btn {
+    background: transparent;
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-sm);
+    color: var(--parchment-muted);
+    font-size: 10px;
+    padding: 5px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .vault-trigger-btn:hover {
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+    background-color: var(--surface-elevated);
   }
 
   /* CENTER STAGE */

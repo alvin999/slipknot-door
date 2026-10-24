@@ -3,6 +3,7 @@
  */
 
 import type { ExifOpticalData } from '../types/photo';
+import { KeyVaultService } from './keyVaultService';
 
 export interface AiSceneDecision {
   scene_type: 'urban_geometry' | 'outdoor_street' | 'indoor_ambient' | 'portrait';
@@ -100,13 +101,27 @@ export class AiSceneService {
   }
 
   private static async mockOrCallVisionModel(exif: ExifOpticalData): Promise<AiSceneDecision> {
-    // Simulated fast inference return within 800ms
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    // Attempt to load decrypted key from KeyVault
+    let apiKey: string | null = null;
+    try {
+      const vaultRes = await KeyVaultService.loadKey('gemini');
+      apiKey = vaultRes.apiKey;
+    } catch {
+      // password protected or locked
+    }
+
+    if (!apiKey) {
+      // If no online key, use rapid high-confidence optical heuristic fallback
+      return this.heuristicFallback(exif);
+    }
+
+    // When API key is available, simulated live model inference response
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     return {
       scene_type: 'outdoor_street',
       recommended_profile: 'Profile_01_MatteShadow',
-      confidence: 0.95,
+      confidence: 0.96,
       exposure_compensation: 0.15,
       lift_shadows: 0.20,
       lut_intensity: 0.85,
