@@ -8,6 +8,7 @@ export interface TuningParameters {
   exposure: number;     // -2.0 ~ +2.0 EV
   contrast: number;     // -1.0 ~ +1.0
   colorTemp: number;    // 2800 ~ 8500 Kelvin
+  tint?: number;        // -100 ~ +100 Green <-> Magenta
   lutIntensity: number; // 0.0 ~ 1.0
   bypassLut: boolean;   // true for pure natural straight-out-of-camera
   clarity?: number;     // -1.0 ~ +1.0, mid-tone local contrast (large radius)
@@ -38,6 +39,7 @@ uniform sampler3D u_lut;
 uniform float u_exposure;
 uniform float u_contrast;
 uniform float u_colorTemp;
+uniform float u_tint;
 uniform float u_intensity;
 uniform bool u_bypassLut;
 uniform float u_lutSize;   // Per-LUT size so .cube files of 17/33/65 sample correctly
@@ -63,13 +65,22 @@ vec3 blurAt(vec2 uv, vec2 texel, float radius) {
     return sum / 16.0;
 }
 
-// White balance temperature shift (Baseline 5500K)
-vec3 applyKelvinTemp(vec3 c, float kelvin) {
-    float delta = (kelvin - 5500.0) / 3000.0;
-    vec3 tint = delta < 0.0
-        ? vec3(1.0 - delta * 0.10, 1.0 - delta * 0.02, 1.0 + delta * 0.12)
-        : vec3(1.0 - delta * 0.08, 1.0 + delta * 0.01, 1.0 + delta * 0.14);
-    return clamp(c * tint, 0.0, 1.0);
+// White balance temperature shift (Baseline 5500K) + Green-Magenta Tint (-100 ~ +100)
+vec3 applyWhiteBalance(vec3 c, float kelvin, float tintVal) {
+    vec3 res = c;
+    if (abs(kelvin - 5500.0) > 10.0) {
+        float delta = (kelvin - 5500.0) / 3000.0;
+        vec3 kFactor = delta < 0.0
+            ? vec3(1.0 - delta * 0.10, 1.0 - delta * 0.02, 1.0 + delta * 0.12)
+            : vec3(1.0 - delta * 0.08, 1.0 + delta * 0.01, 1.0 + delta * 0.14);
+        res *= kFactor;
+    }
+    if (abs(tintVal) > 0.5) {
+        float t = tintVal / 100.0;
+        vec3 tFactor = vec3(1.0 + t * 0.08, 1.0 - t * 0.12, 1.0 + t * 0.08);
+        res *= tFactor;
+    }
+    return clamp(res, 0.0, 1.0);
 }
 
 void main() {
@@ -88,9 +99,9 @@ void main() {
     color = clamp(color, 0.0, 1.0);
 
     // 2. White Balance BEFORE the LUT (camera order: WB -> Creative Look),
-    //    so changing color temperature does not shift the LUT's look.
-    if (abs(u_colorTemp - 5500.0) > 10.0) {
-        color = applyKelvinTemp(color, u_colorTemp);
+    //    so changing color temperature and tint does not shift the LUT's look.
+    if (abs(u_colorTemp - 5500.0) > 10.0 || abs(u_tint) > 0.5) {
+        color = applyWhiteBalance(color, u_colorTemp, u_tint);
     }
 
     // 3. Pure 3D LUT Volumetric Transformation (Unified Color Science)
@@ -137,6 +148,7 @@ export class WebglLutRenderer {
   private uExposureLoc: WebGLUniformLocation | null = null;
   private uContrastLoc: WebGLUniformLocation | null = null;
   private uColorTempLoc: WebGLUniformLocation | null = null;
+  private uTintLoc: WebGLUniformLocation | null = null;
   private uBypassLutLoc: WebGLUniformLocation | null = null;
   private uImageLoc: WebGLUniformLocation | null = null;
   private uLutLoc: WebGLUniformLocation | null = null;
@@ -167,6 +179,7 @@ export class WebglLutRenderer {
     this.uExposureLoc = gl.getUniformLocation(program, 'u_exposure');
     this.uContrastLoc = gl.getUniformLocation(program, 'u_contrast');
     this.uColorTempLoc = gl.getUniformLocation(program, 'u_colorTemp');
+    this.uTintLoc = gl.getUniformLocation(program, 'u_tint');
     this.uBypassLutLoc = gl.getUniformLocation(program, 'u_bypassLut');
     this.uImageLoc = gl.getUniformLocation(program, 'u_image');
     this.uLutLoc = gl.getUniformLocation(program, 'u_lut');
@@ -263,6 +276,7 @@ export class WebglLutRenderer {
     gl.uniform1f(this.uExposureLoc, params.exposure);
     gl.uniform1f(this.uContrastLoc, params.contrast);
     gl.uniform1f(this.uColorTempLoc, params.colorTemp);
+    gl.uniform1f(this.uTintLoc, params.tint ?? 0);
     gl.uniform1f(this.uIntensityLoc, params.lutIntensity);
     gl.uniform1i(this.uBypassLutLoc, (params.bypassLut || !targetLutTex) ? 1 : 0);
 

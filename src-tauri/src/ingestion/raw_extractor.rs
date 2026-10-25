@@ -151,6 +151,13 @@ impl RawExtractor {
         let mut aperture = "--".to_string();
         let mut focal_length = "--".to_string();
         let mut date_time = "--".to_string();
+        let mut exposure_bias: Option<f32> = None;
+        let mut exposure_program: Option<String> = None;
+        let mut metering_mode: Option<String> = None;
+        let mut color_space: Option<String> = None;
+        let mut color_temp: Option<u32> = None;
+        let mut tint: Option<i32> = None;
+        let mut flash: Option<String> = None;
 
         // Search for APP1 Marker (0xFF, 0xE1) in the JPEG byte stream
         let mut idx = 2;
@@ -175,6 +182,13 @@ impl RawExtractor {
                             &mut aperture,
                             &mut focal_length,
                             &mut date_time,
+                            &mut exposure_bias,
+                            &mut exposure_program,
+                            &mut metering_mode,
+                            &mut color_space,
+                            &mut color_temp,
+                            &mut tint,
+                            &mut flash,
                         );
                         break;
                     }
@@ -201,6 +215,12 @@ impl RawExtractor {
             }
         }
 
+        // Default baseline color temperature if unextracted
+        if color_temp.is_none() {
+            color_temp = Some(5500);
+            tint = Some(0);
+        }
+
         ExifMetadata {
             camera_model,
             lens_model,
@@ -209,6 +229,13 @@ impl RawExtractor {
             aperture,
             focal_length,
             date_time,
+            exposure_bias,
+            exposure_program,
+            metering_mode,
+            color_space,
+            color_temp,
+            tint,
+            flash,
         }
     }
 
@@ -222,6 +249,13 @@ impl RawExtractor {
         aperture: &mut String,
         focal: &mut String,
         date_time: &mut String,
+        exposure_bias: &mut Option<f32>,
+        exposure_program: &mut Option<String>,
+        metering_mode: &mut Option<String>,
+        color_space: &mut Option<String>,
+        color_temp: &mut Option<u32>,
+        tint: &mut Option<i32>,
+        flash: &mut Option<String>,
     ) {
         if buf.len() < 8 {
             return;
@@ -247,6 +281,18 @@ impl RawExtractor {
                     Some(u32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]))
                 } else {
                     Some(u32::from_be_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]))
+                }
+            } else {
+                None
+            }
+        };
+
+        let read_i32 = |offset: usize| -> Option<i32> {
+            if offset + 4 <= buf.len() {
+                if is_little_endian {
+                    Some(i32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]))
+                } else {
+                    Some(i32::from_be_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]))
                 }
             } else {
                 None
@@ -357,6 +403,92 @@ impl RawExtractor {
                                 let str_offset = if count <= 4 { curr + 8 } else { val_offset as usize };
                                 if let Some(val) = read_string(str_offset, count as usize) {
                                     *lens = val.trim().to_string();
+                                }
+                            }
+                            0x9204 => {
+                                // ExposureBiasValue (SRational: i32 / i32)
+                                let num = read_i32(val_offset as usize).unwrap_or(0);
+                                let den = read_i32(val_offset as usize + 4).unwrap_or(1);
+                                if den != 0 {
+                                    let ev = num as f32 / den as f32;
+                                    *exposure_bias = Some(ev);
+                                }
+                            }
+                            0x8822 => {
+                                // ExposureProgram
+                                let val = val_offset & 0xFFFF;
+                                *exposure_program = Some(match val {
+                                    1 => "手動曝光 (M)".to_string(),
+                                    2 => "程式自動 (P)".to_string(),
+                                    3 => "光圈先決 (A)".to_string(),
+                                    4 => "快門先決 (S)".to_string(),
+                                    5 => "景深優先 (創意)".to_string(),
+                                    6 => "動作模式 (高速)".to_string(),
+                                    7 => "人像優先".to_string(),
+                                    8 => "風景模式".to_string(),
+                                    _ => "標準自動".to_string(),
+                                });
+                            }
+                            0x9207 => {
+                                // MeteringMode
+                                let val = val_offset & 0xFFFF;
+                                *metering_mode = Some(match val {
+                                    1 => "平均測光".to_string(),
+                                    2 => "中央重點測光".to_string(),
+                                    3 => "點測光".to_string(),
+                                    4 => "多點測光".to_string(),
+                                    5 => "多分割矩陣測光".to_string(),
+                                    6 => "局部測光".to_string(),
+                                    _ => "多重測光".to_string(),
+                                });
+                            }
+                            0x9208 => {
+                                // LightSource -> Calibrated Kelvin & Tint
+                                let val = val_offset & 0xFFFF;
+                                let (temp, estimated_tint) = match val {
+                                    1 => (Some(5500), Some(0)),    // 日光 (Daylight)
+                                    2 => (Some(4200), Some(-8)),   // 螢光燈 (Fluorescent)
+                                    3 => (Some(3200), Some(0)),    // 鎢絲燈 (Tungsten)
+                                    4 => (Some(5400), Some(2)),    // 閃光燈 (Flash)
+                                    9 => (Some(5200), Some(0)),    // 晴天晴朗 (Fine Weather)
+                                    10 => (Some(6000), Some(6)),   // 多雲 (Cloudy)
+                                    11 => (Some(7000), Some(12)),  // 陰影 (Shade)
+                                    12 => (Some(6500), Some(-4)),  // 日光螢光燈
+                                    13 => (Some(5000), Some(-10)), // 晝白色螢光燈
+                                    14 => (Some(4200), Some(-12)), // 冷白色螢光燈
+                                    15 => (Some(3000), Some(-6)),  // 白熾螢光燈
+                                    17 => (Some(2856), Some(0)),   // 標準光 A
+                                    20 => (Some(5500), Some(0)),   // D55
+                                    21 => (Some(6500), Some(0)),   // D65
+                                    22 => (Some(7500), Some(0)),   // D75
+                                    23 => (Some(5000), Some(0)),   // D50
+                                    _ => (None, None),
+                                };
+                                if temp.is_some() {
+                                    *color_temp = temp;
+                                    *tint = estimated_tint;
+                                }
+                            }
+                            0x9209 => {
+                                // Flash
+                                let val = val_offset & 0xFFFF;
+                                let fired = (val & 0x01) != 0;
+                                *flash = Some(if fired { "已擊發" } else { "未擊發" }.to_string());
+                            }
+                            0xA001 => {
+                                // ColorSpace
+                                let val = val_offset & 0xFFFF;
+                                *color_space = Some(match val {
+                                    1 => "sRGB".to_string(),
+                                    2 => "Adobe RGB".to_string(),
+                                    _ => "Wide Gamut".to_string(),
+                                });
+                            }
+                            0xA405 => {
+                                // WhiteBalance (0 = Auto, 1 = Manual)
+                                if color_temp.is_none() {
+                                    *color_temp = Some(5500);
+                                    *tint = Some(0);
                                 }
                             }
                             _ => {}

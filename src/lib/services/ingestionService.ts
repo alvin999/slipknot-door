@@ -35,6 +35,13 @@ export interface EmbeddedPreviewResult {
     aperture: string;
     focal_length: string;
     date_time: string;
+    exposure_bias?: number;
+    exposure_program?: string;
+    metering_mode?: string;
+    color_space?: string;
+    color_temp?: number;
+    tint?: number;
+    flash?: string;
   };
 }
 

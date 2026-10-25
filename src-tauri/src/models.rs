@@ -18,6 +18,13 @@ pub struct ExifMetadata {
     pub aperture: String,
     pub focal_length: String,
     pub date_time: String,
+    pub exposure_bias: Option<f32>,
+    pub exposure_program: Option<String>,
+    pub metering_mode: Option<String>,
+    pub color_space: Option<String>,
+    pub color_temp: Option<u32>,
+    pub tint: Option<i32>,
+    pub flash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

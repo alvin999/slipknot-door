@@ -60,6 +60,23 @@
     appliedProfile: string;
     fileHandle?: File;
     gradedThumbnail?: string;
+    exposureBias?: number;
+    exposureProgram?: string;
+    meteringMode?: string;
+    colorSpace?: string;
+    flash?: string;
+    asShotTemp?: number;
+    asShotTint?: number;
+    asShotExposure?: number;
+    tuning?: {
+      exposure: number;
+      contrast: number;
+      lutIntensity: number;
+      colorTemp: number;
+      tint: number;
+      clarity?: number;
+      sharpness?: number;
+    };
   }
 
   let photoPlates = $state<PhotoPlate[]>([]);
@@ -230,8 +247,41 @@
   }
 
   function selectPhoto(plate: PhotoPlate) {
+    // 記憶前一張相片的自訂調色狀態
+    if (activePhoto && activePhoto.id !== plate.id) {
+      activePhoto.tuning = {
+        exposure,
+        contrast,
+        lutIntensity,
+        colorTemp,
+        tint,
+        clarity,
+        sharpness
+      };
+      photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { ...p, tuning: activePhoto!.tuning } : p);
+    }
+
     activePhoto = plate;
     photoPlates.forEach(p => p.selected = (p.id === plate.id));
+
+    // 載入當前選中相片的專屬調色或拍攝原生值 (As Shot)
+    if (plate.tuning) {
+      exposure = plate.tuning.exposure;
+      contrast = plate.tuning.contrast;
+      lutIntensity = plate.tuning.lutIntensity;
+      colorTemp = plate.tuning.colorTemp;
+      tint = plate.tuning.tint ?? 0;
+      clarity = plate.tuning.clarity ?? 0;
+      sharpness = plate.tuning.sharpness ?? 0;
+    } else {
+      exposure = plate.asShotExposure ?? 0.0;
+      contrast = 0.0;
+      lutIntensity = 1.0;
+      colorTemp = plate.asShotTemp ?? 5500;
+      tint = plate.asShotTint ?? 0.0;
+      clarity = 0.0;
+      sharpness = 0.0;
+    }
   }
 
   function openRetouchForPhoto(plate: PhotoPlate) {
@@ -374,12 +424,13 @@
 
           const isCurrentActive = activePhoto && activePhoto.id === plate.id;
           const found = profiles.find(p => p.id === plate.appliedProfile);
-          const currentEv = isCurrentActive ? exposure : (found ? found.evDefault : 0.0);
-          const currentContrast = isCurrentActive ? contrast : (found ? (found.contrastDefault || 0.0) : 0.0);
-          const currentTemp = isCurrentActive ? colorTemp : 5500;
-          const currentLut = isCurrentActive ? lutIntensity : (found ? found.lutIntensityDefault : 1.0);
-          const currentClarity = isCurrentActive ? clarity : (found ? (found.clarityDefault ?? 0.0) : 0.0);
-          const currentSharpness = isCurrentActive ? sharpness : (found ? (found.sharpnessDefault ?? 0.0) : 0.0);
+          const currentEv = isCurrentActive ? exposure : (plate.tuning?.exposure ?? (found ? found.evDefault : (plate.asShotExposure ?? 0.0)));
+          const currentContrast = isCurrentActive ? contrast : (plate.tuning?.contrast ?? (found ? (found.contrastDefault || 0.0) : 0.0));
+          const currentTemp = isCurrentActive ? colorTemp : (plate.tuning?.colorTemp ?? plate.asShotTemp ?? 5500);
+          const currentTint = isCurrentActive ? tint : (plate.tuning?.tint ?? plate.asShotTint ?? 0.0);
+          const currentLut = isCurrentActive ? lutIntensity : (plate.tuning?.lutIntensity ?? (found ? found.lutIntensityDefault : 1.0));
+          const currentClarity = isCurrentActive ? clarity : (plate.tuning?.clarity ?? (found ? (found.clarityDefault ?? 0.0) : 0.0));
+          const currentSharpness = isCurrentActive ? sharpness : (plate.tuning?.sharpness ?? (found ? (found.sharpnessDefault ?? 0.0) : 0.0));
 
           offscreenRenderer.setImageSource(img);
           offscreenRenderer.setProfile(plate.appliedProfile);
@@ -387,6 +438,7 @@
             exposure: currentEv,
             contrast: currentContrast,
             colorTemp: currentTemp,
+            tint: currentTint,
             lutIntensity: currentLut,
             bypassLut: false,
             clarity: currentClarity,
@@ -412,12 +464,28 @@
   }
 
   /**
-   * 一鍵恢復當前相片調色參數（Reset to Natural Baseline）
+   * 一鍵還原為相機原生拍攝參數（As Shot WB & Exposure）
+   */
+  function resetToAsShot() {
+    if (!activePhoto) return;
+    colorTemp = activePhoto.asShotTemp ?? 5500;
+    tint = activePhoto.asShotTint ?? 0.0;
+    exposure = activePhoto.asShotExposure ?? 0.0;
+    contrast = 0.0;
+    lutIntensity = 1.0;
+    clarity = 0.0;
+    sharpness = 0.0;
+    triggerWebglRender();
+  }
+
+  /**
+   * 一鍵恢復當前相片調色參數（Reset to Natural Baseline 5500K / 0 EV）
    */
   function resetTuningParams() {
     exposure = 0.0;
     contrast = 0.0;
     colorTemp = 5500;
+    tint = 0.0;
     lutIntensity = 1.0;
     clarity = 0.0;
     sharpness = 0.0;
@@ -444,6 +512,7 @@
         exposure: 0.0,
         contrast: 0.0,
         colorTemp: 5500,
+        tint: 0.0,
         lutIntensity: 0.0,
         bypassLut: true
       }, imgWidth, imgHeight);
@@ -458,6 +527,7 @@
       exposure,
       contrast,
       colorTemp,
+      tint,
       lutIntensity,
       bypassLut: isBypass,
       clarity,
@@ -480,6 +550,7 @@
     const _exp = exposure;
     const _contrast = contrast;
     const _temp = colorTemp;
+    const _tint = tint;
     const _lut = lutIntensity;
     const _clarity = clarity;
     const _sharpness = sharpness;
@@ -555,7 +626,23 @@
               photoPlates[i].shutter = preview.exif.shutter_speed || photoPlates[i].shutter;
               photoPlates[i].aperture = preview.exif.aperture || photoPlates[i].aperture;
               photoPlates[i].focalLength = preview.exif.focal_length || photoPlates[i].focalLength;
+              photoPlates[i].exposureBias = preview.exif.exposure_bias ?? 0.0;
+              photoPlates[i].exposureProgram = preview.exif.exposure_program || '標準自動';
+              photoPlates[i].meteringMode = preview.exif.metering_mode || '多重測光';
+              photoPlates[i].colorSpace = preview.exif.color_space || 'sRGB';
+              photoPlates[i].flash = preview.exif.flash || '未擊發';
+              photoPlates[i].asShotTemp = preview.exif.color_temp ?? 5500;
+              photoPlates[i].asShotTint = preview.exif.tint ?? 0;
+              photoPlates[i].asShotExposure = preview.exif.exposure_bias ?? 0.0;
               latestExtractionMs = preview.extraction_time_ms || 18;
+
+              // 若剛好是當前活躍檢視相片，且尚未調整過，立即同步載入相機拍攝原值
+              if (activePhoto && activePhoto.id === photoPlates[i].id && !activePhoto.tuning) {
+                activePhoto = { ...photoPlates[i] };
+                colorTemp = photoPlates[i].asShotTemp ?? 5500;
+                tint = photoPlates[i].asShotTint ?? 0.0;
+                exposure = photoPlates[i].asShotExposure ?? 0.0;
+              }
             }
           });
         }
@@ -581,6 +668,14 @@
                 photoPlates[i].shutter = preview.exif.shutter_speed || photoPlates[i].shutter;
                 photoPlates[i].aperture = preview.exif.aperture || photoPlates[i].aperture;
                 photoPlates[i].focalLength = preview.exif.focal_length || photoPlates[i].focalLength;
+                photoPlates[i].exposureBias = preview.exif.exposure_bias ?? 0.0;
+                photoPlates[i].exposureProgram = preview.exif.exposure_program || '標準自動';
+                photoPlates[i].meteringMode = preview.exif.metering_mode || '多重測光';
+                photoPlates[i].colorSpace = preview.exif.color_space || 'sRGB';
+                photoPlates[i].flash = preview.exif.flash || '未擊發';
+                photoPlates[i].asShotTemp = preview.exif.color_temp ?? 5500;
+                photoPlates[i].asShotTint = preview.exif.tint ?? 0;
+                photoPlates[i].asShotExposure = preview.exif.exposure_bias ?? 0.0;
               }
             }
           }
@@ -1229,6 +1324,30 @@
             <span class="opt-label">FOCAL</span>
             <span class="opt-val">{activePhoto ? activePhoto.focalLength : '--'}</span>
           </div>
+          <div class="optical-chip">
+            <span class="opt-label">EXP. BIAS</span>
+            <span class="opt-val">{activePhoto && activePhoto.exposureBias !== undefined ? (activePhoto.exposureBias > 0 ? `+${activePhoto.exposureBias.toFixed(2)} EV` : `${activePhoto.exposureBias.toFixed(2)} EV`) : '0.00 EV'}</span>
+          </div>
+          <div class="optical-chip">
+            <span class="opt-label">PROGRAM</span>
+            <span class="opt-val truncate" title={activePhoto?.exposureProgram || '--'}>{activePhoto?.exposureProgram || '--'}</span>
+          </div>
+          <div class="optical-chip">
+            <span class="opt-label">METERING</span>
+            <span class="opt-val truncate" title={activePhoto?.meteringMode || '--'}>{activePhoto?.meteringMode || '--'}</span>
+          </div>
+          <div class="optical-chip">
+            <span class="opt-label">COLOR SPACE</span>
+            <span class="opt-val amber">{activePhoto?.colorSpace || 'sRGB'}</span>
+          </div>
+          <div class="optical-chip">
+            <span class="opt-label">AS-SHOT WB</span>
+            <span class="opt-val">{activePhoto?.asShotTemp ? `${activePhoto.asShotTemp}K` : '5500K'}</span>
+          </div>
+          <div class="optical-chip">
+            <span class="opt-label">FLASH</span>
+            <span class="opt-val">{activePhoto?.flash || '未擊發'}</span>
+          </div>
         </div>
         <div class="lens-line font-mono">
           <span class="material-symbols-outlined" style="font-size: 14px;">camera_alt</span>
@@ -1241,15 +1360,26 @@
         <div class="telemetry-box hairline-b">
           <div class="tuning-box-header">
             <div class="box-title font-mono">3D LUT TUNING</div>
-            <button 
-              type="button" 
-              class="reset-tuning-btn font-mono"
-              onclick={resetTuningParams}
-              title="一鍵恢復為原始無偏色直出基準值"
-            >
-              <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
-              <span>恢復預設</span>
-            </button>
+            <div style="display: flex; gap: 6px;">
+              <button 
+                type="button" 
+                class="reset-tuning-btn font-mono"
+                onclick={resetToAsShot}
+                title="還原為相機原生拍攝時的色溫與曝光 (As Shot)"
+              >
+                <span class="material-symbols-outlined" style="font-size: 13px;">photo_camera</span>
+                <span>拍攝原值</span>
+              </button>
+              <button 
+                type="button" 
+                class="reset-tuning-btn font-mono"
+                onclick={resetTuningParams}
+                title="恢復為無偏色直出基準值 (5500K / 0 EV)"
+              >
+                <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
+                <span>重設基準</span>
+              </button>
+            </div>
           </div>
 
           <!-- Slider 1: Exposure -->
@@ -1312,6 +1442,22 @@
               max="8500" 
               step="50" 
               bind:value={colorTemp} 
+              class="darkroom-slider"
+            />
+          </div>
+
+          <!-- Slider 4.5: Tint (Green <-> Magenta) -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>TINT (色調微調)</span>
+              <span class="control-val">{tint > 0 ? `+${Math.round(tint)} (洋紅)` : (tint < 0 ? `${Math.round(tint)} (青綠)` : '0')}</span>
+            </div>
+            <input 
+              type="range" 
+              min="-100" 
+              max="100" 
+              step="1" 
+              bind:value={tint} 
               class="darkroom-slider"
             />
           </div>
