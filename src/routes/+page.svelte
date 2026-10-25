@@ -1261,31 +1261,31 @@
                 {/if}
               </div>
             </div>
-          {:else}
-            <!-- STATUS & INSIGHT SUMMARY CARD -->
-            <div class="ai-status-card hairline-all">
-              <div class="ai-row">
-                <span class="ai-label font-mono">場景</span>
-                <span class="ai-val font-mono">{aiSceneTitle || aiSuggestedScene}</span>
-              </div>
-              {#if aiRecommendedMood}
-                <div class="ai-row">
-                  <span class="ai-label font-mono">推薦風格</span>
-                  <span class="ai-val font-mono amber">⚡ {aiRecommendedMood}</span>
-                </div>
-              {/if}
-              <div class="ai-row">
-                <span class="ai-label font-mono">信心指數</span>
-                <span class="ai-val font-mono amber">{(aiConfidence * 100).toFixed(0)}%</span>
-              </div>
-              <div class="ai-row">
-                <span class="ai-label font-mono">色彩檔</span>
-                <span class="ai-val font-mono indigo">{activePhoto ? activePhoto.appliedProfile : '尚未載入'}</span>
-              </div>
-            </div>
           {/if}
 
-          {#if aiStyleInsight && aiTerminalLogs.length === 0}
+          <!-- STATUS & INSIGHT SUMMARY CARD (始終常駐保留清晰資訊標籤) -->
+          <div class="ai-status-card hairline-all">
+            <div class="ai-row">
+              <span class="ai-label font-mono">場景</span>
+              <span class="ai-val font-mono">{aiSceneTitle || aiSuggestedScene}</span>
+            </div>
+            {#if aiRecommendedMood}
+              <div class="ai-row">
+                <span class="ai-label font-mono">推薦風格</span>
+                <span class="ai-val font-mono amber">⚡ {aiRecommendedMood}</span>
+              </div>
+            {/if}
+            <div class="ai-row">
+              <span class="ai-label font-mono">信心指數</span>
+              <span class="ai-val font-mono amber">{(aiConfidence * 100).toFixed(0)}%</span>
+            </div>
+            <div class="ai-row">
+              <span class="ai-label font-mono">色彩檔</span>
+              <span class="ai-val font-mono indigo">{activePhoto ? activePhoto.appliedProfile : '尚未載入'}</span>
+            </div>
+          </div>
+
+          {#if aiStyleInsight}
             <div class="ai-insight-quote hairline-all font-body">
               <span class="material-symbols-outlined insight-icon">lightbulb</span>
               <div class="insight-text">{aiStyleInsight}</div>
