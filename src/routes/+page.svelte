@@ -212,9 +212,16 @@
 
   // AI Inference State
   let isAiAnalyzing = $state<boolean>(false);
+  let isBatchAiRunning = $state<boolean>(false);
+  let cancelBatchRequested = $state<boolean>(false);
+  let batchProgress = $state<{ current: number; total: number; countdown: number } | null>(null);
   let aiConfidence = $state<number>(0.0);
   let aiSuggestedScene = $state<string>('等待判讀');
+  let aiSceneTitle = $state<string>('');
+  let aiStyleInsight = $state<string>('');
+  let aiRecommendedMood = $state<string>('');
   let aiRecommendedProfile = $state<string>('');
+  let aiTerminalLogs = $state<string[]>([]);
 
   // Curatorial Queue: 若有標記挑圖 (flagged)，精修與匯出僅聚焦選取的相片；若無選取則全部顯示
   let activeQueue = $derived<PhotoPlate[]>(
@@ -707,40 +714,190 @@
     }
   }
 
-  // Authentic AI Scene Analysis (No fake mock data)
-  async function runAiAnalysis() {
-    if (!activePhoto) {
-      exportNotice = '請先載入相片以進行 AI 視覺分析';
+  // AI Adjustment Slider Organic Tween Animation (AI 手動推拉滑桿感)
+  function animateAdjustmentValues(target: {
+    exposure?: number;
+    contrast?: number;
+    lutIntensity?: number;
+    colorTemp?: number;
+    tint?: number;
+  }, durationMs = 650) {
+    const startExposure = exposure;
+    const startContrast = contrast;
+    const startLutIntensity = lutIntensity;
+    const startColorTemp = colorTemp;
+    const startTint = tint;
+
+    const targetExposure = target.exposure ?? startExposure;
+    const targetContrast = target.contrast ?? startContrast;
+    const targetLutIntensity = target.lutIntensity ?? startLutIntensity;
+    const targetColorTemp = target.colorTemp ?? startColorTemp;
+    const targetTint = target.tint ?? startTint;
+
+    const startTime = performance.now();
+
+    function step(now: number) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / durationMs, 1.0);
+      // Ease-out cubic for realistic organic dial resistance
+      const ease = 1 - Math.pow(1 - progress, 3);
+
+      exposure = parseFloat((startExposure + (targetExposure - startExposure) * ease).toFixed(2));
+      contrast = parseFloat((startContrast + (targetContrast - startContrast) * ease).toFixed(2));
+      lutIntensity = parseFloat((startLutIntensity + (targetLutIntensity - startLutIntensity) * ease).toFixed(2));
+      colorTemp = Math.round(startColorTemp + (targetColorTemp - startColorTemp) * ease);
+      tint = parseFloat((startTint + (targetTint - startTint) * ease).toFixed(1));
+
+      if (progress < 1.0) {
+        requestAnimationFrame(step);
+      } else {
+        if (activePhoto) {
+          activePhoto.tuning = {
+            exposure,
+            contrast,
+            lutIntensity,
+            colorTemp,
+            tint,
+            clarity,
+            sharpness
+          };
+          photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { ...p, tuning: activePhoto!.tuning } : p);
+        }
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  async function appendAiLog(msg: string, delayMs = 60) {
+    aiTerminalLogs = [...aiTerminalLogs.slice(-25), msg];
+    if (delayMs > 0) {
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+
+  // Authentic AI Scene Analysis & Organic Parameter Tuning
+  async function runAiAnalysis(targetPhoto?: PhotoPlate): Promise<boolean> {
+    const photoToProcess = targetPhoto || activePhoto;
+    if (!photoToProcess) {
+      exportNotice = '請先載入相片以進行 AI 顯影調色';
       setTimeout(() => { exportNotice = ''; }, 2500);
-      return;
+      return false;
+    }
+
+    if (photoToProcess.id !== activePhoto?.id) {
+      selectPhoto(photoToProcess);
     }
 
     isAiAnalyzing = true;
+    if (!isBatchAiRunning) {
+      aiTerminalLogs = [];
+    }
+    await appendAiLog(`> [OPTICAL_SCAN] 掃描 ${photoToProcess.filename} 影格直方圖...`);
+    await appendAiLog(`> [EXIF] ISO ${photoToProcess.iso} · ${photoToProcess.aperture} · ${photoToProcess.shutter} · ${photoToProcess.focalLength}`);
+    await appendAiLog(`> [STREAM] 傳輸 512px 縮圖至視覺多模態引擎...`, 100);
+
     try {
       const decision = await AiSceneService.analyzeScene(
-        activePhoto.thumbnail,
+        photoToProcess.thumbnail,
         {
-          cameraModel: activePhoto.camera,
-          lensModel: activePhoto.lens,
-          iso: activePhoto.iso,
-          shutterSpeed: activePhoto.shutter,
-          apertureValue: activePhoto.aperture,
-          focalLength: activePhoto.focalLength
+          cameraModel: photoToProcess.camera,
+          lensModel: photoToProcess.lens,
+          iso: photoToProcess.iso,
+          shutterSpeed: photoToProcess.shutter,
+          apertureValue: photoToProcess.aperture,
+          focalLength: photoToProcess.focalLength
         }
       );
 
       aiConfidence = decision.confidence;
-      aiSuggestedScene = decision.isFallback ? `${decision.scene_type} (在地光學推估)` : `${decision.scene_type} (即時視覺判讀)`;
+      aiSuggestedScene = decision.isFallback ? `${decision.scene_type} (在地光學推估)` : `${decision.scene_type} (視覺即時判讀)`;
+      aiSceneTitle = decision.scene_title || decision.scene_type;
+      aiStyleInsight = decision.style_insight || '';
+      aiRecommendedMood = decision.recommended_mood || '';
       aiRecommendedProfile = decision.recommended_profile;
-      exposure = decision.exposure_compensation;
+
+      await appendAiLog(`> [DETECTED] 識別場景：【${aiSceneTitle}】(信心度 ${(decision.confidence * 100).toFixed(0)}%)`);
+      if (decision.style_insight) {
+        await appendAiLog(`> [INSIGHT] ${decision.style_insight}`, 80);
+      }
+      if (decision.recommended_mood) {
+        await appendAiLog(`> [MOOD_SUGGEST] 建議風格調性：${decision.recommended_mood}`);
+      }
+      await appendAiLog(`> [AUTOTUNE] 開始推動曝光與顯影滑桿 (EV: ${decision.exposure_compensation > 0 ? '+' : ''}${decision.exposure_compensation})...`);
+
+      // 執行平滑推桿補間動畫
+      animateAdjustmentValues({
+        exposure: decision.exposure_compensation,
+        contrast: decision.contrast ?? contrast,
+        colorTemp: decision.color_temp ?? colorTemp,
+        tint: decision.tint ?? tint,
+        lutIntensity: decision.lut_intensity
+      }, 700);
+
       shadows = decision.lift_shadows;
-      lutIntensity = decision.lut_intensity;
       applyProfile(decision.recommended_profile);
+
+      await appendAiLog(`> [SUCCESS] 顯影調校完成 ✓`);
+      return true;
     } catch (err: any) {
       console.error('AI Analysis failed:', err);
+      await appendAiLog(`> [ERROR] 顯影推估異常：${err.message || '未知錯誤'}`);
+      return false;
     } finally {
       isAiAnalyzing = false;
     }
+  }
+
+  // 批次 AI 顯影調色（含 4.2s 速率保護與取消中斷）
+  async function runBatchAiAnalysis() {
+    const targetList = flaggedPhotos.length > 0 ? flaggedPhotos : photoPlates;
+    if (targetList.length === 0) {
+      exportNotice = '目前相簿無相片可供批次顯影';
+      setTimeout(() => { exportNotice = ''; }, 2500);
+      return;
+    }
+
+    isBatchAiRunning = true;
+    cancelBatchRequested = false;
+    aiTerminalLogs = [];
+    await appendAiLog(`> [BATCH_START] 啟動批次 AI 顯影調色，共 ${targetList.length} 張相片...`);
+    await appendAiLog(`> [RATE_LIMIT] 啟用 Gemini Free Tier 速率保護 (每分鐘 15 次限制，間隔 4.2 秒)`);
+
+    for (let i = 0; i < targetList.length; i++) {
+      if (cancelBatchRequested) {
+        await appendAiLog(`> [BATCH_ABORT] 使用者已手動中止批次顯影程序。`);
+        break;
+      }
+
+      const p = targetList[i];
+      batchProgress = { current: i + 1, total: targetList.length, countdown: 0 };
+      await appendAiLog(`----------------------------------------`);
+      await appendAiLog(`> [BATCH ${i + 1}/${targetList.length}] 正在顯影：${p.filename}`);
+
+      await runAiAnalysis(p);
+
+      // 如果不是最後一張且未被中斷，進行防超限 Sleep 倒數 (4.2 秒)
+      if (i < targetList.length - 1 && !cancelBatchRequested) {
+        for (let cd = 4; cd > 0; cd--) {
+          if (cancelBatchRequested) break;
+          batchProgress.countdown = cd;
+          await new Promise(r => setTimeout(r, 1050));
+        }
+        batchProgress.countdown = 0;
+      }
+    }
+
+    if (!cancelBatchRequested) {
+      await appendAiLog(`> [BATCH_COMPLETE] 全部 ${targetList.length} 張相片批次顯影完成！🎉`);
+    }
+
+    isBatchAiRunning = false;
+    batchProgress = null;
+    cancelBatchRequested = false;
+  }
+
+  function cancelBatchAi() {
+    cancelBatchRequested = true;
   }
 
   // Export Pipeline State
@@ -1068,57 +1225,127 @@
         </button>
       </nav>
 
-      <!-- AI Scene Assistant Quick Dock -->
-      <div class="ai-assistant-dock hairline-t">
-        <div class="ai-header">
-          <span class="material-symbols-outlined ai-sparkle">auto_awesome</span>
-          <span class="font-headline ai-title">AI 視覺判讀</span>
-        </div>
-        <p class="ai-desc">512px 微型 Payload · 本機安全金鑰</p>
-        
-        <div class="ai-status-card hairline-all">
-          <div class="ai-row">
-            <span class="ai-label font-mono">SCENE</span>
-            <span class="ai-val font-mono">{aiSuggestedScene}</span>
+      <!-- AI Scene Assistant Quick Dock (Step 2: 單張暗房精修專屬) -->
+      {#if activeTab === 'retouch'}
+        <div class="ai-assistant-dock hairline-t">
+          <div class="ai-header">
+            <span class="material-symbols-outlined ai-sparkle">auto_awesome</span>
+            <span class="font-headline ai-title">AI 顯影調色</span>
+            {#if isBatchAiRunning}
+              <span class="ai-batch-badge font-mono amber">BATCH RUNNING</span>
+            {/if}
           </div>
-          <div class="ai-row">
-            <span class="ai-label font-mono">CONFIDENCE</span>
-            <span class="ai-val font-mono amber">{(aiConfidence * 100).toFixed(0)}%</span>
-          </div>
-          <div class="ai-row">
-            <span class="ai-label font-mono">MATCH</span>
-            <span class="ai-val font-mono indigo">{activePhoto ? activePhoto.appliedProfile : '尚未載入'}</span>
-          </div>
-        </div>
+          <p class="ai-desc">Gemini 視覺多模態 · 智慧光學顯影</p>
+          
+          {#if aiTerminalLogs.length > 0}
+            <!-- LIVE TERMINAL SCAN STREAM HUD -->
+            <div class="ai-terminal-box hairline-all font-mono">
+              <div class="terminal-bar hairline-b">
+                <span class="term-dot red"></span>
+                <span class="term-dot amber"></span>
+                <span class="term-dot green"></span>
+                <span class="term-title">DARKROOM://NEURAL_DEVELOP</span>
+              </div>
+              <div class="terminal-body custom-scroll">
+                {#each aiTerminalLogs as line}
+                  <div class="term-line">{line}</div>
+                {/each}
+                {#if isAiAnalyzing || isBatchAiRunning}
+                  <div class="term-line active">
+                    {#if batchProgress?.countdown}
+                      <span class="term-blink amber">⚡ 速率保護冷卻中 ({batchProgress.countdown}s)...</span>
+                    {:else}
+                      <span class="term-cursor">▌</span>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {:else}
+            <!-- STATUS & INSIGHT SUMMARY CARD -->
+            <div class="ai-status-card hairline-all">
+              <div class="ai-row">
+                <span class="ai-label font-mono">場景</span>
+                <span class="ai-val font-mono">{aiSceneTitle || aiSuggestedScene}</span>
+              </div>
+              {#if aiRecommendedMood}
+                <div class="ai-row">
+                  <span class="ai-label font-mono">推薦風格</span>
+                  <span class="ai-val font-mono amber">⚡ {aiRecommendedMood}</span>
+                </div>
+              {/if}
+              <div class="ai-row">
+                <span class="ai-label font-mono">信心指數</span>
+                <span class="ai-val font-mono amber">{(aiConfidence * 100).toFixed(0)}%</span>
+              </div>
+              <div class="ai-row">
+                <span class="ai-label font-mono">色彩檔</span>
+                <span class="ai-val font-mono indigo">{activePhoto ? activePhoto.appliedProfile : '尚未載入'}</span>
+              </div>
+            </div>
+          {/if}
 
-        <div class="ai-actions-stack">
-          <button 
-            class="archival-btn-secondary w-full" 
-            onclick={runAiAnalysis}
-            disabled={isAiAnalyzing}
-          >
-            <span class="material-symbols-outlined" style="font-size: 16px;">
-              {isAiAnalyzing ? 'progress_activity' : 'psychology'}
-            </span>
-            <span>{isAiAnalyzing ? '正在視覺判讀...' : '重新分析當前幀'}</span>
-          </button>
+          {#if aiStyleInsight && aiTerminalLogs.length === 0}
+            <div class="ai-insight-quote hairline-all font-body">
+              <span class="material-symbols-outlined insight-icon">lightbulb</span>
+              <div class="insight-text">{aiStyleInsight}</div>
+            </div>
+          {/if}
 
-          <button 
-            type="button"
-            class="vault-trigger-btn font-mono hairline-all" 
-            onclick={() => isVaultOpen = true}
-          >
-            <span class="material-symbols-outlined" style="font-size: 14px;">
-              {geminiKeyStatus.exists ? 'lock' : 'vpn_key'}
-            </span>
-            <span>
-              {geminiKeyStatus.exists 
-                ? (geminiKeyStatus.mode === 'password' ? '金鑰保險庫 (密碼保護)' : geminiKeyStatus.mode === 'transparent' ? '金鑰保險庫 (透明加密)' : '金鑰保險庫 (無加密)') 
-                : '設定 AI 安全金鑰'}
-            </span>
-          </button>
+          <div class="ai-actions-stack">
+            {#if isBatchAiRunning}
+              <button 
+                type="button"
+                class="archival-btn-secondary danger w-full" 
+                onclick={cancelBatchAi}
+              >
+                <span class="material-symbols-outlined" style="font-size: 16px;">cancel</span>
+                <span>中止批次顯影 ({batchProgress?.current || 1}/{batchProgress?.total || 1})</span>
+              </button>
+            {:else}
+              <button 
+                type="button"
+                class="archival-btn-primary w-full ai-main-btn" 
+                onclick={() => runAiAnalysis()}
+                disabled={isAiAnalyzing || !activePhoto}
+              >
+                <span class="material-symbols-outlined" style="font-size: 16px;">
+                  {isAiAnalyzing ? 'progress_activity' : 'psychology'}
+                </span>
+                <span>{isAiAnalyzing ? '正在顯影調校...' : 'AI 顯影調色'}</span>
+              </button>
+
+              {#if photoPlates.length > 1}
+                <button 
+                  type="button"
+                  class="archival-btn-secondary w-full batch-btn font-mono" 
+                  onclick={runBatchAiAnalysis}
+                  disabled={isAiAnalyzing}
+                  title="針對所有已標記（或全部）相片循序進行 AI 顯影調色，含 15 RPM 速率保護"
+                >
+                  <span class="material-symbols-outlined" style="font-size: 15px;">auto_mode</span>
+                  <span>批次顯影 ({flaggedPhotos.length > 0 ? `${flaggedPhotos.length} 張勾選` : `全簿 ${photoPlates.length} 張`})</span>
+                </button>
+              {/if}
+            {/if}
+
+            <button 
+              type="button"
+              class="vault-trigger-btn font-mono hairline-all" 
+              onclick={() => isVaultOpen = true}
+            >
+              <span class="material-symbols-outlined" style="font-size: 14px;">
+                {geminiKeyStatus.exists ? 'lock' : 'vpn_key'}
+              </span>
+              <span>
+                {geminiKeyStatus.exists 
+                  ? (geminiKeyStatus.mode === 'password' ? '金鑰保險庫 (密碼保護)' : geminiKeyStatus.mode === 'transparent' ? '金鑰保險庫 (透明加密)' : '金鑰保險庫 (無加密)') 
+                  : '設定 AI 安全金鑰'}
+              </span>
+            </button>
+          </div>
         </div>
-      </div>
+      {/if}
     </aside>
 
     <!-- CENTER STAGE: PHOTOGRAPHIC PLATE VIEWPORT -->
@@ -1516,40 +1743,16 @@
           </div>
         </div>
 
-        <!-- Export Mode Toggle (精修完成後才前往導出) -->
+        <!-- 下一個步驟：前往步驟三 批次匯出管線 -->
         <div class="telemetry-box hairline-t mt-auto">
-          <div class="box-title font-mono">EXPORT PIPELINE SPEC</div>
-          <div class="export-mode-toggle hairline-all">
-            <button 
-              class="mode-btn font-mono" 
-              class:active={exportMode === 'modeA'}
-              onclick={() => exportMode = 'modeA'}
-            >
-              MODE A (100ms 極速)
-            </button>
-            <button 
-              class="mode-btn font-mono" 
-              class:active={exportMode === 'modeB'}
-              onclick={() => exportMode = 'modeB'}
-            >
-              MODE B (16-bit 滿血)
-            </button>
-          </div>
-          <div class="export-meta-desc font-body">
-            {exportMode === 'modeA' 
-              ? '離屏 WebGL 重新採樣，直出 95% 高品質 JPEG，極速省電。' 
-              : '調用原生 LibRaw 16-bit 解碼矩陣運算，高解析典藏交付。'}
-          </div>
-
-          <!-- Step 2 Completion CTA Button -->
           <button 
             type="button" 
             class="archival-btn-primary w-full step2-cta-btn" 
             onclick={goToExport}
-            title="步驟二完成：前往批次導出頁面"
+            title="步驟二完成：前往步驟三 批次匯出管線"
           >
             <span class="material-symbols-outlined" style="font-size: 15px;">output_circle</span>
-            <span>完成調色，前往導出 ({activeQueue.length} 幀) →</span>
+            <span>完成調色，前往匯出管線 ({activeQueue.length} 幀) →</span>
           </button>
         </div>
       {:else if activeTab === 'catalog'}
@@ -1988,6 +2191,108 @@
     flex-direction: column;
     gap: 6px;
   }
+
+  /* LIVE TERMINAL SCAN STREAM HUD STYLES */
+  .ai-terminal-box {
+    background-color: #0b0d10;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    margin-bottom: 10px;
+    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8), 0 0 10px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(226, 157, 82, 0.25);
+  }
+  .terminal-bar {
+    background-color: #12141a;
+    padding: 4px 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .term-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .term-dot.red { background-color: #e06c75; }
+  .term-dot.amber { background-color: #e5c07b; }
+  .term-dot.green { background-color: #98c379; }
+  .term-title {
+    font-size: 8px;
+    letter-spacing: 0.08em;
+    color: var(--parchment-dim);
+    margin-left: 4px;
+  }
+  .terminal-body {
+    padding: 8px 10px;
+    max-height: 120px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .term-line {
+    font-size: 10px;
+    line-height: 1.35;
+    color: #98c379;
+    word-break: break-all;
+  }
+  .term-line.active {
+    color: var(--amber-highlight);
+  }
+  .term-cursor {
+    animation: termBlink 0.8s infinite;
+    color: var(--amber-highlight);
+  }
+  .term-blink {
+    animation: termBlink 1s infinite;
+  }
+  @keyframes termBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.2; }
+  }
+
+  .ai-batch-badge {
+    font-size: 8px;
+    padding: 1px 4px;
+    border-radius: 2px;
+    background-color: rgba(226, 157, 82, 0.15);
+    border: 1px solid rgba(226, 157, 82, 0.4);
+    margin-left: auto;
+  }
+  .ai-insight-quote {
+    background-color: rgba(226, 157, 82, 0.08);
+    border-left: 2px solid var(--amber-highlight);
+    border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+    padding: 6px 8px;
+    margin-bottom: 10px;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  .insight-icon {
+    font-size: 13px;
+    color: var(--amber-highlight);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .insight-text {
+    font-size: 10px;
+    color: var(--parchment-muted);
+    line-height: 1.35;
+  }
+  .ai-main-btn {
+    background: linear-gradient(135deg, #3d5a80, #293241) !important;
+    border: 1px solid rgba(152, 195, 121, 0.4) !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  }
+  .ai-main-btn:hover {
+    border-color: #98c379 !important;
+  }
+  .batch-btn {
+    font-size: 10px !important;
+    padding: 5px 8px !important;
+  }
+
   .vault-trigger-btn {
     background: transparent;
     border: 1px solid var(--hairline-slate);
@@ -2417,35 +2722,6 @@
     line-height: 1.3;
   }
 
-  /* EXPORT TOGGLE */
-  .export-mode-toggle {
-    display: flex;
-    background-color: var(--surface-elevated);
-    border-radius: var(--radius-sm);
-    padding: 2px;
-    margin-bottom: 8px;
-  }
-  .mode-btn {
-    flex: 1;
-    background: transparent;
-    border: none;
-    padding: 6px 4px;
-    font-size: 10px;
-    color: var(--parchment-muted);
-    cursor: pointer;
-    border-radius: var(--radius-xs);
-    transition: all 0.15s ease;
-  }
-  .mode-btn.active {
-    background-color: var(--primary-indigo);
-    color: var(--canvas-base);
-    font-weight: 600;
-  }
-  .export-meta-desc {
-    font-size: 10px;
-    color: var(--parchment-dim);
-    line-height: 1.4;
-  }
   .mt-auto {
     margin-top: auto;
   }

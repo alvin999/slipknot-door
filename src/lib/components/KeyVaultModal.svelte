@@ -30,15 +30,57 @@
     updatedAt: null
   });
 
-  onMount(() => {
+  onMount(async () => {
     refreshStatus();
+    loadStoredModelSelection();
+    await autoLoadModelsForSavedKey();
   });
 
   function refreshStatus() {
     vaultStatus = KeyVaultService.getKeyStatus(selectedProvider);
-    statusMessage = null;
   }
 
+  function loadStoredModelSelection() {
+    if (typeof localStorage !== 'undefined') {
+      selectedModelId = localStorage.getItem(`slipknot_model_${selectedProvider}`) || null;
+    } else {
+      selectedModelId = null;
+    }
+  }
+
+  /**
+   * Switch provider tab cleanly without erasing user input accidentally
+   */
+  async function switchProvider(prov: 'gemini' | 'groq') {
+    if (selectedProvider === prov) return;
+    selectedProvider = prov;
+    apiKeyInput = '';
+    masterPassword = '';
+    discoveredModels = [];
+    statusMessage = null;
+    refreshStatus();
+    loadStoredModelSelection();
+    await autoLoadModelsForSavedKey();
+  }
+
+  /**
+   * Automatically query models if a key is already securely stored in vault
+   */
+  async function autoLoadModelsForSavedKey() {
+    if (!vaultStatus.exists || vaultStatus.mode === 'password') return;
+    try {
+      const loaded = await KeyVaultService.loadKey(selectedProvider);
+      if (loaded.apiKey) {
+        await executeDiscovery(selectedProvider, loaded.apiKey, false);
+      }
+    } catch {
+      // Background auto-load failure is silently handled
+    }
+  }
+
+  /**
+   * Handle user input in API Key field
+   */
   function handleKeyInputChange(newVal: string) {
     apiKeyInput = newVal;
 
@@ -46,43 +88,119 @@
     const detected = ModelDiscoveryService.detectProviderFromKey(newVal);
     if (detected && detected !== selectedProvider) {
       selectedProvider = detected;
+      refreshStatus();
+      loadStoredModelSelection();
     }
 
     // Debounced dynamic model discovery
     clearTimeout(discoveryTimer);
-    discoveredModels = [];
-    selectedModelId = null;
-
     if (newVal.trim().length > 10) {
       isDiscoveringModels = true;
       discoveryTimer = setTimeout(async () => {
-        try {
-          const res = await ModelDiscoveryService.discoverModels(selectedProvider, newVal.trim());
-          discoveredModels = res.models;
-          selectedModelId = res.recommendedModelId;
-        } finally {
-          isDiscoveringModels = false;
-        }
-      }, 500);
+        await executeDiscovery(selectedProvider, newVal.trim(), false);
+      }, 600);
+    } else {
+      discoveredModels = [];
     }
   }
 
-  $effect(() => {
-    if (selectedProvider) {
-      refreshStatus();
-      apiKeyInput = '';
-      masterPassword = '';
-      discoveredModels = [];
-      if (typeof localStorage !== 'undefined') {
-        selectedModelId = localStorage.getItem(`slipknot_model_${selectedProvider}`) || null;
+  /**
+   * Core execution for model discovery & live endpoint validation
+   */
+  async function executeDiscovery(prov: 'gemini' | 'groq', key: string, isManualTest: boolean) {
+    isDiscoveringModels = true;
+    if (isManualTest) {
+      statusMessage = { text: `正在連線 ${prov.toUpperCase()} 端點驗證金鑰與探測多模態視覺模型...`, type: 'info' };
+    }
+
+    try {
+      const res = await ModelDiscoveryService.discoverModels(prov, key);
+
+      if (res.error) {
+        if (isManualTest) {
+          statusMessage = { text: `連線失敗：${res.error}`, type: 'error' };
+        }
+        discoveredModels = [];
       } else {
-        selectedModelId = null;
+        discoveredModels = res.models;
+        if (res.models.length > 0) {
+          if (!selectedModelId || !res.models.some(m => m.id === selectedModelId)) {
+            selectedModelId = res.recommendedModelId;
+          }
+          if (isManualTest) {
+            statusMessage = {
+              text: `連線成功！已動態載入 ${res.models.length} 個視覺模型（建議首選：${res.recommendedModelId}）`,
+              type: 'success'
+            };
+          }
+        } else {
+          if (isManualTest) {
+            statusMessage = {
+              text: `連線成功，但該金鑰未匹配到多模態視覺模型（如 ${prov === 'groq' ? 'llama-3.2-vision' : 'gemini-flash'}）`,
+              type: 'error'
+            };
+          }
+        }
+      }
+    } catch (err: any) {
+      if (isManualTest) {
+        statusMessage = { text: `連線異常：${err.message || '未知錯誤'}`, type: 'error' };
+      }
+    } finally {
+      isDiscoveringModels = false;
+    }
+  }
+
+  /**
+   * Manual test connection button trigger
+   */
+  async function handleTestConnection() {
+    let keyToTest = apiKeyInput.trim();
+
+    // If input is empty, fallback to stored key in vault
+    if (!keyToTest && vaultStatus.exists) {
+      try {
+        const loaded = await KeyVaultService.loadKey(selectedProvider, masterPassword);
+        if (loaded.requiresPassword) {
+          statusMessage = { text: '此金鑰受密碼保護，請在下方輸入主密碼後再點擊測試連線', type: 'info' };
+          return;
+        }
+        if (loaded.apiKey) {
+          keyToTest = loaded.apiKey;
+        }
+      } catch (err: any) {
+        statusMessage = { text: `無法載入已存金鑰：${err.message}`, type: 'error' };
+        return;
       }
     }
-  });
+
+    if (!keyToTest) {
+      statusMessage = { text: '請先輸入 API Key 後再點擊測試連線', type: 'error' };
+      return;
+    }
+
+    await executeDiscovery(selectedProvider, keyToTest, true);
+  }
 
   async function handleSave() {
-    if (!apiKeyInput.trim()) {
+    let keyToSave = apiKeyInput.trim();
+
+    // If apiKeyInput is empty but already exists and user is just changing model selection
+    if (!keyToSave && vaultStatus.exists) {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('slipknot_active_provider', selectedProvider);
+        if (selectedModelId) {
+          localStorage.setItem(`slipknot_model_${selectedProvider}`, selectedModelId);
+        }
+      }
+      statusMessage = {
+        text: `設定已更新${selectedModelId ? ` · 已綁定模型：${selectedModelId}` : ''}`,
+        type: 'success'
+      };
+      return;
+    }
+
+    if (!keyToSave) {
       statusMessage = { text: '請輸入有效的 API Key', type: 'error' };
       return;
     }
@@ -90,7 +208,7 @@
     try {
       await KeyVaultService.saveKey(
         selectedProvider,
-        apiKeyInput.trim(),
+        keyToSave,
         currentMode,
         masterPassword
       );
@@ -102,7 +220,7 @@
       }
       refreshStatus();
       statusMessage = {
-        text: `金鑰已成功儲存（${getModeLabel(currentMode)}）${selectedModelId ? ` · 已綁定模型：${selectedModelId}` : ''}`,
+        text: `金鑰已成功安全儲存（${getModeLabel(currentMode)}）${selectedModelId ? ` · 已綁定模型：${selectedModelId}` : ''}`,
         type: 'success'
       };
       apiKeyInput = '';
@@ -112,25 +230,11 @@
     }
   }
 
-  async function handleTestDecrypt() {
-    try {
-      const res = await KeyVaultService.loadKey(selectedProvider, masterPassword);
-      if (res.requiresPassword) {
-        statusMessage = { text: '此金鑰受密碼保護，請在下方輸入主密碼以解鎖', type: 'info' };
-      } else if (res.apiKey) {
-        const masked = res.apiKey.slice(0, 4) + '••••••••' + res.apiKey.slice(-4);
-        statusMessage = { text: `解密成功！金鑰：${masked}（模式：${getModeLabel(res.mode!)}）`, type: 'success' };
-      } else {
-        statusMessage = { text: '本機尚未儲存此提供商之金鑰', type: 'info' };
-      }
-    } catch (err: any) {
-      statusMessage = { text: err.message || '解密失敗', type: 'error' };
-    }
-  }
-
   function handleDelete() {
     KeyVaultService.deleteKey(selectedProvider);
     refreshStatus();
+    discoveredModels = [];
+    selectedModelId = null;
     statusMessage = { text: '金鑰已自本機保險庫徹底清除', type: 'info' };
     apiKeyInput = '';
     masterPassword = '';
@@ -139,8 +243,8 @@
   function getModeLabel(m: KeyEncryptionMode): string {
     switch (m) {
       case 'plain': return '無加密（純文字）';
-      case 'transparent': return '透明加密（設備指紋綁定 AES-GCM）';
-      case 'password': return '密碼加密（主密碼 PBKDF2 保護）';
+      case 'transparent': return '透明加密（本機安全綁定）';
+      case 'password': return '密碼加密（主密碼 PBKDF2）';
     }
   }
 </script>
@@ -174,7 +278,7 @@
             type="button" 
             class="prov-btn font-mono" 
             class:active={selectedProvider === 'gemini'}
-            onclick={() => selectedProvider = 'gemini'}
+            onclick={() => switchProvider('gemini')}
           >
             Google Gemini Flash Vision
           </button>
@@ -182,7 +286,7 @@
             type="button" 
             class="prov-btn font-mono" 
             class:active={selectedProvider === 'groq'}
-            onclick={() => selectedProvider = 'groq'}
+            onclick={() => switchProvider('groq')}
           >
             Groq Llama-Vision
           </button>
@@ -269,12 +373,19 @@
         <div class="section-block">
           <div class="section-label font-mono">
             <span>自動適配視覺模型 (DYNAMIC VISION DISCOVERY)</span>
-            {#if isDiscoveringModels}
-              <span class="detecting-label">
-                <span class="material-symbols-outlined spin" style="font-size: 12px;">sync</span>
-                動態探測中...
-              </span>
-            {/if}
+            <div class="model-action-right">
+              {#if isDiscoveringModels}
+                <span class="detecting-label">
+                  <span class="material-symbols-outlined spin" style="font-size: 12px;">sync</span>
+                  動態探測中...
+                </span>
+              {:else}
+                <button type="button" class="text-toggle font-mono" onclick={handleTestConnection} title="重新連線探測可用模型">
+                  <span class="material-symbols-outlined" style="font-size: 12px; vertical-align: middle;">refresh</span>
+                  重新探測
+                </button>
+              {/if}
+            </div>
           </div>
 
           {#if discoveredModels.length > 0}
@@ -308,10 +419,10 @@
                 </div>
               {/if}
             {/if}
-          {:else if apiKeyInput.length > 10 && !isDiscoveringModels}
+          {:else if (apiKeyInput.length > 10 || vaultStatus.exists) && !isDiscoveringModels}
             <div class="model-hint-box hairline-all font-mono">
               <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">info</span>
-              <span>已啟用離線/預設模型規則匹配；可隨時點擊「驗證解密」測試連線。</span>
+              <span>可點擊「重新探測」或下方「測試連線」即時連線端點載入模型。</span>
             </div>
           {:else}
             <div class="model-hint-box hairline-all font-mono">
@@ -358,18 +469,25 @@
             <span class="material-symbols-outlined" style="font-size: 15px;">delete</span>
             清除金鑰
           </button>
-          <button type="button" class="archival-btn-secondary" onclick={handleTestDecrypt}>
-            <span class="material-symbols-outlined" style="font-size: 15px;">verified_user</span>
-            驗證解密
-          </button>
         {/if}
+        <button 
+          type="button" 
+          class="archival-btn-secondary" 
+          onclick={handleTestConnection}
+          disabled={isDiscoveringModels}
+        >
+          <span class="material-symbols-outlined" style="font-size: 15px;">
+            {isDiscoveringModels ? 'sync' : 'network_check'}
+          </span>
+          {isDiscoveringModels ? '連線中...' : '測試連線'}
+        </button>
         <div class="spacer"></div>
         <button type="button" class="archival-btn-secondary" onclick={() => { isOpen = false; onClose?.(); }}>
           關閉
         </button>
         <button type="button" class="archival-btn-primary" onclick={handleSave}>
           <span class="material-symbols-outlined" style="font-size: 15px;">save</span>
-          加密儲存
+          儲存設定
         </button>
       </div>
     </div>

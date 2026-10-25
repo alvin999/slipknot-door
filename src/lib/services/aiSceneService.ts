@@ -8,20 +8,26 @@ import type { ExifOpticalData } from '../types/photo';
 import { KeyVaultService } from './keyVaultService';
 
 export interface AiSceneDecision {
-  scene_type: 'urban_geometry' | 'outdoor_street' | 'indoor_ambient' | 'portrait';
-  recommended_profile: 'Profile_01_MatteShadow' | 'Profile_02_TealEmerald' | 'Profile_03_TungstenSoft' | 'Profile_04_HighContrastMono';
+  scene_type: string;
+  scene_title?: string;
+  style_insight?: string;
+  recommended_mood?: string;
+  recommended_profile: string;
   confidence: number;
   exposure_compensation: number;
+  contrast?: number;
+  color_temp?: number;
+  tint?: number;
   lift_shadows: number;
   lut_intensity: number;
   isFallback: boolean;
 }
 
 export class AiSceneService {
-  private static TIMEOUT_MS = 2500;
+  private static TIMEOUT_MS = 10000;
 
   /**
-   * Run optical scene analysis with automatic 2500ms offline fallback.
+   * Run optical scene analysis with automatic 10000ms offline fallback.
    */
   public static async analyzeScene(
     imagePayload512pxBase64: string,
@@ -30,7 +36,7 @@ export class AiSceneService {
     try {
       // Create timeout promise
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('AI 推論逾時 (>2500ms)，自動切換在地降級')), this.TIMEOUT_MS)
+        setTimeout(() => reject(new Error('AI 推論逾時 (>10s)，自動切換在地光學降級')), this.TIMEOUT_MS)
       );
 
       // Authentic Vision Model Call
@@ -55,9 +61,15 @@ export class AiSceneService {
     if (aperture <= 2.0 && focalMm >= 50) {
       return {
         scene_type: 'portrait',
+        scene_title: '大光圈淺景深人像',
+        style_insight: '偵測到大光圈特寫鏡頭，建議柔化肌膚調性並微升曝光，呈現鎢絲燈柔光暖意。',
+        recommended_mood: '柔焦暖光人像',
         recommended_profile: 'Profile_03_TungstenSoft',
         confidence: 0.88,
         exposure_compensation: 0.2,
+        contrast: -0.05,
+        color_temp: 5800,
+        tint: 3.0,
         lift_shadows: 0.15,
         lut_intensity: 0.85,
         isFallback: true
@@ -68,9 +80,15 @@ export class AiSceneService {
     if (iso >= 3200) {
       return {
         scene_type: 'outdoor_street',
+        scene_title: '微光夜巡街景',
+        style_insight: '高感光度低光場景，建議微調高光抑止噪點、提亮暗部細節，賦予沉穩霧面黑質感。',
+        recommended_mood: '消光暗夜影調',
         recommended_profile: 'Profile_01_MatteShadow',
         confidence: 0.82,
         exposure_compensation: 0.1,
+        contrast: 0.05,
+        color_temp: 5200,
+        tint: -2.0,
         lift_shadows: 0.25,
         lut_intensity: 0.80,
         isFallback: true
@@ -81,9 +99,15 @@ export class AiSceneService {
     if (aperture >= 5.6) {
       return {
         scene_type: 'urban_geometry',
+        scene_title: '幾何建築線條',
+        style_insight: '深景深幾何架構，光影對比較為分明，推薦純粹的高反差黑白以強化幾何張力。',
+        recommended_mood: '硬調幾何黑白',
         recommended_profile: 'Profile_04_HighContrastMono',
         confidence: 0.85,
         exposure_compensation: 0.0,
+        contrast: 0.12,
+        color_temp: 5500,
+        tint: 0.0,
         lift_shadows: -0.05,
         lut_intensity: 1.0,
         isFallback: true
@@ -93,9 +117,15 @@ export class AiSceneService {
     // Default Fallback: Cool teal emerald
     return {
       scene_type: 'outdoor_street',
+      scene_title: '開闊日常光景',
+      style_insight: '平衡光照環境，推薦微冷調翡翠綠，賦予影像沉靜而通透的電影底片氛圍。',
+      recommended_mood: '青綠冷調紀實',
       recommended_profile: 'Profile_02_TealEmerald',
       confidence: 0.78,
       exposure_compensation: 0.0,
+      contrast: 0.0,
+      color_temp: 5400,
+      tint: -1.5,
       lift_shadows: 0.1,
       lut_intensity: 0.9,
       isFallback: true
@@ -160,14 +190,21 @@ export class AiSceneService {
       modelId = localStorage.getItem(`slipknot_model_${provider}`);
     }
 
-    const promptText = `You are a photographic darkroom assistant. Analyze this image and recommend a color profile.
+    const promptText = `You are a professional analog darkroom colorist. Analyze this photographic image and optical EXIF (ISO: ${exif.iso || 'N/A'}, Shutter: ${exif.shutterSpeed || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}, Lens/Focal: ${exif.focalLength || 'N/A'}).
+Provide an artistic color grading decision and stylistic recommendation.
 Respond ONLY with raw JSON matching this schema:
 {
-  "scene_type": "urban_geometry" | "outdoor_street" | "indoor_ambient" | "portrait",
-  "recommended_profile": "Profile_01_MatteShadow" | "Profile_02_TealEmerald" | "Profile_03_TungstenSoft" | "Profile_04_HighContrastMono",
+  "scene_title": "午後斜陽微光街角 (Poetic scene title in Traditional Chinese, 4-8 chars)",
+  "scene_type": "outdoor_street",
+  "style_insight": "主體處於側逆光環境，建議壓制高光並微提暗部細節，整體色調偏向暖調底片質感。(1-2 sentences professional insight in Traditional Chinese)",
+  "recommended_mood": "經典暖調底片 (Mood / style label in Traditional Chinese)",
+  "recommended_profile": "Profile_01_MatteShadow",
   "confidence": 0.94,
-  "exposure_compensation": 0.1,
-  "lift_shadows": 0.05,
+  "exposure_compensation": 0.15,
+  "contrast": 0.05,
+  "color_temp": 5600,
+  "tint": 2.0,
+  "lift_shadows": 0.1,
   "lut_intensity": 0.85
 }`;
 
@@ -211,11 +248,17 @@ Respond ONLY with raw JSON matching this schema:
       const parsed = JSON.parse(rawContent);
       return {
         scene_type: parsed.scene_type || 'outdoor_street',
+        scene_title: parsed.scene_title || '光影畫面顯影',
+        style_insight: parsed.style_insight || 'AI 已根據畫面光影特徵完成動態範圍與色調調校。',
+        recommended_mood: parsed.recommended_mood || '底片氛圍調性',
         recommended_profile: parsed.recommended_profile || 'Profile_01_MatteShadow',
-        confidence: parsed.confidence || 0.9,
-        exposure_compensation: parsed.exposure_compensation || 0.0,
-        lift_shadows: parsed.lift_shadows || 0.0,
-        lut_intensity: parsed.lut_intensity || 0.85,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.9,
+        exposure_compensation: typeof parsed.exposure_compensation === 'number' ? parsed.exposure_compensation : 0.0,
+        contrast: typeof parsed.contrast === 'number' ? parsed.contrast : 0.0,
+        color_temp: typeof parsed.color_temp === 'number' ? parsed.color_temp : 5500,
+        tint: typeof parsed.tint === 'number' ? parsed.tint : 0.0,
+        lift_shadows: typeof parsed.lift_shadows === 'number' ? parsed.lift_shadows : 0.0,
+        lut_intensity: typeof parsed.lut_intensity === 'number' ? parsed.lut_intensity : 0.85,
         isFallback: false
       };
     } else {
@@ -262,11 +305,17 @@ Respond ONLY with raw JSON matching this schema:
       const parsed = JSON.parse(rawContent);
       return {
         scene_type: parsed.scene_type || 'outdoor_street',
+        scene_title: parsed.scene_title || '光影畫面顯影',
+        style_insight: parsed.style_insight || 'AI 已根據畫面光影特徵完成動態範圍與色調調校。',
+        recommended_mood: parsed.recommended_mood || '底片氛圍調性',
         recommended_profile: parsed.recommended_profile || 'Profile_01_MatteShadow',
-        confidence: parsed.confidence || 0.9,
-        exposure_compensation: parsed.exposure_compensation || 0.0,
-        lift_shadows: parsed.lift_shadows || 0.0,
-        lut_intensity: parsed.lut_intensity || 0.85,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.9,
+        exposure_compensation: typeof parsed.exposure_compensation === 'number' ? parsed.exposure_compensation : 0.0,
+        contrast: typeof parsed.contrast === 'number' ? parsed.contrast : 0.0,
+        color_temp: typeof parsed.color_temp === 'number' ? parsed.color_temp : 5500,
+        tint: typeof parsed.tint === 'number' ? parsed.tint : 0.0,
+        lift_shadows: typeof parsed.lift_shadows === 'number' ? parsed.lift_shadows : 0.0,
+        lut_intensity: typeof parsed.lut_intensity === 'number' ? parsed.lut_intensity : 0.85,
         isFallback: false
       };
     }

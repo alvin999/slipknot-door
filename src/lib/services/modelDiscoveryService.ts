@@ -13,6 +13,12 @@ export interface DiscoveredModel {
   recommendationTag?: string;
 }
 
+export interface DiscoveryResult {
+  models: DiscoveredModel[];
+  recommendedModelId: string | null;
+  error?: string;
+}
+
 export class ModelDiscoveryService {
   /**
    * Fetch and dynamically evaluate models using API Key
@@ -20,7 +26,7 @@ export class ModelDiscoveryService {
   public static async discoverModels(
     provider: 'gemini' | 'groq',
     apiKey: string
-  ): Promise<{ models: DiscoveredModel[]; recommendedModelId: string | null }> {
+  ): Promise<DiscoveryResult> {
     if (!apiKey || apiKey.trim().length < 8) {
       return { models: [], recommendedModelId: null };
     }
@@ -38,11 +44,18 @@ export class ModelDiscoveryService {
 
       const recommendedModelId = evaluatedModels.length > 0 ? evaluatedModels[0].id : null;
 
+      if (evaluatedModels.length === 0 && rawList.length > 0) {
+        return {
+          models: [],
+          recommendedModelId: null,
+          error: `連線成功但未發現相容的視覺多模態模型（端點回傳 ${rawList.length} 個模型皆為純文字或非視覺模型）`
+        };
+      }
+
       return { models: evaluatedModels, recommendedModelId };
-    } catch (err) {
+    } catch (err: any) {
       console.warn(`Dynamic model discovery failed for ${provider}:`, err);
-      // Return dynamic heuristic list without throwing error to preserve offline/graceful degraded workflows
-      return { models: [], recommendedModelId: null };
+      return { models: [], recommendedModelId: null, error: err?.message || '連線逾時或端點無回應' };
     }
   }
 
@@ -62,8 +75,14 @@ export class ModelDiscoveryService {
     const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
     const res = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
     if (!res.ok) {
-      const errBody = await res.text();
-      throw new Error(`Google API 查詢失敗 (${res.status}): ${errBody.slice(0, 100)}`);
+      let errDetail = '';
+      try {
+        const errJson = await res.json();
+        errDetail = errJson.error?.message || JSON.stringify(errJson);
+      } catch {
+        errDetail = await res.text();
+      }
+      throw new Error(`Google API 查詢失敗 (${res.status}): ${errDetail.slice(0, 120)}`);
     }
     const data = await res.json();
     return data.models || [];
@@ -78,8 +97,14 @@ export class ModelDiscoveryService {
       }
     });
     if (!res.ok) {
-      const errBody = await res.text();
-      throw new Error(`Groq API 查詢失敗 (${res.status}): ${errBody.slice(0, 100)}`);
+      let errDetail = '';
+      try {
+        const errJson = await res.json();
+        errDetail = errJson.error?.message || JSON.stringify(errJson);
+      } catch {
+        errDetail = await res.text();
+      }
+      throw new Error(`Groq API 查詢失敗 (${res.status}): ${errDetail.slice(0, 120)}`);
     }
     const data = await res.json();
     return data.data || [];
