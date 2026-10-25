@@ -20,7 +20,24 @@ export interface AiSceneDecision {
   tint?: number;
   lift_shadows: number;
   lut_intensity: number;
+  tags?: string[];
   isFallback: boolean;
+}
+
+export interface CopywritingPayload {
+  tags: string[];
+  sceneTitle: string;
+  userPrompt?: string;
+  cameraModel?: string;
+  lensModel?: string;
+  exifOptical?: string;
+}
+
+export interface CopywritingResult {
+  caption: string;
+  hashtags: string[];
+  iptcKeywords: string[];
+  providerUsed: 'groq' | 'gemini' | 'offline';
 }
 
 export class AiSceneService {
@@ -72,6 +89,7 @@ export class AiSceneService {
         tint: 3.0,
         lift_shadows: 0.15,
         lut_intensity: 0.85,
+        tags: ['大光圈', '淺景深', '柔焦暖光', '人像特寫'],
         isFallback: true
       };
     }
@@ -91,6 +109,7 @@ export class AiSceneService {
         tint: -2.0,
         lift_shadows: 0.25,
         lut_intensity: 0.80,
+        tags: ['微光夜景', '高感度', '暗夜影調', '低光街拍'],
         isFallback: true
       };
     }
@@ -110,6 +129,7 @@ export class AiSceneService {
         tint: 0.0,
         lift_shadows: -0.05,
         lut_intensity: 1.0,
+        tags: ['幾何建築', '深景深', '高反差黑白', '結構線條'],
         isFallback: true
       };
     }
@@ -128,6 +148,7 @@ export class AiSceneService {
       tint: -1.5,
       lift_shadows: 0.1,
       lut_intensity: 0.9,
+      tags: ['日常光景', '平衡光照', '電影質感', '青綠冷調'],
       isFallback: true
     };
   }
@@ -205,7 +226,8 @@ Respond ONLY with raw JSON matching this schema:
   "color_temp": 5600,
   "tint": 2.0,
   "lift_shadows": 0.1,
-  "lut_intensity": 0.85
+  "lut_intensity": 0.85,
+  "tags": ["側逆光", "斜陽街角", "暖調底片", "微光散景"]
 }`;
 
     if (provider === 'gemini') {
@@ -259,6 +281,7 @@ Respond ONLY with raw JSON matching this schema:
         tint: typeof parsed.tint === 'number' ? parsed.tint : 0.0,
         lift_shadows: typeof parsed.lift_shadows === 'number' ? parsed.lift_shadows : 0.0,
         lut_intensity: typeof parsed.lut_intensity === 'number' ? parsed.lut_intensity : 0.85,
+        tags: Array.isArray(parsed.tags) ? parsed.tags : ['光影顯影', '底片氛圍'],
         isFallback: false
       };
     } else {
@@ -316,8 +339,149 @@ Respond ONLY with raw JSON matching this schema:
         tint: typeof parsed.tint === 'number' ? parsed.tint : 0.0,
         lift_shadows: typeof parsed.lift_shadows === 'number' ? parsed.lift_shadows : 0.0,
         lut_intensity: typeof parsed.lut_intensity === 'number' ? parsed.lut_intensity : 0.85,
+        tags: Array.isArray(parsed.tags) ? parsed.tags : ['光影顯影', '底片氛圍'],
         isFallback: false
       };
     }
+  }
+
+  /**
+   * Hybrid Dual-Engine Pipeline:
+   * Groq-powered Lightning Copywriting & IPTC Keyword Generation.
+   * Blends Gemini vision tags + camera optical EXIF + User personal note into poetic social posts.
+   */
+  public static async generateGroqCopywriting(payload: CopywritingPayload): Promise<CopywritingResult> {
+    // 1. Check for Groq API Key first (fastest LPU text generation)
+    let groqKey: string | null = null;
+    try {
+      const vaultRes = await KeyVaultService.loadKey('groq');
+      groqKey = vaultRes.apiKey;
+    } catch {
+      // Ignored
+    }
+
+    // Fallback to Gemini if no Groq Key
+    let geminiKey: string | null = null;
+    if (!groqKey || groqKey.trim() === '') {
+      try {
+        const vaultRes = await KeyVaultService.loadKey('gemini');
+        geminiKey = vaultRes.apiKey;
+      } catch {
+        // Ignored
+      }
+    }
+
+    const tagsStr = payload.tags.length > 0 ? payload.tags.join('、') : '底片日常、光影紀錄';
+    const userPromptSection = payload.userPrompt && payload.userPrompt.trim()
+      ? `\n【使用者現場個人筆記/心情】：${payload.userPrompt.trim()}`
+      : '';
+
+    const systemPrompt = `你是一位精通底片美學與光影詩意的當代攝影策展人，擅長為相片撰寫引人入勝且具溫度的社群文字（Instagram / Threads）與檔案檢索關鍵字。
+請根據畫面視覺標籤、相機光學資訊與使用者的個人備註，生成發文草稿與標籤。
+${userPromptSection}
+【相片場景主題】：${payload.sceneTitle}
+【視覺標籤】：${tagsStr}
+【器材與光學】：${payload.cameraModel || ''} ${payload.lensModel || ''} ${payload.exifOptical ? `(${payload.exifOptical})` : ''}
+
+請務必嚴格回傳標準 JSON 格式（正體中文/台灣用語，禁止簡體或中國用語）：
+{
+  "caption": "2-3 句具底片質感與畫面溫度的短文案，若有使用者筆記請巧妙自然融入。",
+  "hashtags": ["#底片日常", "#35mm", "#街頭光影", ...約 5-8 個熱門推薦 hashtag],
+  "iptc_keywords": ["Street", "Night", "WarmToned", "Portrait", ...約 8-12 個中英雙語搜尋關鍵字，用於檔案搜尋與 Spotlight 檢索]
+}`;
+
+    // A. Use Groq if available (lightning fast, ~200-400ms)
+    if (groqKey && groqKey.trim() !== '') {
+      try {
+        let modelId = 'llama-3.3-70b-versatile';
+        if (typeof localStorage !== 'undefined') {
+          const storedModel = localStorage.getItem('slipknot_model_groq');
+          if (storedModel && !storedModel.includes('vision')) {
+            modelId = storedModel;
+          }
+        }
+
+        const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqKey}`
+          },
+          body: JSON.stringify({
+            model: modelId,
+            messages: [
+              {
+                role: 'system',
+                content: 'You are a professional film photography curator. Respond ONLY in valid JSON matching the requested schema.'
+              },
+              {
+                role: 'user',
+                content: systemPrompt
+              }
+            ],
+            response_format: { type: 'json_object' }
+          })
+        });
+
+        if (response.ok) {
+          const jsonRes = await response.json();
+          const rawContent = jsonRes.choices?.[0]?.message?.content;
+          if (rawContent) {
+            const parsed = JSON.parse(rawContent);
+            return {
+              caption: parsed.caption || '光線在底片顆粒中緩緩顯影，紀錄下快門凝結的瞬間。',
+              hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : ['#底片日常', '#光影紀實'],
+              iptcKeywords: Array.isArray(parsed.iptc_keywords) ? parsed.iptc_keywords : payload.tags,
+              providerUsed: 'groq'
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('Groq copywriting call failed, falling back to Gemini/offline:', err);
+      }
+    }
+
+    // B. Fallback to Gemini text if Groq is unavailable
+    if (geminiKey && geminiKey.trim() !== '') {
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: systemPrompt }] }],
+            generationConfig: { responseMimeType: 'application/json' }
+          })
+        });
+
+        if (response.ok) {
+          const jsonRes = await response.json();
+          const rawContent = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawContent) {
+            const parsed = JSON.parse(rawContent);
+            return {
+              caption: parsed.caption || '光線在底片顆粒中緩緩顯影，紀錄下快門凝結的瞬間。',
+              hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : ['#底片日常', '#光影紀實'],
+              iptcKeywords: Array.isArray(parsed.iptc_keywords) ? parsed.iptc_keywords : payload.tags,
+              providerUsed: 'gemini'
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('Gemini text copywriting fallback failed:', err);
+      }
+    }
+
+    // C. Offline Curatorial Fallback (Instant aesthetic templates)
+    const baseNote = payload.userPrompt && payload.userPrompt.trim()
+      ? `「${payload.userPrompt.trim()}」— `
+      : '';
+    return {
+      caption: `${baseNote}${payload.sceneTitle}。光線於底片顆粒中悄然凝結，留住快門開啟時最真實的呼吸與溫度。`,
+      hashtags: ['#底片攝影', '#底片日常', '#35mm', '#光影散策', '#暗房顯影'],
+      iptcKeywords: [...payload.tags, 'Analog', 'FilmPhotography', '35mm', 'StreetScene'],
+      providerUsed: 'offline'
+    };
   }
 }

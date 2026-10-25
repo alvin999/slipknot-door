@@ -223,6 +223,15 @@
   let aiRecommendedProfile = $state<string>('');
   let aiTerminalLogs = $state<string[]>([]);
 
+  // AI 混合雙軌：Gemini 視覺標籤 + Groq 極速社群文案與 IPTC
+  let aiVisionTags = $state<string[]>([]);
+  let userSocialPrompt = $state<string>('');
+  let aiSocialCaption = $state<string>('');
+  let aiSocialHashtags = $state<string[]>([]);
+  let aiIptcKeywords = $state<string[]>([]);
+  let isGeneratingCopy = $state<boolean>(false);
+  let copyNotice = $state<string>('');
+
   // Curatorial Queue: 若有標記挑圖 (flagged)，精修與匯出僅聚焦選取的相片；若無選取則全部顯示
   let activeQueue = $derived<PhotoPlate[]>(
     photoPlates.filter(p => p.flagged).length > 0
@@ -815,8 +824,17 @@
       aiStyleInsight = decision.style_insight || '';
       aiRecommendedMood = decision.recommended_mood || '';
       aiRecommendedProfile = decision.recommended_profile;
+      aiVisionTags = decision.tags || [];
+
+      // 若有視覺標籤，自動預熱 Groq 文案生成（秒回體驗）
+      if (aiVisionTags.length > 0 && !isBatchAiRunning) {
+        triggerGroqCopywriting();
+      }
 
       await appendAiLog(`> [DETECTED] 識別場景：【${aiSceneTitle}】(信心度 ${(decision.confidence * 100).toFixed(0)}%)`);
+      if (decision.tags && decision.tags.length > 0) {
+        await appendAiLog(`> [VISION_TAGS] 視覺特徵：#${decision.tags.join(' #')}`, 50);
+      }
       if (decision.style_insight) {
         await appendAiLog(`> [INSIGHT] ${decision.style_insight}`, 80);
       }
@@ -845,6 +863,43 @@
       return false;
     } finally {
       isAiAnalyzing = false;
+    }
+  }
+
+  // 觸發 Groq 極速社群文案與 IPTC 標籤生成
+  async function triggerGroqCopywriting() {
+    if (!activePhoto) return;
+    isGeneratingCopy = true;
+    try {
+      const res = await AiSceneService.generateGroqCopywriting({
+        tags: aiVisionTags.length > 0 ? aiVisionTags : ['底片攝影', '街頭光影'],
+        sceneTitle: aiSceneTitle || '底片光影顯影',
+        userPrompt: userSocialPrompt,
+        cameraModel: activePhoto.camera,
+        lensModel: activePhoto.lens,
+        exifOptical: `${activePhoto.shutter} · ${activePhoto.aperture} · ISO ${activePhoto.iso}`
+      });
+      aiSocialCaption = res.caption;
+      aiSocialHashtags = res.hashtags;
+      aiIptcKeywords = res.iptcKeywords;
+    } catch (err: any) {
+      console.error('Groq copywriting error:', err);
+    } finally {
+      isGeneratingCopy = false;
+    }
+  }
+
+  // 一鍵複製社群文案至剪貼簿
+  async function copySocialContent() {
+    if (!aiSocialCaption) return;
+    const fullText = `${aiSocialCaption}\n\n${aiSocialHashtags.join(' ')}`;
+    try {
+      await navigator.clipboard.writeText(fullText);
+      copyNotice = '文案已複製 ✓';
+      setTimeout(() => { copyNotice = ''; }, 2500);
+    } catch {
+      copyNotice = '複製失敗';
+      setTimeout(() => { copyNotice = ''; }, 2000);
     }
   }
 
@@ -1292,6 +1347,21 @@
             </div>
           {/if}
 
+          <!-- GEMINI 視覺神經特徵標籤 -->
+          {#if aiVisionTags.length > 0}
+            <div class="ai-tags-box hairline-all font-mono">
+              <div class="box-header">
+                <span class="material-symbols-outlined" style="font-size: 13px; color: var(--amber-highlight);">visibility</span>
+                <span>視覺特徵標籤 (GEMINI FLASH)</span>
+              </div>
+              <div class="chips-wrap">
+                {#each aiVisionTags as tag}
+                  <span class="vision-chip">#{tag}</span>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
           <div class="ai-actions-stack">
             {#if isBatchAiRunning}
               <button 
@@ -1512,7 +1582,9 @@
           {isExporting}
           {exportProgress}
           {exportNotice}
-          onSetExportMode={(m) => exportMode = m}
+          {aiVisionTags}
+          {aiSceneTitle}
+          onSetExportMode={(m: 'modeA' | 'modeB') => exportMode = m}
           onTriggerExport={triggerExport}
         />
       {:else if activeTab === 'devices'}
@@ -2280,6 +2352,39 @@
     color: var(--parchment-muted);
     line-height: 1.35;
   }
+
+  /* GEMINI 視覺神經標籤樣式 */
+  .ai-tags-box {
+    background-color: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .box-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--parchment-dim);
+    letter-spacing: 0.04em;
+  }
+  .chips-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .vision-chip {
+    font-size: 10px;
+    background-color: var(--canvas-base);
+    color: var(--amber-highlight);
+    border: 1px solid rgba(226, 157, 82, 0.3);
+    border-radius: var(--radius-xs);
+    padding: 2px 6px;
+  }
+
   .ai-main-btn {
     background: linear-gradient(135deg, #3d5a80, #293241) !important;
     border: 1px solid rgba(152, 195, 121, 0.4) !important;

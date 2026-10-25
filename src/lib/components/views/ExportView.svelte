@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { AiSceneService } from '$lib/services/aiSceneService';
+
   interface PhotoPlateItem {
     id: string;
     frameNo: string;
@@ -14,6 +16,8 @@
     isExporting: boolean;
     exportProgress: number;
     exportNotice: string;
+    aiVisionTags?: string[];
+    aiSceneTitle?: string;
     onSetExportMode: (m: 'modeA' | 'modeB') => void;
     onTriggerExport: () => void;
   }
@@ -24,6 +28,8 @@
     isExporting,
     exportProgress,
     exportNotice,
+    aiVisionTags = [],
+    aiSceneTitle = '',
     onSetExportMode,
     onTriggerExport
   }: Props = $props();
@@ -50,6 +56,14 @@
   let backupRawFiles = $state<boolean>(initialBackupRaw);
   let preserveExif = $state<boolean>(true);
   let colorSpace = $state<'sRGB' | 'DisplayP3' | 'ProPhotoRGB'>('DisplayP3');
+
+  // 社群策展 Prompt 與 Groq 文案狀態
+  let userSocialPrompt = $state<string>('');
+  let aiSocialCaption = $state<string>('');
+  let aiSocialHashtags = $state<string[]>([]);
+  let aiIptcKeywords = $state<string[]>([]);
+  let isGeneratingCopy = $state<boolean>(false);
+  let socialNotice = $state<string>('');
 
   function saveSettings() {
     if (typeof localStorage !== 'undefined') {
@@ -86,6 +100,81 @@
     const cleanBase = targetDirectory.trim().replace(/\/+$/, '') || '~/Pictures/Slipknot_Curatorial_Export';
     return autoDateSubdir ? `${cleanBase}/${todayStr}` : cleanBase;
   });
+
+  // 匯出時呼叫 Groq 生成社群文案
+  async function handleGenerateSocialCopy() {
+    isGeneratingCopy = true;
+    try {
+      const firstPhoto = photos[0];
+      const res = await AiSceneService.generateGroqCopywriting({
+        tags: aiVisionTags.length > 0 ? aiVisionTags : ['底片攝影', '光影展演'],
+        sceneTitle: aiSceneTitle || '底片光影顯影',
+        userPrompt: userSocialPrompt,
+        cameraModel: firstPhoto?.camera || 'Sony Alpha 數位底片機身',
+        lensModel: '原生光學鏡頭',
+        exifOptical: `${photos.length} 幀底片批次匯出`
+      });
+      aiSocialCaption = res.caption;
+      aiSocialHashtags = res.hashtags;
+      aiIptcKeywords = res.iptcKeywords;
+    } catch (err) {
+      console.warn('Social copywriting error:', err);
+    } finally {
+      isGeneratingCopy = false;
+    }
+  }
+
+  // 分享至社群（系統原生分享 Web Share API 或貼心剪貼簿直達）
+  async function handleShareSocial() {
+    const shareText = aiSocialCaption 
+      ? `${aiSocialCaption}\n\n${aiSocialHashtags.join(' ')}`
+      : `底片顯影紀錄：共 ${photos.length} 張底片已就緒。`;
+
+    if (typeof navigator !== 'undefined' && (navigator as any).share) {
+      try {
+        await (navigator as any).share({
+          title: 'Slipknot 底片顯影分享',
+          text: shareText
+        });
+        socialNotice = '系統分享面板已啟動 ✓';
+        setTimeout(() => { socialNotice = ''; }, 3000);
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+
+    // Fallback: 複製發文草稿至剪貼簿
+    try {
+      await navigator.clipboard.writeText(shareText);
+      socialNotice = '文案已複製！可直接開啟 Threads / Instagram 發布 ✓';
+      setTimeout(() => { socialNotice = ''; }, 3500);
+    } catch {
+      socialNotice = '已複製文案至剪貼簿';
+      setTimeout(() => { socialNotice = ''; }, 2500);
+    }
+  }
+
+  // 複製文案
+  async function handleCopyCaption() {
+    if (!aiSocialCaption) return;
+    const shareText = `${aiSocialCaption}\n\n${aiSocialHashtags.join(' ')}`;
+    try {
+      await navigator.clipboard.writeText(shareText);
+      socialNotice = '文案與標籤已複製 ✓';
+      setTimeout(() => { socialNotice = ''; }, 2500);
+    } catch {
+      socialNotice = '複製失敗';
+    }
+  }
+
+  // 包裝匯出動作：若使用者輸入了 prompt 且尚未產出文案，匯出時順便啟動文案生成
+  function handleTriggerExportWithCopy() {
+    if (userSocialPrompt && !aiSocialCaption) {
+      handleGenerateSocialCopy();
+    }
+    onTriggerExport();
+  }
 </script>
 
 <div class="export-viewport">
@@ -249,6 +338,87 @@
         </div>
       </div>
 
+      <!-- CURATORIAL SOCIAL DISPATCH // 匯出社群文案與自訂備註 -->
+      <div class="social-dispatch-panel hairline-all">
+        <div class="dispatch-header font-mono">
+          <div class="header-title-row">
+            <span class="material-symbols-outlined icon-glow">campaign</span>
+            <span class="dispatch-title">CURATORIAL SOCIAL DISPATCH // 匯出社群發布備註</span>
+          </div>
+          {#if socialNotice}
+            <span class="social-status-tag font-mono">{socialNotice}</span>
+          {/if}
+        </div>
+
+        <!-- 視覺標籤與個人 Prompt 輸入列 -->
+        <div class="dispatch-body">
+          {#if aiVisionTags.length > 0}
+            <div class="vision-tags-row font-mono">
+              <span class="tags-hint">Gemini 視覺特徵：</span>
+              {#each aiVisionTags as tag}
+                <span class="tag-pill">#{tag}</span>
+              {/each}
+            </div>
+          {/if}
+
+          <div class="prompt-input-row font-mono">
+            <div class="input-with-label">
+              <span class="input-label">本次拍攝現場備註 / 心情 (PROMPT)</span>
+              <div class="input-action-wrap">
+                <input 
+                  type="text" 
+                  bind:value={userSocialPrompt}
+                  class="social-prompt-input"
+                  placeholder="可寫入現場心情（如：首爾雨後街頭漫步、赤峰街斜陽咖啡館）..."
+                  onkeydown={(e) => { if (e.key === 'Enter') handleGenerateSocialCopy(); }}
+                />
+                <button 
+                  type="button" 
+                  class="generate-copy-btn hairline-all"
+                  onclick={handleGenerateSocialCopy}
+                  disabled={isGeneratingCopy}
+                  title="由 Groq 秒速生成客製文案與 Hashtags"
+                >
+                  <span class="material-symbols-outlined" style="font-size: 14px;">
+                    {isGeneratingCopy ? 'progress_activity' : 'auto_fix_high'}
+                  </span>
+                  <span>{isGeneratingCopy ? '生成中...' : (aiSocialCaption ? '重新演繹' : '生成發文文案')}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 文案預覽卡片 -->
+          {#if aiSocialCaption}
+            <div class="copy-result-card hairline-all">
+              <p class="result-text font-body">{aiSocialCaption}</p>
+              <div class="result-hashtags font-mono">
+                {#each aiSocialHashtags as tag}
+                  <span class="hashtag-tag">{tag}</span>
+                {/each}
+              </div>
+              <div class="result-toolbar font-mono">
+                <div class="toolbar-left">
+                  <button type="button" class="btn-micro hairline-all" onclick={handleCopyCaption}>
+                    <span class="material-symbols-outlined" style="font-size: 13px;">content_copy</span>
+                    <span>複製文案</span>
+                  </button>
+                  <button type="button" class="btn-micro primary hairline-all" onclick={handleShareSocial}>
+                    <span class="material-symbols-outlined" style="font-size: 13px;">share</span>
+                    <span>分享至社群</span>
+                  </button>
+                </div>
+                {#if aiIptcKeywords.length > 0}
+                  <span class="iptc-counter" title={aiIptcKeywords.join(', ')}>
+                    ✓ {aiIptcKeywords.length} 個 IPTC 檢索標籤
+                  </span>
+                {/if}
+              </div>
+            </div>
+          {/if}
+        </div>
+      </div>
+
       <!-- QUEUE SUMMARY & ACTION -->
       <div class="action-dock hairline-all">
         <div class="queue-info font-mono">
@@ -273,10 +443,24 @@
             {#if exportNotice}
               <span class="notice-text font-mono">✓ {exportNotice}</span>
             {/if}
+
+            <!-- 匯出完成後快捷分享社群按鈕 -->
+            {#if aiSocialCaption || exportNotice}
+              <button 
+                type="button" 
+                class="archival-btn-secondary share-btn"
+                onclick={handleShareSocial}
+                title="分享匯出文案至 Instagram / Threads 或叫起系統分享"
+              >
+                <span class="material-symbols-outlined" style="font-size: 16px;">share</span>
+                <span>分享至社群</span>
+              </button>
+            {/if}
+
             <button 
               type="button" 
               class="archival-btn-primary launch-btn" 
-              onclick={onTriggerExport}
+              onclick={handleTriggerExportWithCopy}
               disabled={photos.length === 0}
             >
               <span class="material-symbols-outlined" style="font-size: 18px;">play_arrow</span>
@@ -621,6 +805,237 @@
   .tree-hint.amber {
     color: var(--amber-highlight);
     opacity: 0.85;
+  }
+
+  /* CURATORIAL SOCIAL DISPATCH 面板樣式 */
+  .social-dispatch-panel {
+    background-color: var(--surface-panel);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    border-left: 3px solid #818cf8;
+  }
+
+  .dispatch-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .header-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .icon-glow {
+    font-size: 16px;
+    color: #818cf8;
+  }
+
+  .dispatch-title {
+    font-size: 12px;
+    color: var(--parchment-bright);
+    letter-spacing: 0.06em;
+  }
+
+  .social-status-tag {
+    font-size: 10px;
+    background-color: rgba(129, 140, 248, 0.15);
+    color: #a5b4fc;
+    padding: 2px 8px;
+    border-radius: var(--radius-xs);
+  }
+
+  .dispatch-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .vision-tags-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tags-hint {
+    font-size: 10px;
+    color: var(--parchment-muted);
+  }
+
+  .tag-pill {
+    font-size: 10px;
+    color: var(--amber-highlight);
+    background-color: var(--canvas-base);
+    border: 1px solid rgba(226, 157, 82, 0.3);
+    padding: 1px 6px;
+    border-radius: var(--radius-xs);
+  }
+
+  .prompt-input-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .input-with-label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .input-label {
+    font-size: 10px;
+    color: var(--parchment-muted);
+  }
+
+  .input-action-wrap {
+    display: flex;
+    gap: 8px;
+  }
+
+  .social-prompt-input {
+    flex: 1;
+    background-color: var(--canvas-base);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-bright);
+    padding: 8px 12px;
+    font-size: 12px;
+    outline: none;
+    font-family: inherit;
+  }
+
+  .social-prompt-input:focus {
+    border-color: #818cf8;
+  }
+
+  .generate-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #1e1e2e;
+    color: #a5b4fc;
+    border: 1px solid rgba(129, 140, 248, 0.35);
+    border-radius: var(--radius-xs);
+    padding: 8px 14px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+  }
+
+  .generate-copy-btn:hover:not(:disabled) {
+    background-color: #27273a;
+    border-color: #818cf8;
+    color: #ffffff;
+  }
+
+  .generate-copy-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .copy-result-card {
+    background-color: var(--canvas-base);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .result-text {
+    font-size: 13px;
+    color: var(--parchment-bright);
+    line-height: 1.5;
+    margin: 0;
+    white-space: pre-line;
+  }
+
+  .result-hashtags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .hashtag-tag {
+    font-size: 10px;
+    color: #818cf8;
+  }
+
+  .result-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 8px;
+    border-top: 1px solid var(--hairline-slate);
+  }
+
+  .toolbar-left {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-micro {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-dim);
+    font-size: 10px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-micro:hover {
+    color: var(--parchment-bright);
+    border-color: var(--parchment-dim);
+    background-color: var(--surface-elevated);
+  }
+
+  .btn-micro.primary {
+    background-color: rgba(129, 140, 248, 0.15);
+    border-color: rgba(129, 140, 248, 0.4);
+    color: #a5b4fc;
+  }
+
+  .btn-micro.primary:hover {
+    background-color: rgba(129, 140, 248, 0.25);
+    border-color: #818cf8;
+    color: #ffffff;
+  }
+
+  .iptc-counter {
+    font-size: 10px;
+    color: var(--parchment-muted);
+  }
+
+  .share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: rgba(129, 140, 248, 0.15) !important;
+    border: 1px solid rgba(129, 140, 248, 0.4) !important;
+    color: #a5b4fc !important;
+    padding: 10px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .share-btn:hover {
+    background-color: rgba(129, 140, 248, 0.28) !important;
+    border-color: #818cf8 !important;
+    color: #ffffff !important;
   }
 
   .action-dock {
