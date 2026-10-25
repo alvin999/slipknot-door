@@ -374,6 +374,9 @@ export class WebglLutRenderer {
 
     // 4. Profile_04_HighContrastMono (Classic Silver Gelatin Monochrome)
     this.registerLut('Profile_04_HighContrastMono', this.generateMonoSilverLut(), 33);
+
+    // 5. Profile_05_DocumentaryChrome (Documentary Hard Contrast, Muted Chroma Print Look)
+    this.registerLut('Profile_05_DocumentaryChrome', this.generateDocumentaryChromeLut(), 33);
   }
 
   private registerLut(profileId: string, data: Float32Array, size: number = 33) {
@@ -570,6 +573,79 @@ export class WebglLutRenderer {
           data[index++] = val;
           data[index++] = val;
           data[index++] = val;
+          data[index++] = 1.0;
+        }
+      }
+    }
+    return data;
+  }
+
+  /**
+   * Profile_05_DocumentaryChrome: 典藏冷印紀實 (33x33x33 3D LUT)
+   * Hard documentary contrast + muted primary chroma + deep cyan-tinted sky + preserved skin highlights.
+   */
+  private generateDocumentaryChromeLut(): Float32Array {
+    const size = 33;
+    const data = new Float32Array(size * size * size * 4);
+    const ss = WebglLutRenderer.smoothstep;
+    let index = 0;
+
+    for (let b = 0; b < size; b++) {
+      for (let g = 0; g < size; g++) {
+        for (let r = 0; r < size; r++) {
+          let red = r / (size - 1);
+          let green = g / (size - 1);
+          let blue = b / (size - 1);
+
+          const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+
+          // 1. Punchy documentary S-Curve (deeper shadows, crisp midtone contrast, gentle highlight roll-off)
+          const docCurve = (v: number) => {
+            return v < 0.5
+              ? Math.pow(v * 2.0, 1.16) * 0.5
+              : 1.0 - Math.pow((1.0 - v) * 2.0, 1.10) * 0.5;
+          };
+          red = docCurve(red);
+          green = docCurve(green);
+          blue = docCurve(blue);
+
+          // 2. Clean Deep Shadow (no matte fade/lift, clean punchy blacks)
+          const shadowDamping = Math.pow(Math.max(0.0, 1.0 - luma), 2.2);
+          red -= shadowDamping * 0.015;
+          green -= shadowDamping * 0.012;
+          blue -= shadowDamping * 0.010;
+
+          // 3. Sky / Blue shift: deep cyan-tinted navy blue (not oversaturated, slightly moody)
+          const skyMask = ss(0.0, 0.12, blue - red) * ss(0.12, 0.35, blue);
+          const blueDelta = Math.min(0.35, Math.max(0.0, blue - red));
+          green += skyMask * blueDelta * 0.12;
+          red -= skyMask * blueDelta * 0.08;
+
+          // 4. Muted Foliage (suppress bright yellow-greens into deep olive/sage tones)
+          const foliageMask =
+            ss(0.0, 0.03, green - red) * ss(0.0, 0.03, green - blue) * ss(0.02, 0.08, green - blue);
+          const foliageDelta = Math.max(0.0, green - blue);
+          red -= foliageMask * foliageDelta * 0.05;
+          green -= foliageMask * foliageDelta * 0.08;
+          blue += foliageMask * foliageDelta * 0.04;
+
+          // 5. Preserved human skin luminance & subtle warm protection
+          const skinMask =
+            ss(0.0, 0.03, red - green) * ss(0.0, 0.03, green - blue) * ss(0.06, 0.18, red - blue);
+          red += skinMask * 0.012;
+          blue -= skinMask * 0.010;
+
+          // 6. Global Muted Chroma Compression (classic documentary print saturation reduction)
+          // Preserves skin vitality (sat ~0.88) while muting background/clothing primaries (sat ~0.76)
+          const sat = 0.76 + 0.12 * skinMask;
+          const l2 = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+          red = l2 + (red - l2) * sat;
+          green = l2 + (green - l2) * sat;
+          blue = l2 + (blue - l2) * sat;
+
+          data[index++] = Math.min(1.0, Math.max(0.0, red));
+          data[index++] = Math.min(1.0, Math.max(0.0, green));
+          data[index++] = Math.min(1.0, Math.max(0.0, blue));
           data[index++] = 1.0;
         }
       }

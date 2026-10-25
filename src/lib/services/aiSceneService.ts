@@ -219,7 +219,7 @@ Respond ONLY with raw JSON matching this schema:
   "scene_type": "outdoor_street",
   "style_insight": "主體處於側逆光環境，建議壓制高光並微提暗部細節，整體色調偏向暖調底片質感。(1-2 sentences professional insight in Traditional Chinese)",
   "recommended_mood": "經典暖調底片 (Mood / style label in Traditional Chinese)",
-  "recommended_profile": "Profile_01_MatteShadow",
+  "recommended_profile": "One of: Profile_00_StandardNatural, Profile_01_MatteShadow, Profile_02_TealEmerald, Profile_03_TungstenSoft, Profile_04_HighContrastMono, Profile_05_DocumentaryChrome",
   "confidence": 0.94,
   "exposure_compensation": 0.15,
   "contrast": 0.05,

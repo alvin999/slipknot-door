@@ -94,5 +94,20 @@ export const BUILTIN_PROFILES: LutProfile[] = [
       shadowLift: -0.10,
       lutIntensity: 1.0
     }
+  },
+  {
+    id: 'Profile_05_DocumentaryChrome',
+    code: 'CHROME_DOC_05',
+    title: '典藏冷印紀實',
+    englishTitle: 'Documentary Chrome Print',
+    toneDescription: '收斂三原色飽和度、暗部深邃硬調、高光平緩滾降、深邃冷調紀實感',
+    technicalCharacteristics: 'Desaturated chroma + punchy mid-contrast + deep blacks + cyan-cast sky',
+    cubeFilePath: '/luts/profile_05_documentary_chrome.cube',
+    lutSize: 33,
+    defaultTuning: {
+      exposure: 0.0,
+      shadowLift: -0.05,
+      lutIntensity: 0.90
+    }
   }
 ];

@@ -207,6 +207,24 @@
       clarityDefault: 0.25,
       sharpnessDefault: 0.25,
       recommendedScene: '建築幾何 / 經典黑白街頭'
+    },
+    {
+      id: 'Profile_05_DocumentaryChrome',
+      title: 'DocumentaryChrome · 典藏冷印紀實',
+      tone: '低彩度收斂 · 深邃硬調階調 · 沉鬱冷調印相',
+      badge: 'CHROME_DOC_05',
+      accent: '#7a8b99',
+      evDefault: 0.0,
+      contrastDefault: 0.20,
+      highlightsDefault: -0.15,
+      shadowsDefault: -0.10,
+      fadeDefault: 0.0,
+      cyanSkyDefault: 0.35,
+      foliageDefault: -0.20,
+      lutIntensityDefault: 0.90,
+      clarityDefault: 0.10,
+      sharpnessDefault: 0.15,
+      recommendedScene: '人文紀實 / 街拍報導 / 展演幕後'
     }
   ];
 
