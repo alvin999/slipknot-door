@@ -9,6 +9,7 @@
   import ExportView from '$lib/components/views/ExportView.svelte';
   import DevicesView from '$lib/components/views/DevicesView.svelte';
   import { WebglLutRenderer } from '$lib/services/webglLutRenderer';
+  import type { CropGeometry, AiScopePreferences } from '$lib/types/photo';
 
   // Active module tabs
   type ModuleTab = 'catalog' | 'retouch' | 'profiles' | 'export' | 'devices';
@@ -68,6 +69,7 @@
     asShotTemp?: number;
     asShotTint?: number;
     asShotExposure?: number;
+    crop?: CropGeometry;
     tuning?: {
       exposure: number;
       contrast: number;
@@ -102,6 +104,138 @@
   let clarity = $state<number>(0.0);
   let sharpness = $state<number>(0.0);
   let showABComparison = $state<boolean>(false);
+
+  // 專業 Diff 視覺比對狀態 (Curatorial Diff Engine)
+  type DiffMode = 'off' | 'split' | 'sideBySide';
+  let diffMode = $state<DiffMode>('off');
+  let splitPosition = $state<number>(50); // 0% ~ 100% 簾幕分割線位置
+  let isDraggingSplit = $state<boolean>(false);
+
+  function isDiffModeActive(mode: DiffMode): boolean {
+    return diffMode === mode;
+  }
+
+  // AI 職責範圍偏好矩陣 (AI Scope Matrix)
+  const AI_SCOPE_STORAGE_KEY = 'slipknot_ai_scope_prefs';
+  const initialScope: AiScopePreferences = typeof localStorage !== 'undefined' && localStorage.getItem(AI_SCOPE_STORAGE_KEY)
+    ? (() => {
+        try {
+          return {
+            lutProfile: true,
+            crop: true,
+            keystone: true,
+            tone: true,
+            whiteBalance: true,
+            ...JSON.parse(localStorage.getItem(AI_SCOPE_STORAGE_KEY)!)
+          };
+        } catch {
+          return { lutProfile: true, crop: true, keystone: true, tone: true, whiteBalance: true };
+        }
+      })()
+    : { lutProfile: true, crop: true, keystone: true, tone: true, whiteBalance: true };
+
+  let aiScope = $state<AiScopePreferences>(initialScope);
+  let isAiScopeOpen = $state<boolean>(false); // 側邊欄 AI 職責勾選面板摺疊開關
+
+  function saveAiScope() {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(AI_SCOPE_STORAGE_KEY, JSON.stringify(aiScope));
+    }
+  }
+
+  function toggleAiScope(key: keyof AiScopePreferences) {
+    aiScope[key] = !aiScope[key];
+    saveAiScope();
+  }
+
+  // 幾何構圖與裁切狀態 (Crop & Geometry State)
+  let isCropMode = $state<boolean>(false);
+  let cropX = $state<number>(0.0);         // 0.0 ~ 1.0 (左上角 X 比例)
+  let cropY = $state<number>(0.0);         // 0.0 ~ 1.0 (左上角 Y 比例)
+  let cropWidth = $state<number>(1.0);     // 0.0 ~ 1.0 (寬度比例)
+  let cropHeight = $state<number>(1.0);    // 0.0 ~ 1.0 (高度比例)
+  let cropRotation = $state<number>(0.0);  // -45 ~ +45 度 (水平校正)
+  let keystoneV = $state<number>(0.0);     // -45 ~ +45 度 (垂直透視梯形)
+  let keystoneH = $state<number>(0.0);     // -45 ~ +45 度 (水平透視梯形)
+  let cropAspectRatio = $state<'original' | '1:1' | '4:5' | '16:9' | '9:16' | 'free'>('original');
+  let flipH = $state<boolean>(false);
+  let flipV = $state<boolean>(false);
+  let aiCropRationale = $state<string>(''); // AI 建議裁切說明
+
+  function resetCropState() {
+    cropX = 0.0;
+    cropY = 0.0;
+    cropWidth = 1.0;
+    cropHeight = 1.0;
+    cropRotation = 0.0;
+    keystoneV = 0.0;
+    keystoneH = 0.0;
+    cropAspectRatio = 'original';
+    flipH = false;
+    flipV = false;
+    aiCropRationale = '';
+  }
+
+  let canvasContainerRef = $state<HTMLDivElement | null>(null);
+  let isDraggingCrop = $state<string | null>(null); // 'move' | 'nw' | 'se' | 'ne' | 'sw'
+
+  function handleSplitPointerDown(e: MouseEvent) {
+    isDraggingSplit = true;
+    updateSplitFromEvent(e);
+  }
+
+  function handleStagePointerMove(e: MouseEvent) {
+    if (isDraggingSplit && canvasContainerRef) {
+      updateSplitFromEvent(e);
+    }
+    if (isDraggingCrop && canvasContainerRef) {
+      updateCropFromEvent(e);
+    }
+  }
+
+  function handleStagePointerUp() {
+    isDraggingSplit = false;
+    isDraggingCrop = null;
+  }
+
+  function updateSplitFromEvent(e: MouseEvent) {
+    if (!canvasContainerRef) return;
+    const rect = canvasContainerRef.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const pct = Math.max(3, Math.min(97, (x / rect.width) * 100));
+    splitPosition = Math.round(pct);
+  }
+
+  function handleCropStart(handle: string, e: MouseEvent) {
+    e.stopPropagation();
+    isDraggingCrop = handle;
+  }
+
+  function updateCropFromEvent(e: MouseEvent) {
+    if (!canvasContainerRef || !isDraggingCrop) return;
+    const rect = canvasContainerRef.getBoundingClientRect();
+    const curX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const curY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+
+    if (isDraggingCrop === 'move') {
+      const halfW = cropWidth / 2;
+      const halfH = cropHeight / 2;
+      const newX = Math.max(0, Math.min(1 - cropWidth, curX - halfW));
+      const newY = Math.max(0, Math.min(1 - cropHeight, curY - halfH));
+      cropX = parseFloat(newX.toFixed(3));
+      cropY = parseFloat(newY.toFixed(3));
+    } else if (isDraggingCrop === 'se') {
+      cropWidth = parseFloat(Math.max(0.1, Math.min(1 - cropX, curX - cropX)).toFixed(3));
+      cropHeight = parseFloat(Math.max(0.1, Math.min(1 - cropY, curY - cropY)).toFixed(3));
+    } else if (isDraggingCrop === 'nw') {
+      const right = cropX + cropWidth;
+      const bottom = cropY + cropHeight;
+      cropX = parseFloat(Math.max(0, Math.min(right - 0.1, curX)).toFixed(3));
+      cropY = parseFloat(Math.max(0, Math.min(bottom - 0.1, curY)).toFixed(3));
+      cropWidth = parseFloat((right - cropX).toFixed(3));
+      cropHeight = parseFloat((bottom - cropY).toFixed(3));
+    }
+  }
 
   // WebGL 2.0 3D LUT Hardware Engine State
   let webglCanvas = $state<HTMLCanvasElement | null>(null);
@@ -281,7 +415,7 @@
   }
 
   function selectPhoto(plate: PhotoPlate) {
-    // 記憶前一張相片的自訂調色狀態
+    // 記憶前一張相片的自訂調色與裁切狀態
     if (activePhoto && activePhoto.id !== plate.id) {
       activePhoto.tuning = {
         exposure,
@@ -292,7 +426,19 @@
         clarity,
         sharpness
       };
-      photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { ...p, tuning: activePhoto!.tuning } : p);
+      activePhoto.crop = {
+        x: cropX,
+        y: cropY,
+        width: cropWidth,
+        height: cropHeight,
+        rotation: cropRotation,
+        keystoneV,
+        keystoneH,
+        aspectRatio: cropAspectRatio,
+        flipH,
+        flipV
+      };
+      photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { ...p, tuning: activePhoto!.tuning, crop: activePhoto!.crop } : p);
     }
 
     activePhoto = plate;
@@ -315,6 +461,22 @@
       tint = plate.asShotTint ?? 0.0;
       clarity = 0.0;
       sharpness = 0.0;
+    }
+
+    // 載入當前選中相片的專屬裁切或重設為全幅
+    if (plate.crop) {
+      cropX = plate.crop.x;
+      cropY = plate.crop.y;
+      cropWidth = plate.crop.width;
+      cropHeight = plate.crop.height;
+      cropRotation = plate.crop.rotation;
+      keystoneV = plate.crop.keystoneV ?? 0;
+      keystoneH = plate.crop.keystoneH ?? 0;
+      cropAspectRatio = plate.crop.aspectRatio;
+      flipH = plate.crop.flipH;
+      flipV = plate.crop.flipV;
+    } else {
+      resetCropState();
     }
   }
 
@@ -529,11 +691,25 @@
     triggerWebglRender();
   }
 
+  let lastBoundImageSrc = '';
+
+  function ensureImageTexture(): boolean {
+    if (!webglRenderer || !sourceImgElement || !sourceImgElement.complete || !sourceImgElement.naturalWidth) {
+      return false;
+    }
+    const currentSrc = sourceImgElement.currentSrc || sourceImgElement.src;
+    if (lastBoundImageSrc !== currentSrc) {
+      webglRenderer.setImageSource(sourceImgElement);
+      lastBoundImageSrc = currentSrc;
+    }
+    return true;
+  }
+
   /**
    * 觸發 WebGL 2.0 3D LUT 純淨色彩著色 (Pure 3D LUT Pipeline)
    */
   function triggerWebglRender() {
-    if (!webglRenderer || !sourceImgElement || !sourceImgElement.complete || !sourceImgElement.naturalWidth) {
+    if (!ensureImageTexture() || !webglRenderer || !sourceImgElement) {
       return;
     }
 
@@ -570,13 +746,22 @@
   }
 
   function onSourceImgLoaded() {
+    lastBoundImageSrc = '';
     if (webglRenderer && sourceImgElement && sourceImgElement.complete && sourceImgElement.naturalWidth > 0) {
-      webglRenderer.setImageSource(sourceImgElement);
+      ensureImageTexture();
       triggerWebglRender();
     }
   }
 
-  // Svelte 5 響應式追蹤：調色滑桿與相片切換時即時以 WebGL 60FPS 硬體著色
+  function setDiffMode(mode: DiffMode) {
+    diffMode = mode;
+    // 雙聯並排或簾幕切換時，待 DOM 佈局更新後即刻重繪 WebGL 畫布
+    requestAnimationFrame(() => {
+      triggerWebglRender();
+    });
+  }
+
+  // Svelte 5 響應式追蹤：調色滑桿、相片切換與比對模式切換時即時以 WebGL 60FPS 硬體著色
   $effect(() => {
     const _photoId = activePhoto?.id;
     const _thumb = activePhoto?.thumbnail;
@@ -589,14 +774,17 @@
     const _clarity = clarity;
     const _sharpness = sharpness;
     const _ab = showABComparison;
+    const _diff = diffMode;
     const canvas = webglCanvas;
 
     if (canvas && !webglRenderer) {
       webglRenderer = new WebglLutRenderer();
       isWebglActive = webglRenderer.initialize(canvas);
+      lastBoundImageSrc = '';
     }
 
     if (isWebglActive && sourceImgElement && sourceImgElement.complete) {
+      ensureImageTexture();
       triggerWebglRender();
 
       // 滑桿微調防抖（Debounce）：拖動調色時非同步同步當前相片在目錄中的縮圖
@@ -859,19 +1047,59 @@
       if (decision.recommended_mood) {
         await appendAiLog(`> [MOOD_SUGGEST] 建議風格調性：${decision.recommended_mood}`);
       }
-      await appendAiLog(`> [AUTOTUNE] 開始推動曝光與顯影滑桿 (EV: ${decision.exposure_compensation > 0 ? '+' : ''}${decision.exposure_compensation})...`);
+      await appendAiLog(`> [AUTOTUNE] 依據 AI 職責勾選開始套用參數...`);
 
-      // 執行平滑推桿補間動畫
-      animateAdjustmentValues({
-        exposure: decision.exposure_compensation,
-        contrast: decision.contrast ?? contrast,
-        colorTemp: decision.color_temp ?? colorTemp,
-        tint: decision.tint ?? tint,
-        lutIntensity: decision.lut_intensity
-      }, 700);
+      // 1. 基礎光影與色調 (Tone)
+      const targetAnim: { exposure?: number; contrast?: number; colorTemp?: number; tint?: number; lutIntensity?: number } = {};
+      if (aiScope.tone) {
+        targetAnim.exposure = decision.exposure_compensation;
+        targetAnim.contrast = decision.contrast ?? contrast;
+        shadows = decision.lift_shadows;
+        await appendAiLog(`> [AI_TONE] 光影對比已推進 (EV: ${decision.exposure_compensation > 0 ? '+' : ''}${decision.exposure_compensation})`);
+      }
 
-      shadows = decision.lift_shadows;
-      applyProfile(decision.recommended_profile);
+      // 2. 自動白平衡 (White Balance)
+      if (aiScope.whiteBalance) {
+        targetAnim.colorTemp = decision.color_temp ?? colorTemp;
+        targetAnim.tint = decision.tint ?? tint;
+        await appendAiLog(`> [AI_WB] 自動白平衡已校正 (${decision.color_temp ?? colorTemp}K, Tint: ${decision.tint ?? tint})`);
+      }
+
+      // 3. 3D LUT 風格推薦 (Film Profile)
+      if (aiScope.lutProfile) {
+        targetAnim.lutIntensity = decision.lut_intensity;
+        applyProfile(decision.recommended_profile);
+        await appendAiLog(`> [AI_LUT] 套用底片風格：${decision.recommended_profile}`);
+      }
+
+      // 觸發推桿動畫
+      if (Object.keys(targetAnim).length > 0) {
+        animateAdjustmentValues(targetAnim, 700);
+      }
+
+      // 4. 構圖與智慧裁切 (Crop)
+      if (aiScope.crop && decision.crop_box) {
+        cropY = decision.crop_box[0];
+        cropX = decision.crop_box[1];
+        cropHeight = decision.crop_box[2] - decision.crop_box[0];
+        cropWidth = decision.crop_box[3] - decision.crop_box[1];
+        if (decision.aspect_ratio && ['original', '1:1', '4:5', '16:9', '9:16', 'free'].includes(decision.aspect_ratio)) {
+          cropAspectRatio = decision.aspect_ratio as any;
+        }
+        aiCropRationale = decision.crop_rationale || '';
+        await appendAiLog(`> [AI_CROP] 智慧構圖裁切已套用：${decision.crop_rationale || '黃金三分點重心'}`);
+      }
+
+      // 5. 梯形與水平校正 (Keystone & Leveling)
+      if (aiScope.keystone) {
+        if (typeof decision.rotation_deg === 'number') {
+          cropRotation = decision.rotation_deg;
+        }
+        if (typeof decision.keystone_v === 'number') {
+          keystoneV = decision.keystone_v;
+        }
+        await appendAiLog(`> [AI_LEVEL] 地平線與垂直透視已校正 (${cropRotation.toFixed(1)}°)`);
+      }
 
       await appendAiLog(`> [SUCCESS] 顯影調校完成 ✓`);
       return true;
@@ -879,6 +1107,145 @@
       console.error('AI Analysis failed:', err);
       await appendAiLog(`> [ERROR] 顯影推估異常：${err.message || '未知錯誤'}`);
       return false;
+    } finally {
+      isAiAnalyzing = false;
+    }
+  }
+
+  // 獨立快捷操作：一鍵 AI 智慧裁切
+  async function quickAiCrop() {
+    if (!activePhoto || isAiAnalyzing) return;
+    isAiAnalyzing = true;
+    await appendAiLog(`> [AI_CROP_SOLO] 正在分析 ${activePhoto.filename} 構圖重心與邊界...`);
+    try {
+      const decision = await AiSceneService.analyzeScene(activePhoto.thumbnail, {
+        cameraModel: activePhoto.camera,
+        lensModel: activePhoto.lens,
+        iso: activePhoto.iso,
+        shutterSpeed: activePhoto.shutter,
+        apertureValue: activePhoto.aperture,
+        focalLength: activePhoto.focalLength
+      });
+      if (decision.crop_box) {
+        cropY = decision.crop_box[0];
+        cropX = decision.crop_box[1];
+        cropHeight = decision.crop_box[2] - decision.crop_box[0];
+        cropWidth = decision.crop_box[3] - decision.crop_box[1];
+      }
+      if (typeof decision.rotation_deg === 'number') {
+        cropRotation = decision.rotation_deg;
+      }
+      if (decision.aspect_ratio && ['original', '1:1', '4:5', '16:9', '9:16', 'free'].includes(decision.aspect_ratio)) {
+        cropAspectRatio = decision.aspect_ratio as any;
+      }
+      aiCropRationale = decision.crop_rationale || '已套用 AI 建議構圖比例。';
+      isCropMode = true; // 自動開啟裁切框供檢視
+      await appendAiLog(`> [SUCCESS] 智慧裁切已套用：${aiCropRationale} ✓`);
+    } catch (err: any) {
+      await appendAiLog(`> [ERROR] 裁切分析失敗：${err.message}`);
+    } finally {
+      isAiAnalyzing = false;
+    }
+  }
+
+  // 獨立快捷操作：一鍵 AI 拉平水平 / 梯形
+  async function quickAiHorizon() {
+    if (!activePhoto || isAiAnalyzing) return;
+    isAiAnalyzing = true;
+    await appendAiLog(`> [AI_HORIZON_SOLO] 正在偵測地平線傾角與垂直透視...`);
+    try {
+      const decision = await AiSceneService.analyzeScene(activePhoto.thumbnail, {
+        cameraModel: activePhoto.camera,
+        lensModel: activePhoto.lens,
+        iso: activePhoto.iso,
+        shutterSpeed: activePhoto.shutter,
+        apertureValue: activePhoto.aperture,
+        focalLength: activePhoto.focalLength
+      });
+      cropRotation = typeof decision.rotation_deg === 'number' ? decision.rotation_deg : 0.0;
+      keystoneV = typeof decision.keystone_v === 'number' ? decision.keystone_v : 0.0;
+      await appendAiLog(`> [SUCCESS] 地平線校正 ${cropRotation.toFixed(1)}°，垂直梯形 ${keystoneV.toFixed(1)}° ✓`);
+    } catch (err: any) {
+      await appendAiLog(`> [ERROR] 水平偵測失敗：${err.message}`);
+    } finally {
+      isAiAnalyzing = false;
+    }
+  }
+
+  // 獨立快捷操作：一鍵 AI 自動白平衡 (Kelvin & Tint)
+  async function quickAiWhiteBalance() {
+    if (!activePhoto || isAiAnalyzing) return;
+    isAiAnalyzing = true;
+    await appendAiLog(`> [AI_WB_SOLO] 計算場景色溫與色彩中性灰...`);
+    try {
+      const decision = await AiSceneService.analyzeScene(activePhoto.thumbnail, {
+        cameraModel: activePhoto.camera,
+        lensModel: activePhoto.lens,
+        iso: activePhoto.iso,
+        shutterSpeed: activePhoto.shutter,
+        apertureValue: activePhoto.aperture,
+        focalLength: activePhoto.focalLength
+      });
+      animateAdjustmentValues({
+        colorTemp: decision.color_temp ?? colorTemp,
+        tint: decision.tint ?? tint
+      }, 500);
+      await appendAiLog(`> [SUCCESS] 自動白平衡已套用 (${decision.color_temp}K, Tint: ${decision.tint}) ✓`);
+    } catch (err: any) {
+      await appendAiLog(`> [ERROR] 白平衡失敗：${err.message}`);
+    } finally {
+      isAiAnalyzing = false;
+    }
+  }
+
+  // 獨立快捷操作：一鍵 AI 自動光比 (曝光/對比/陰影)
+  async function quickAiTone() {
+    if (!activePhoto || isAiAnalyzing) return;
+    isAiAnalyzing = true;
+    await appendAiLog(`> [AI_TONE_SOLO] 分析曝光分佈與動態範圍...`);
+    try {
+      const decision = await AiSceneService.analyzeScene(activePhoto.thumbnail, {
+        cameraModel: activePhoto.camera,
+        lensModel: activePhoto.lens,
+        iso: activePhoto.iso,
+        shutterSpeed: activePhoto.shutter,
+        apertureValue: activePhoto.aperture,
+        focalLength: activePhoto.focalLength
+      });
+      animateAdjustmentValues({
+        exposure: decision.exposure_compensation,
+        contrast: decision.contrast ?? contrast
+      }, 500);
+      shadows = decision.lift_shadows;
+      await appendAiLog(`> [SUCCESS] 自動光比已套用 (EV: ${decision.exposure_compensation > 0 ? '+' : ''}${decision.exposure_compensation}) ✓`);
+    } catch (err: any) {
+      await appendAiLog(`> [ERROR] 光比失敗：${err.message}`);
+    } finally {
+      isAiAnalyzing = false;
+    }
+  }
+
+  // 獨立快捷操作：一鍵 AI 推薦風格
+  async function quickAiProfile() {
+    if (!activePhoto || isAiAnalyzing) return;
+    isAiAnalyzing = true;
+    await appendAiLog(`> [AI_PROFILE_SOLO] 匹配底片情緒風格範本...`);
+    try {
+      const decision = await AiSceneService.analyzeScene(activePhoto.thumbnail, {
+        cameraModel: activePhoto.camera,
+        lensModel: activePhoto.lens,
+        iso: activePhoto.iso,
+        shutterSpeed: activePhoto.shutter,
+        apertureValue: activePhoto.aperture,
+        focalLength: activePhoto.focalLength
+      });
+      applyProfile(decision.recommended_profile);
+      animateAdjustmentValues({
+        lutIntensity: decision.lut_intensity
+      }, 400);
+      await appendAiLog(`> [SUCCESS] 已推薦套用：${decision.recommended_profile} ✓`);
+    } catch (err: any) {
+      await appendAiLog(`> [ERROR] 風格推薦失敗：${err.message}`);
     } finally {
       isAiAnalyzing = false;
     }
@@ -1380,6 +1747,49 @@
             </div>
           {/if}
 
+          <!-- AI Scope Responsibility Selector -->
+          <div class="ai-scope-card hairline-all">
+            <button 
+              type="button" 
+              class="ai-scope-toggle-btn font-mono"
+              onclick={() => isAiScopeOpen = !isAiScopeOpen}
+              title="展開或收合 AI 負責的調色與裁切範圍"
+            >
+              <div class="scope-header-left">
+                <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">checklist</span>
+                <span>AI 職責範圍勾選 ({Object.values(aiScope).filter(Boolean).length}/5)</span>
+              </div>
+              <span class="material-symbols-outlined scope-chevron" style:transform={isAiScopeOpen ? 'rotate(180deg)' : 'none'}>
+                expand_more
+              </span>
+            </button>
+
+            {#if isAiScopeOpen}
+              <div class="ai-scope-list font-mono">
+                <label class="scope-checkbox-row">
+                  <input type="checkbox" checked={aiScope.lutProfile} onchange={() => toggleAiScope('lutProfile')} />
+                  <span>3D LUT 風格推薦</span>
+                </label>
+                <label class="scope-checkbox-row">
+                  <input type="checkbox" checked={aiScope.crop} onchange={() => toggleAiScope('crop')} />
+                  <span>智慧構圖與裁切</span>
+                </label>
+                <label class="scope-checkbox-row">
+                  <input type="checkbox" checked={aiScope.keystone} onchange={() => toggleAiScope('keystone')} />
+                  <span>梯形與水平校正</span>
+                </label>
+                <label class="scope-checkbox-row">
+                  <input type="checkbox" checked={aiScope.tone} onchange={() => toggleAiScope('tone')} />
+                  <span>基礎光影與動態</span>
+                </label>
+                <label class="scope-checkbox-row">
+                  <input type="checkbox" checked={aiScope.whiteBalance} onchange={() => toggleAiScope('whiteBalance')} />
+                  <span>自動色溫與色偏</span>
+                </label>
+              </div>
+            {/if}
+          </div>
+
           <div class="ai-actions-stack">
             {#if isBatchAiRunning}
               <button 
@@ -1462,8 +1872,92 @@
           {/if}
 
           {#if activePhoto}
-            <div class="plate-canvas-wrapper hairline-all">
-              <!-- Source Image for WebGL 3D LUT Texture Ingestion -->
+            <!-- CANVAS CONTAINER (SINGLE / SPLIT / SIDE-BY-SIDE 共享同一 WebGL 畫布與頂部標籤) -->
+            <div 
+              class="plate-canvas-wrapper hairline-all"
+              class:is-side-by-side={diffMode === 'sideBySide'}
+              bind:this={canvasContainerRef}
+              onmousemove={handleStagePointerMove}
+              onmouseup={handleStagePointerUp}
+              onmouseleave={handleStagePointerUp}
+              role="region"
+              aria-label="暗房畫布視窗"
+            >
+              <!-- 頂部浮動列 (整齊置頂於照片上方中央，唯一的 plate-tag-bar) -->
+              <div class="plate-tag-bar font-mono">
+                <div class="plate-id-badge">
+                  <span class="film-code">PLATE #{activePhoto.frameNo}</span>
+                  <span class="film-file">{activePhoto.filename}</span>
+                </div>
+
+                <!-- STAGE HUD TOOLBAR (DIFF & CROP) 位於照片上方中央 -->
+                <div class="stage-hud-bar font-mono hairline-all">
+                  <div class="hud-left">
+                    <span class="hud-title">VIEW DIFF:</span>
+                    <div class="diff-btn-group">
+                      <button 
+                        type="button" 
+                        class="diff-mode-btn" 
+                        class:active={isDiffModeActive('off')}
+                        onclick={() => setDiffMode('off')}
+                      >
+                        單幀顯影
+                      </button>
+                      <button 
+                        type="button" 
+                        class="diff-mode-btn" 
+                        class:active={isDiffModeActive('split')}
+                        onclick={() => setDiffMode('split')}
+                        title="簾幕滑桿比對 (可左右拖曳分割線)"
+                      >
+                        <span class="material-symbols-outlined" style="font-size: 13px;">vertical_split</span>
+                        <span>簾幕滑桿</span>
+                      </button>
+                      <button 
+                        type="button" 
+                        class="diff-mode-btn" 
+                        class:active={isDiffModeActive('sideBySide')}
+                        onclick={() => setDiffMode('sideBySide')}
+                        title="雙聯幅並排比對"
+                      >
+                        <span class="material-symbols-outlined" style="font-size: 13px;">view_column</span>
+                        <span>雙聯並排</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="hud-right">
+                    <button 
+                      type="button" 
+                      class="crop-toggle-btn" 
+                      class:active={isCropMode}
+                      onclick={() => isCropMode = !isCropMode}
+                      title="開啟/關閉互動構圖裁切框"
+                    >
+                      <span class="material-symbols-outlined" style="font-size: 14px;">crop</span>
+                      <span>{isCropMode ? '完成裁切' : '構圖裁切'}</span>
+                    </button>
+
+                    {#if cropWidth < 1 || cropHeight < 1 || cropRotation !== 0}
+                      <button 
+                        type="button" 
+                        class="crop-reset-quick-btn" 
+                        onclick={resetCropState}
+                        title="還原為原始全幅構圖"
+                      >
+                        <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
+                      </button>
+                    {/if}
+                  </div>
+                </div>
+
+                <div class="plate-profile-badge">
+                  <span class="profile-dot" style:background={activePhoto.appliedProfile ? 'var(--amber-highlight)' : 'var(--parchment-dim)'}></span>
+                  <span>{activePhoto.appliedProfile}</span>
+                </div>
+              </div>
+
+              <!-- Source Image for WebGL 3D LUT Texture Ingestion (常駐 DOM) -->
               <img 
                 bind:this={sourceImgElement}
                 src={activePhoto.thumbnail} 
@@ -1472,44 +1966,117 @@
                 onload={onSourceImgLoaded}
               />
 
-              <!-- WebGL 2.0 3D LUT Hardware-Accelerated Viewport Canvas -->
-              <canvas 
-                bind:this={webglCanvas}
-                class="plate-render-canvas"
-              ></canvas>
-
-              <!-- Fallback Image if WebGL is initializing or unsupported -->
-              {#if !isWebglActive}
-                <img 
-                  src={activePhoto.thumbnail} 
-                  alt={activePhoto.filename} 
-                  class="plate-render-img"
-                />
+              <!-- DIPTYCH LEFT PANE (雙聯並排時顯示的原圖) -->
+              {#if diffMode === 'sideBySide'}
+                <div class="diptych-pane left hairline-all">
+                  <div class="diptych-badge font-mono">ORIGINAL // 本相 RAW</div>
+                  <img src={activePhoto.thumbnail} alt="Original RAW" class="plate-render-img" />
+                </div>
               {/if}
 
-              <!-- Overlaid Plate Framing Tag -->
-              <div class="plate-tag-bar font-mono">
-                <div class="plate-id-badge">
-                  <span class="film-code">PLATE #{activePhoto.frameNo}</span>
-                  <span class="film-file">{activePhoto.filename}</span>
-                </div>
-                <div class="plate-profile-badge">
-                  <span class="profile-dot" style:background={activePhoto.appliedProfile ? 'var(--amber-highlight)' : 'var(--parchment-dim)'}></span>
-                  <span>{activePhoto.appliedProfile}</span>
-                </div>
-              </div>
+              <!-- DIPTYCH RIGHT PANE / MAIN VIEWPORT (唯一的 WebGL 畫布所在) -->
+              <div class="diptych-pane right" class:hairline-all={diffMode === 'sideBySide'}>
+                {#if diffMode === 'sideBySide'}
+                  <div class="diptych-badge font-mono amber">GRADED // 顯影 {activePhoto.appliedProfile}</div>
+                {/if}
 
-              <!-- A/B Comparison Toggle Floater -->
-              <button 
-                type="button"
-                class="ab-toggle-btn hairline-all font-mono" 
-                onmousedown={() => showABComparison = true}
-                onmouseup={() => showABComparison = false}
-                onmouseleave={() => showABComparison = false}
-              >
-                <span class="material-symbols-outlined" style="font-size: 15px;">compare</span>
-                <span>{showABComparison ? '原始本相 (RAW)' : '按住 A/B 比對 (Space)'}</span>
-              </button>
+                <!-- WebGL 2.0 3D LUT Hardware-Accelerated Viewport Canvas -->
+                <canvas 
+                  bind:this={webglCanvas}
+                  class="plate-render-canvas"
+                  style:transform={`scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1}) rotate(${cropRotation}deg)`}
+                ></canvas>
+
+                <!-- Fallback Image if WebGL is initializing or unsupported -->
+                {#if !isWebglActive}
+                  <img 
+                    src={activePhoto.thumbnail} 
+                    alt={activePhoto.filename} 
+                    class="plate-render-img"
+                    style:transform={`scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1}) rotate(${cropRotation}deg)`}
+                  />
+                {/if}
+
+                <!-- SPLIT DIFF OVERLAY (Top layer: Original RAW with clip-path) -->
+                {#if diffMode === 'split'}
+                  <div 
+                    class="split-original-layer"
+                    style:clip-path={`polygon(0 0, ${splitPosition}% 0, ${splitPosition}% 100%, 0 100%)`}
+                  >
+                    <img src={activePhoto.thumbnail} alt="Original RAW" class="plate-render-img" />
+                    <div class="split-label original font-mono">ORIGINAL 本相</div>
+                  </div>
+                  <div class="split-label graded font-mono">GRADED 顯影</div>
+
+                  <!-- Interactive Divider Handle -->
+                  <div 
+                    class="split-divider-line"
+                    style:left={`${splitPosition}%`}
+                    onmousedown={handleSplitPointerDown}
+                    role="slider"
+                    aria-label="比對簾幕分割線"
+                    aria-valuenow={splitPosition}
+                    tabindex="0"
+                  >
+                    <div class="split-handle-grip font-mono">
+                      <span>‹</span>
+                      <span>›</span>
+                    </div>
+                  </div>
+                {/if}
+
+                <!-- INTERACTIVE CROP OVERLAY -->
+                {#if isCropMode}
+                  <div class="crop-overlay-stage">
+                    <div 
+                      class="crop-box-element"
+                      style:left={`${cropX * 100}%`}
+                      style:top={`${cropY * 100}%`}
+                      style:width={`${cropWidth * 100}%`}
+                      style:height={`${cropHeight * 100}%`}
+                      onmousedown={(e) => handleCropStart('move', e)}
+                      onkeydown={(e) => {
+                        if (e.key === 'ArrowLeft') cropX = Math.max(0, cropX - 0.02);
+                        if (e.key === 'ArrowRight') cropX = Math.min(1 - cropWidth, cropX + 0.02);
+                        if (e.key === 'ArrowUp') cropY = Math.max(0, cropY - 0.02);
+                        if (e.key === 'ArrowDown') cropY = Math.min(1 - cropHeight, cropY + 0.02);
+                      }}
+                      tabindex="0"
+                      role="region"
+                      aria-label="可拖曳調整之裁切構圖框"
+                    >
+                      <!-- Thirds Grid Lines -->
+                      <div class="crop-grid-line v1"></div>
+                      <div class="crop-grid-line v2"></div>
+                      <div class="crop-grid-line h1"></div>
+                      <div class="crop-grid-line h2"></div>
+
+                      <!-- Handles -->
+                      <div class="crop-handle nw" onmousedown={(e) => handleCropStart('nw', e)} role="button" tabindex="0" aria-label="左上角裁切把手"></div>
+                      <div class="crop-handle se" onmousedown={(e) => handleCropStart('se', e)} role="button" tabindex="0" aria-label="右下角裁切把手"></div>
+
+                      <div class="crop-readout font-mono">
+                        {cropAspectRatio.toUpperCase()} · {(cropWidth * 100).toFixed(0)}% × {(cropHeight * 100).toFixed(0)}%
+                        {#if cropRotation !== 0}
+                          · {cropRotation > 0 ? `+${cropRotation}°` : `${cropRotation}°`}
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+
+                <!-- A/B Comparison Toggle Floater -->
+                <button 
+                  type="button"
+                  class="ab-toggle-btn hairline-all font-mono" 
+                  onmousedown={() => showABComparison = true}
+                  onmouseup={() => showABComparison = false}
+                  onmouseleave={() => showABComparison = false}
+                >
+                  <span class="material-symbols-outlined" style="font-size: 15px;">compare</span>
+                  <span>{showABComparison ? '原始本相 (RAW)' : '按住 A/B 比對 (Space)'}</span>
+                </button>
+              </div>
             </div>
           {:else}
             <!-- Empty State: Waiting for camera connection or local directory selection -->
@@ -1673,11 +2240,139 @@
       </div>
 
       {#if activeTab === 'retouch'}
+        <!-- CROP & GEOMETRY TELEMETRY BOX -->
+        <div class="telemetry-box hairline-b">
+          <div class="tuning-box-header">
+            <div class="box-title font-mono">CROP & GEOMETRY</div>
+            <div style="display: flex; gap: 4px;">
+              <button 
+                type="button" 
+                class="quick-ai-btn font-mono"
+                onclick={quickAiCrop}
+                disabled={isAiAnalyzing || !activePhoto}
+                title="一鍵讓 AI 判斷最佳構圖並套用裁切"
+              >
+                <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">auto_fix_high</span>
+                <span>AI 裁切</span>
+              </button>
+              <button 
+                type="button" 
+                class="quick-ai-btn font-mono"
+                onclick={quickAiHorizon}
+                disabled={isAiAnalyzing || !activePhoto}
+                title="一鍵讓 AI 自動校正地平線傾角"
+              >
+                <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">straighten</span>
+                <span>AI 拉平</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Aspect Ratio Presets -->
+          <div class="aspect-ratio-row font-mono">
+            {#each ['original', '1:1', '4:5', '16:9', '9:16', 'free'] as const as ratio}
+              <button 
+                type="button" 
+                class="ratio-chip" 
+                class:active={cropAspectRatio === ratio}
+                onclick={() => cropAspectRatio = ratio}
+              >
+                {ratio === 'original' ? '原圖' : ratio}
+              </button>
+            {/each}
+          </div>
+
+          <!-- Rotation Slider -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>ROTATION (水平旋轉)</span>
+              <span class="control-val">{cropRotation > 0 ? `+${cropRotation.toFixed(1)}°` : `${cropRotation.toFixed(1)}°`}</span>
+            </div>
+            <input 
+              type="range" 
+              min="-45" 
+              max="45" 
+              step="0.1" 
+              bind:value={cropRotation} 
+              class="darkroom-slider"
+            />
+          </div>
+
+          <!-- Vertical Keystone Slider -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>KEYSTONE V (垂直透視梯形)</span>
+              <span class="control-val">{keystoneV > 0 ? `+${keystoneV.toFixed(1)}°` : `${keystoneV.toFixed(1)}°`}</span>
+            </div>
+            <input 
+              type="range" 
+              min="-30" 
+              max="30" 
+              step="0.5" 
+              bind:value={keystoneV} 
+              class="darkroom-slider"
+            />
+          </div>
+
+          <!-- Flip & Reset Controls -->
+          <div class="geom-actions-row font-mono">
+            <button 
+              type="button" 
+              class="geom-btn" 
+              class:active={flipH}
+              onclick={() => flipH = !flipH}
+              title="水平鏡像翻轉"
+            >
+              <span class="material-symbols-outlined" style="font-size: 13px;">flip</span>
+              <span>水平翻轉</span>
+            </button>
+            <button 
+              type="button" 
+              class="geom-btn" 
+              class:active={flipV}
+              onclick={() => flipV = !flipV}
+              title="垂直鏡像翻轉"
+            >
+              <span class="material-symbols-outlined" style="font-size: 13px; transform: rotate(90deg);">flip</span>
+              <span>垂直翻轉</span>
+            </button>
+            <button 
+              type="button" 
+              class="geom-btn reset"
+              onclick={resetCropState}
+              title="重設裁切與透視"
+            >
+              <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
+              <span>重設幾何</span>
+            </button>
+          </div>
+        </div>
+
         <!-- Color Adjustment Sliders -->
         <div class="telemetry-box hairline-b">
           <div class="tuning-box-header">
             <div class="box-title font-mono">3D LUT TUNING</div>
-            <div style="display: flex; gap: 6px;">
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <button 
+                type="button" 
+                class="quick-ai-btn font-mono"
+                onclick={quickAiTone}
+                disabled={isAiAnalyzing || !activePhoto}
+                title="一鍵讓 AI 分析光比動態 (曝光/對比/陰影)"
+              >
+                <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">exposure</span>
+                <span>AI 光比</span>
+              </button>
+              <button 
+                type="button" 
+                class="quick-ai-btn font-mono"
+                onclick={quickAiWhiteBalance}
+                disabled={isAiAnalyzing || !activePhoto}
+                title="一鍵讓 AI 自動校準白平衡與色偏"
+              >
+                <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">thermostat</span>
+                <span>AI 白平衡</span>
+              </button>
               <button 
                 type="button" 
                 class="reset-tuning-btn font-mono"
@@ -1694,7 +2389,7 @@
                 title="恢復為無偏色直出基準值 (5500K / 0 EV)"
               >
                 <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
-                <span>重設基準</span>
+                <span>重設</span>
               </button>
             </div>
           </div>
@@ -1814,7 +2509,19 @@
 
         <!-- 3D LUT Vault Quick Select -->
         <div class="telemetry-box">
-          <div class="box-title font-mono">3D LUT PROFILES (ANONYMIZED)</div>
+          <div class="tuning-box-header">
+            <div class="box-title font-mono">3D LUT PROFILES (ANONYMIZED)</div>
+            <button 
+              type="button" 
+              class="quick-ai-btn font-mono"
+              onclick={quickAiProfile}
+              disabled={isAiAnalyzing || !activePhoto}
+              title="一鍵讓 AI 推薦最合適的風格檔"
+            >
+              <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">palette</span>
+              <span>AI 推薦</span>
+            </button>
+          </div>
           <div class="profile-cards-list">
             {#each profiles as prof}
               <button 
@@ -2451,6 +3158,7 @@
   .photo-stage-viewport {
     flex: 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     padding: 24px;
@@ -2486,6 +3194,13 @@
     border-radius: var(--radius-sm);
     overflow: hidden;
     box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.8), 0 16px 48px rgba(0, 0, 0, 0.7);
+  }
+
+  .plate-canvas-wrapper.is-side-by-side {
+    flex-direction: row;
+    gap: 14px;
+    padding: 56px 14px 14px 14px;
+    align-items: stretch;
   }
 
   .source-hidden-img {
@@ -2546,7 +3261,10 @@
     justify-content: space-between;
     align-items: center;
     pointer-events: none;
-    z-index: 10;
+    z-index: 20;
+  }
+  .plate-tag-bar > * {
+    pointer-events: auto;
   }
   .plate-id-badge {
     background-color: rgba(14, 15, 18, 0.82);
@@ -3061,4 +3779,406 @@
     letter-spacing: 0.05em;
   }
 
+  /* AI SCOPE RESPONSIBILITY SELECTOR */
+  .ai-scope-card {
+    background-color: var(--surface-panel);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .ai-scope-toggle-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 10px;
+    background: transparent;
+    border: none;
+    color: var(--parchment-bright);
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .ai-scope-toggle-btn:hover {
+    background-color: var(--surface-elevated);
+  }
+  .scope-header-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    letter-spacing: 0.04em;
+  }
+  .scope-chevron {
+    font-size: 16px;
+    color: var(--parchment-dim);
+    transition: transform 0.2s ease;
+  }
+  .ai-scope-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 8px 10px;
+    background-color: var(--canvas-base);
+    border-top: 1px solid var(--hairline-slate);
+    font-size: 10.5px;
+  }
+  .scope-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--parchment-muted);
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s ease;
+  }
+  .scope-checkbox-row:hover {
+    color: var(--parchment-bright);
+  }
+  .scope-checkbox-row input[type="checkbox"] {
+    accent-color: var(--amber-highlight);
+    cursor: pointer;
+    width: 13px;
+    height: 13px;
+  }
+
+  /* STAGE HUD TOOLBAR (DIFF & CROP) - 懸浮於照片上方中央 */
+  .stage-hud-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 3px 8px;
+    background-color: rgba(14, 15, 18, 0.88);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    pointer-events: auto;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    z-index: 15;
+  }
+  .hud-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .hud-title {
+    color: var(--parchment-dim);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+  .diff-btn-group {
+    display: flex;
+    align-items: center;
+    background-color: var(--canvas-base);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    padding: 2px;
+    gap: 2px;
+  }
+  .diff-mode-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: transparent;
+    border: none;
+    border-radius: 2px;
+    color: var(--parchment-dim);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .diff-mode-btn:hover {
+    color: var(--parchment-bright);
+    background-color: var(--surface-elevated);
+  }
+  .diff-mode-btn.active {
+    background-color: var(--surface-overlay);
+    color: var(--amber-highlight);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  }
+  .hud-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .crop-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background-color: var(--surface-elevated);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-muted);
+    font-size: 10.5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .crop-toggle-btn:hover {
+    color: var(--parchment-bright);
+    border-color: var(--parchment-dim);
+  }
+  .crop-toggle-btn.active {
+    background-color: rgba(212, 163, 115, 0.18);
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+  }
+  .crop-reset-quick-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 5px;
+    background: transparent;
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-dim);
+    cursor: pointer;
+  }
+  .crop-reset-quick-btn:hover {
+    color: #ff6b6b;
+    border-color: #ff6b6b;
+  }
+
+  /* SIDE-BY-SIDE DIPTYCH DIFF */
+  .diptych-pane {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .plate-canvas-wrapper.is-side-by-side .diptych-pane {
+    flex: 1 1 50%;
+    height: 100%;
+    min-width: 0;
+    background-color: #0b0c0e;
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.7);
+  }
+
+  .plate-canvas-wrapper:not(.is-side-by-side) .diptych-pane {
+    flex: 1 1 100%;
+    width: 100%;
+    height: 100%;
+    border: none;
+    background-color: transparent;
+  }
+
+  .diptych-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    font-size: 10px;
+    padding: 3px 8px;
+    background: rgba(18, 19, 22, 0.88);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid var(--hairline-slate);
+    color: var(--parchment-bright);
+    z-index: 5;
+    letter-spacing: 0.05em;
+    border-radius: 2px;
+  }
+  .diptych-badge.amber {
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+  }
+
+  /* SPLIT CURTAIN DIFF */
+  .split-original-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .split-label {
+    position: absolute;
+    bottom: 12px;
+    font-size: 10px;
+    padding: 3px 8px;
+    background: rgba(18, 19, 22, 0.85);
+    border: 1px solid var(--hairline-slate);
+    letter-spacing: 0.06em;
+    pointer-events: none;
+  }
+  .split-label.original {
+    left: 12px;
+    color: var(--parchment-muted);
+  }
+  .split-label.graded {
+    right: 12px;
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+    z-index: 1;
+  }
+  .split-divider-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: var(--amber-highlight);
+    box-shadow: 0 0 8px rgba(212, 163, 115, 0.6);
+    cursor: ew-resize;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .split-handle-grip {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background-color: var(--surface-panel);
+    border: 1px solid var(--amber-highlight);
+    color: var(--amber-highlight);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.8);
+    user-select: none;
+  }
+
+  /* INTERACTIVE CROP OVERLAY */
+  .crop-overlay-stage {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 4;
+  }
+  .crop-box-element {
+    position: absolute;
+    border: 1px solid var(--amber-highlight);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.65);
+    pointer-events: auto;
+    cursor: move;
+  }
+  .crop-grid-line {
+    position: absolute;
+    background-color: rgba(232, 228, 220, 0.25);
+    pointer-events: none;
+  }
+  .crop-grid-line.v1 { top: 0; bottom: 0; left: 33.33%; width: 1px; }
+  .crop-grid-line.v2 { top: 0; bottom: 0; left: 66.66%; width: 1px; }
+  .crop-grid-line.h1 { left: 0; right: 0; top: 33.33%; height: 1px; }
+  .crop-grid-line.h2 { left: 0; right: 0; top: 66.66%; height: 1px; }
+  
+  .crop-handle {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    background-color: var(--amber-highlight);
+    border: 1px solid #121316;
+  }
+  .crop-handle.nw { top: -7px; left: -7px; cursor: nwse-resize; }
+  .crop-handle.se { bottom: -7px; right: -7px; cursor: nwse-resize; }
+
+  .crop-readout {
+    position: absolute;
+    bottom: -22px;
+    left: 0;
+    font-size: 9.5px;
+    color: var(--amber-highlight);
+    background: rgba(18, 19, 22, 0.9);
+    padding: 1px 6px;
+    border-radius: 2px;
+    white-space: nowrap;
+    border: 1px solid var(--hairline-slate);
+  }
+
+  /* CROP & GEOMETRY RIGHT PANEL */
+  .aspect-ratio-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+  .ratio-chip {
+    padding: 4px 6px;
+    background-color: var(--surface-panel);
+    border: 1px solid var(--hairline-slate);
+    border-radius: 3px;
+    color: var(--parchment-muted);
+    font-size: 10px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s ease;
+  }
+  .ratio-chip:hover {
+    color: var(--parchment-bright);
+    background-color: var(--surface-overlay);
+  }
+  .ratio-chip.active {
+    background-color: var(--surface-overlay);
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+  }
+  .geom-actions-row {
+    display: flex;
+    gap: 5px;
+    margin-top: 8px;
+  }
+  .geom-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 5px 6px;
+    background-color: var(--surface-panel);
+    border: 1px solid var(--hairline-slate);
+    border-radius: 3px;
+    color: var(--parchment-muted);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .geom-btn:hover {
+    color: var(--parchment-bright);
+    background-color: var(--surface-overlay);
+  }
+  .geom-btn.active {
+    background-color: rgba(212, 163, 115, 0.15);
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+  }
+  .geom-btn.reset:hover {
+    color: #ff6b6b;
+    border-color: #ff6b6b;
+  }
+
+  /* QUICK AI BUTTONS */
+  .quick-ai-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background-color: var(--surface-panel);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    padding: 2px 6px;
+    color: var(--parchment-muted);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .quick-ai-btn:hover:not(:disabled) {
+    color: var(--parchment-bright);
+    background-color: var(--surface-overlay);
+    border-color: var(--amber-highlight);
+  }
+  .quick-ai-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
 </style>
+

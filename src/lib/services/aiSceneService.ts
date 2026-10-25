@@ -22,7 +22,14 @@ export interface AiSceneDecision {
   lut_intensity: number;
   tags?: string[];
   isFallback: boolean;
+  // 智慧構圖、裁切與透視校正
+  crop_box?: [number, number, number, number]; // [ymin, xmin, ymax, xmax] 0.0 ~ 1.0
+  rotation_deg?: number;                       // 水平傾斜校正角度 (-45 ~ +45)
+  keystone_v?: number;                         // 垂直透視梯形校正 (-45 ~ +45)
+  aspect_ratio?: 'original' | '1:1' | '4:5' | '16:9' | '9:16' | 'free';
+  crop_rationale?: string;                     // 裁切與構圖診斷說明
 }
+
 
 export interface CopywritingPayload {
   tags: string[];
@@ -90,7 +97,12 @@ export class AiSceneService {
         lift_shadows: 0.15,
         lut_intensity: 0.85,
         tags: ['大光圈', '淺景深', '柔焦暖光', '人像特寫'],
-        isFallback: true
+        isFallback: true,
+        crop_box: [0.06, 0.10, 0.94, 0.90],
+        rotation_deg: 0.0,
+        keystone_v: 0.0,
+        aspect_ratio: '4:5',
+        crop_rationale: '偵測到大光圈特寫人像，建議以 4:5 經典直式比例居中微聚焦主體。'
       };
     }
 
@@ -110,7 +122,12 @@ export class AiSceneService {
         lift_shadows: 0.25,
         lut_intensity: 0.80,
         tags: ['微光夜景', '高感度', '暗夜影調', '低光街拍'],
-        isFallback: true
+        isFallback: true,
+        crop_box: [0.03, 0.04, 0.97, 0.96],
+        rotation_deg: -0.5,
+        keystone_v: 0.0,
+        aspect_ratio: 'original',
+        crop_rationale: '夜巡微光環境，微幅校正地平線傾斜以維持視覺重心穩定。'
       };
     }
 
@@ -130,7 +147,12 @@ export class AiSceneService {
         lift_shadows: -0.05,
         lut_intensity: 1.0,
         tags: ['幾何建築', '深景深', '高反差黑白', '結構線條'],
-        isFallback: true
+        isFallback: true,
+        crop_box: [0.04, 0.05, 0.96, 0.95],
+        rotation_deg: 0.0,
+        keystone_v: -1.0,
+        aspect_ratio: 'original',
+        crop_rationale: '深景深建築幾何，建議微幅補正仰角透視垂直梯形，消除視覺壓迫感。'
       };
     }
 
@@ -149,7 +171,12 @@ export class AiSceneService {
       lift_shadows: 0.1,
       lut_intensity: 0.9,
       tags: ['日常光景', '平衡光照', '電影質感', '青綠冷調'],
-      isFallback: true
+      isFallback: true,
+      crop_box: [0.02, 0.02, 0.98, 0.98],
+      rotation_deg: 0.0,
+      keystone_v: 0.0,
+      aspect_ratio: 'original',
+      crop_rationale: '開闊平衡光照，維持原尺寸構圖，微調四邊邊界。'
     };
   }
 
@@ -211,8 +238,9 @@ export class AiSceneService {
       modelId = localStorage.getItem(`slipknot_model_${provider}`);
     }
 
-    const promptText = `You are a professional analog darkroom colorist. Analyze this photographic image and optical EXIF (ISO: ${exif.iso || 'N/A'}, Shutter: ${exif.shutterSpeed || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}, Lens/Focal: ${exif.focalLength || 'N/A'}).
-Provide an artistic color grading decision and stylistic recommendation.
+    const promptText = `You are a master analog darkroom colorist and curatorial director.
+Analyze this photographic image and optical EXIF (ISO: ${exif.iso || 'N/A'}, Shutter: ${exif.shutterSpeed || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}, Lens/Focal: ${exif.focalLength || 'N/A'}).
+Provide artistic color grading decisions, lighting dynamics, and composition crop recommendations (Rule of Thirds, horizon leveling, perspective correction).
 Respond ONLY with raw JSON matching this schema:
 {
   "scene_title": "午後斜陽微光街角 (Poetic scene title in Traditional Chinese, 4-8 chars)",
@@ -227,7 +255,12 @@ Respond ONLY with raw JSON matching this schema:
   "tint": 2.0,
   "lift_shadows": 0.1,
   "lut_intensity": 0.85,
-  "tags": ["側逆光", "斜陽街角", "暖調底片", "微光散景"]
+  "tags": ["側逆光", "斜陽街角", "暖調底片", "微光散景"],
+  "crop_box": [0.04, 0.06, 0.96, 0.94],
+  "rotation_deg": -0.8,
+  "keystone_v": 0.0,
+  "aspect_ratio": "original",
+  "crop_rationale": "微幅旋轉校正地平線傾斜，適度收緊邊界以強化畫面視覺重心。(Traditional Chinese)"
 }`;
 
     if (provider === 'gemini') {
@@ -282,7 +315,12 @@ Respond ONLY with raw JSON matching this schema:
         lift_shadows: typeof parsed.lift_shadows === 'number' ? parsed.lift_shadows : 0.0,
         lut_intensity: typeof parsed.lut_intensity === 'number' ? parsed.lut_intensity : 0.85,
         tags: Array.isArray(parsed.tags) ? parsed.tags : ['光影顯影', '底片氛圍'],
-        isFallback: false
+        isFallback: false,
+        crop_box: Array.isArray(parsed.crop_box) && parsed.crop_box.length === 4 ? parsed.crop_box : [0.03, 0.04, 0.97, 0.96],
+        rotation_deg: typeof parsed.rotation_deg === 'number' ? parsed.rotation_deg : 0.0,
+        keystone_v: typeof parsed.keystone_v === 'number' ? parsed.keystone_v : 0.0,
+        aspect_ratio: parsed.aspect_ratio || 'original',
+        crop_rationale: parsed.crop_rationale || 'AI 智慧構圖建議已生成。'
       };
     } else {
       // Groq Vision endpoint
@@ -340,7 +378,12 @@ Respond ONLY with raw JSON matching this schema:
         lift_shadows: typeof parsed.lift_shadows === 'number' ? parsed.lift_shadows : 0.0,
         lut_intensity: typeof parsed.lut_intensity === 'number' ? parsed.lut_intensity : 0.85,
         tags: Array.isArray(parsed.tags) ? parsed.tags : ['光影顯影', '底片氛圍'],
-        isFallback: false
+        isFallback: false,
+        crop_box: Array.isArray(parsed.crop_box) && parsed.crop_box.length === 4 ? parsed.crop_box : [0.03, 0.04, 0.97, 0.96],
+        rotation_deg: typeof parsed.rotation_deg === 'number' ? parsed.rotation_deg : 0.0,
+        keystone_v: typeof parsed.keystone_v === 'number' ? parsed.keystone_v : 0.0,
+        aspect_ratio: parsed.aspect_ratio || 'original',
+        crop_rationale: parsed.crop_rationale || 'AI 智慧構圖建議已生成。'
       };
     }
   }

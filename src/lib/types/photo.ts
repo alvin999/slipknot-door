@@ -50,7 +50,29 @@ export interface PhotoPlate {
   appliedProfile?: string;
   appliedProfileId?: string;
   tuning?: TuningParameters;
+  crop?: CropGeometry;
   fileHandle?: any;
+}
+
+export interface CropGeometry {
+  x: number;          // 0.0 ~ 1.0 (左上角 X 比例)
+  y: number;          // 0.0 ~ 1.0 (左上角 Y 比例)
+  width: number;      // 0.0 ~ 1.0 (寬度比例)
+  height: number;     // 0.0 ~ 1.0 (高度比例)
+  rotation: number;   // 旋轉角度 (-45 ~ +45 度)
+  keystoneV: number;  // 垂直透視梯形 (-45 ~ +45)
+  keystoneH: number;  // 水平透視梯形 (-45 ~ +45)
+  aspectRatio: 'original' | '1:1' | '4:5' | '16:9' | '9:16' | 'free';
+  flipH: boolean;     // 水平翻轉
+  flipV: boolean;     // 垂直翻轉
+}
+
+export interface AiScopePreferences {
+  lutProfile: boolean;     // 3D LUT 風格推薦
+  crop: boolean;           // 構圖與智慧裁切
+  keystone: boolean;       // 梯形與水平校正
+  tone: boolean;           // 基礎光影 (曝光/對比/陰影)
+  whiteBalance: boolean;   // 自動色溫與色偏 (Kelvin / Tint)
 }
 
 export interface TuningParameters {
@@ -63,3 +85,4 @@ export interface TuningParameters {
   clarity?: number;       // (-1.0 ~ +1.0)
   sharpness?: number;     // (0.0 ~ 1.0)
 }
+
