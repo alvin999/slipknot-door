@@ -242,6 +242,7 @@
   let webglRenderer: WebglLutRenderer | null = null;
   let isWebglActive = $state<boolean>(false);
   let sourceImgElement = $state<HTMLImageElement | null>(null);
+  let isExifSlateOpen = $state<boolean>(false);
 
   // Dedicated Offscreen WebGL Renderer for Catalog Thumbnails
   let offscreenCanvas: HTMLCanvasElement | null = null;
@@ -2077,6 +2078,65 @@
                   <span>{showABComparison ? '原始本相 (RAW)' : '按住 A/B 比對 (Space)'}</span>
                 </button>
               </div>
+
+              <!-- 底部底片邊緣印字光學遙測條 (FILM REBATE OPTICAL TELEMETRY SLATE) -->
+              <div class="plate-rebate-bar font-mono">
+                <div class="rebate-camera-block truncate">
+                  <span class="material-symbols-outlined rebate-camera-icon">photo_camera</span>
+                  <span class="rebate-camera-model truncate">{activePhoto.camera || 'CAMERA'}</span>
+                  {#if activePhoto.lens}
+                    <span class="rebate-sep">/</span>
+                    <span class="rebate-lens truncate" title={activePhoto.lens}>{activePhoto.lens}</span>
+                  {/if}
+                </div>
+
+                <div class="rebate-optical-chips">
+                  {#if activePhoto.focalLength && activePhoto.focalLength !== '--'}
+                    <span class="rebate-chip">{activePhoto.focalLength}</span>
+                  {/if}
+                  <span class="rebate-chip highlight">{activePhoto.aperture || 'ƒ/--'}</span>
+                  <span class="rebate-chip highlight">{activePhoto.shutter || '--s'}</span>
+                  <span class="rebate-chip amber">{activePhoto.iso > 0 ? `ISO ${activePhoto.iso}` : 'ISO --'}</span>
+                  {#if activePhoto.exposureBias !== undefined}
+                    <span class="rebate-chip">{activePhoto.exposureBias > 0 ? `+${activePhoto.exposureBias.toFixed(1)}` : activePhoto.exposureBias.toFixed(1)} EV</span>
+                  {/if}
+                  <span class="rebate-chip">{activePhoto.asShotTemp ? `${activePhoto.asShotTemp}K` : '5500K'}</span>
+                  <span class="rebate-chip dim">{activePhoto.colorSpace || 'sRGB'}</span>
+                  
+                  <button 
+                    type="button" 
+                    class="rebate-detail-btn"
+                    class:active={isExifSlateOpen}
+                    onclick={() => isExifSlateOpen = !isExifSlateOpen}
+                    title="檢視完整 EXIF 測光模式與曝光程式"
+                  >
+                    <span class="material-symbols-outlined" style="font-size: 13px;">info</span>
+                    <span>EXIF</span>
+                  </button>
+                </div>
+
+                <!-- 浮動展開完整 EXIF 測光卡片 (可選彈窗) -->
+                {#if isExifSlateOpen}
+                  <div class="rebate-exif-popover hairline-all font-mono">
+                    <div class="popover-title">
+                      <span>OPTICAL TELEMETRY // 完整光學數據</span>
+                      <button type="button" class="popover-close-btn" onclick={() => isExifSlateOpen = false}>
+                        <span class="material-symbols-outlined" style="font-size: 13px;">close</span>
+                      </button>
+                    </div>
+                    <div class="popover-grid">
+                      <div class="pop-row"><span>相機機身</span><strong class="truncate">{activePhoto.camera || '--'}</strong></div>
+                      <div class="pop-row"><span>搭配鏡頭</span><strong class="truncate">{activePhoto.lens || '--'}</strong></div>
+                      <div class="pop-row"><span>曝光程式</span><strong>{activePhoto.exposureProgram || '--'}</strong></div>
+                      <div class="pop-row"><span>測光模式</span><strong>{activePhoto.meteringMode || '--'}</strong></div>
+                      <div class="pop-row"><span>閃光燈</span><strong>{activePhoto.flash || '未擊發'}</strong></div>
+                      <div class="pop-row"><span>原生色溫</span><strong>{activePhoto.asShotTemp ? `${activePhoto.asShotTemp}K` : '5500K'}</strong></div>
+                      <div class="pop-row"><span>色偏 Tint</span><strong>{activePhoto.asShotTint ? `${activePhoto.asShotTint.toFixed(1)}` : '0.0'}</strong></div>
+                      <div class="pop-row"><span>色彩空間</span><strong>{activePhoto.colorSpace || 'sRGB'}</strong></div>
+                    </div>
+                  </div>
+                {/if}
+              </div>
             </div>
           {:else}
             <!-- Empty State: Waiting for camera connection or local directory selection -->
@@ -2186,170 +2246,12 @@
       {/if}
     </section>
 
-    <!-- RIGHT SIDEBAR: DARKROOM TELEMETRY & COLOR DOCK -->
-    <aside class="right-telemetry hairline-l">
-      <!-- EXIF Optical Telemetry -->
-      <div class="telemetry-box hairline-b">
-        <div class="box-title font-mono">EXIF OPTICAL TELEMETRY</div>
-        <div class="optical-grid font-mono">
-          <div class="optical-chip">
-            <span class="opt-label">APERTURE</span>
-            <span class="opt-val">{activePhoto ? activePhoto.aperture : '--'}</span>
-          </div>
-          <div class="optical-chip">
-            <span class="opt-label">SHUTTER</span>
-            <span class="opt-val">{activePhoto ? activePhoto.shutter : '--'}</span>
-          </div>
-          <div class="optical-chip">
-            <span class="opt-label">ISO SPEED</span>
-            <span class="opt-val amber">{activePhoto && activePhoto.iso > 0 ? `ISO ${activePhoto.iso}` : '--'}</span>
-          </div>
-          <div class="optical-chip">
-            <span class="opt-label">FOCAL</span>
-            <span class="opt-val">{activePhoto ? activePhoto.focalLength : '--'}</span>
-          </div>
-          <div class="optical-chip">
-            <span class="opt-label">EXP. BIAS</span>
-            <span class="opt-val">{activePhoto && activePhoto.exposureBias !== undefined ? (activePhoto.exposureBias > 0 ? `+${activePhoto.exposureBias.toFixed(2)} EV` : `${activePhoto.exposureBias.toFixed(2)} EV`) : '0.00 EV'}</span>
-          </div>
-          <div class="optical-chip">
-            <span class="opt-label">PROGRAM</span>
-            <span class="opt-val truncate" title={activePhoto?.exposureProgram || '--'}>{activePhoto?.exposureProgram || '--'}</span>
-          </div>
-          <div class="optical-chip">
-            <span class="opt-label">METERING</span>
-            <span class="opt-val truncate" title={activePhoto?.meteringMode || '--'}>{activePhoto?.meteringMode || '--'}</span>
-          </div>
-          <div class="optical-chip">
-            <span class="opt-label">COLOR SPACE</span>
-            <span class="opt-val amber">{activePhoto?.colorSpace || 'sRGB'}</span>
-          </div>
-          <div class="optical-chip">
-            <span class="opt-label">AS-SHOT WB</span>
-            <span class="opt-val">{activePhoto?.asShotTemp ? `${activePhoto.asShotTemp}K` : '5500K'}</span>
-          </div>
-          <div class="optical-chip">
-            <span class="opt-label">FLASH</span>
-            <span class="opt-val">{activePhoto?.flash || '未擊發'}</span>
-          </div>
-        </div>
-        <div class="lens-line font-mono">
-          <span class="material-symbols-outlined" style="font-size: 14px;">camera_alt</span>
-          <span class="truncate">{activePhoto ? activePhoto.lens : '尚未選取相片'}</span>
-        </div>
-      </div>
-
-      {#if activeTab === 'retouch'}
-        <!-- CROP & GEOMETRY TELEMETRY BOX -->
-        <div class="telemetry-box hairline-b">
-          <div class="tuning-box-header">
-            <div class="box-title font-mono">CROP & GEOMETRY</div>
-            <div style="display: flex; gap: 4px;">
-              <button 
-                type="button" 
-                class="quick-ai-btn font-mono"
-                onclick={quickAiCrop}
-                disabled={isAiAnalyzing || !activePhoto}
-                title="一鍵讓 AI 判斷最佳構圖並套用裁切"
-              >
-                <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">auto_fix_high</span>
-                <span>AI 裁切</span>
-              </button>
-              <button 
-                type="button" 
-                class="quick-ai-btn font-mono"
-                onclick={quickAiHorizon}
-                disabled={isAiAnalyzing || !activePhoto}
-                title="一鍵讓 AI 自動校正地平線傾角"
-              >
-                <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">straighten</span>
-                <span>AI 拉平</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Aspect Ratio Presets -->
-          <div class="aspect-ratio-row font-mono">
-            {#each ['original', '1:1', '4:5', '16:9', '9:16', 'free'] as const as ratio}
-              <button 
-                type="button" 
-                class="ratio-chip" 
-                class:active={cropAspectRatio === ratio}
-                onclick={() => cropAspectRatio = ratio}
-              >
-                {ratio === 'original' ? '原圖' : ratio}
-              </button>
-            {/each}
-          </div>
-
-          <!-- Rotation Slider -->
-          <div class="control-row">
-            <div class="control-header font-mono">
-              <span>ROTATION (水平旋轉)</span>
-              <span class="control-val">{cropRotation > 0 ? `+${cropRotation.toFixed(1)}°` : `${cropRotation.toFixed(1)}°`}</span>
-            </div>
-            <input 
-              type="range" 
-              min="-45" 
-              max="45" 
-              step="0.1" 
-              bind:value={cropRotation} 
-              class="darkroom-slider"
-            />
-          </div>
-
-          <!-- Vertical Keystone Slider -->
-          <div class="control-row">
-            <div class="control-header font-mono">
-              <span>KEYSTONE V (垂直透視梯形)</span>
-              <span class="control-val">{keystoneV > 0 ? `+${keystoneV.toFixed(1)}°` : `${keystoneV.toFixed(1)}°`}</span>
-            </div>
-            <input 
-              type="range" 
-              min="-30" 
-              max="30" 
-              step="0.5" 
-              bind:value={keystoneV} 
-              class="darkroom-slider"
-            />
-          </div>
-
-          <!-- Flip & Reset Controls -->
-          <div class="geom-actions-row font-mono">
-            <button 
-              type="button" 
-              class="geom-btn" 
-              class:active={flipH}
-              onclick={() => flipH = !flipH}
-              title="水平鏡像翻轉"
-            >
-              <span class="material-symbols-outlined" style="font-size: 13px;">flip</span>
-              <span>水平翻轉</span>
-            </button>
-            <button 
-              type="button" 
-              class="geom-btn" 
-              class:active={flipV}
-              onclick={() => flipV = !flipV}
-              title="垂直鏡像翻轉"
-            >
-              <span class="material-symbols-outlined" style="font-size: 13px; transform: rotate(90deg);">flip</span>
-              <span>垂直翻轉</span>
-            </button>
-            <button 
-              type="button" 
-              class="geom-btn reset"
-              onclick={resetCropState}
-              title="重設裁切與透視"
-            >
-              <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
-              <span>重設幾何</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Color Adjustment Sliders -->
-        <div class="telemetry-box hairline-b">
+    {#if activeTab === 'retouch' || activeTab === 'catalog'}
+      <!-- RIGHT SIDEBAR: RETOUCH COLOR DOCK OR CATALOG SELECTION RACK -->
+      <aside class="right-telemetry hairline-l">
+        {#if activeTab === 'retouch'}
+          <!-- 1. Color Adjustment Sliders (3D LUT TUNING) - 置頂第一順位 -->
+          <div class="telemetry-box hairline-b">
           <div class="tuning-box-header">
             <div class="box-title font-mono">3D LUT TUNING</div>
             <div style="display: flex; gap: 4px; align-items: center;">
@@ -2507,7 +2409,115 @@
           </div>
         </div>
 
-        <!-- 3D LUT Vault Quick Select -->
+        <!-- 2. CROP & GEOMETRY TELEMETRY BOX - 第二順位 -->
+        <div class="telemetry-box hairline-b">
+          <div class="tuning-box-header">
+            <div class="box-title font-mono">CROP & GEOMETRY</div>
+            <div style="display: flex; gap: 4px;">
+              <button 
+                type="button" 
+                class="quick-ai-btn font-mono"
+                onclick={quickAiCrop}
+                disabled={isAiAnalyzing || !activePhoto}
+                title="一鍵讓 AI 判斷最佳構圖並套用裁切"
+              >
+                <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">auto_fix_high</span>
+                <span>AI 裁切</span>
+              </button>
+              <button 
+                type="button" 
+                class="quick-ai-btn font-mono"
+                onclick={quickAiHorizon}
+                disabled={isAiAnalyzing || !activePhoto}
+                title="一鍵讓 AI 自動校正地平線傾角"
+              >
+                <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">straighten</span>
+                <span>AI 拉平</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Aspect Ratio Presets -->
+          <div class="aspect-ratio-row font-mono">
+            {#each ['original', '1:1', '4:5', '16:9', '9:16', 'free'] as const as ratio}
+              <button 
+                type="button" 
+                class="ratio-chip" 
+                class:active={cropAspectRatio === ratio}
+                onclick={() => cropAspectRatio = ratio}
+              >
+                {ratio === 'original' ? '原圖' : ratio}
+              </button>
+            {/each}
+          </div>
+
+          <!-- Rotation Slider -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>ROTATION (水平旋轉)</span>
+              <span class="control-val">{cropRotation > 0 ? `+${cropRotation.toFixed(1)}°` : `${cropRotation.toFixed(1)}°`}</span>
+            </div>
+            <input 
+              type="range" 
+              min="-45" 
+              max="45" 
+              step="0.1" 
+              bind:value={cropRotation} 
+              class="darkroom-slider"
+            />
+          </div>
+
+          <!-- Vertical Keystone Slider -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>KEYSTONE V (垂直透視梯形)</span>
+              <span class="control-val">{keystoneV > 0 ? `+${keystoneV.toFixed(1)}°` : `${keystoneV.toFixed(1)}°`}</span>
+            </div>
+            <input 
+              type="range" 
+              min="-30" 
+              max="30" 
+              step="0.5" 
+              bind:value={keystoneV} 
+              class="darkroom-slider"
+            />
+          </div>
+
+          <!-- Flip & Reset Controls -->
+          <div class="geom-actions-row font-mono">
+            <button 
+              type="button" 
+              class="geom-btn" 
+              class:active={flipH}
+              onclick={() => flipH = !flipH}
+              title="水平鏡像翻轉"
+            >
+              <span class="material-symbols-outlined" style="font-size: 13px;">flip</span>
+              <span>水平翻轉</span>
+            </button>
+            <button 
+              type="button" 
+              class="geom-btn" 
+              class:active={flipV}
+              onclick={() => flipV = !flipV}
+              title="垂直鏡像翻轉"
+            >
+              <span class="material-symbols-outlined" style="font-size: 13px; transform: rotate(90deg);">flip</span>
+              <span>垂直翻轉</span>
+            </button>
+            <button 
+              type="button" 
+              class="geom-btn reset"
+              onclick={resetCropState}
+              title="重設裁切與透視"
+            >
+              <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
+              <span>重設幾何</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. 3D LUT Vault Quick Select - 第三順位 -->
         <div class="telemetry-box">
           <div class="tuning-box-header">
             <div class="box-title font-mono">3D LUT PROFILES (ANONYMIZED)</div>
@@ -2552,97 +2562,101 @@
             <span>完成調色，前往匯出管線 ({activeQueue.length} 幀) →</span>
           </button>
         </div>
-      {:else if activeTab === 'catalog'}
-        <!-- CATALOG STAGE: 勾選的圖片預覽清單 -->
-        <div class="telemetry-box curatorial-preview-box">
-          <div class="curatorial-preview-header">
-            <div class="box-title font-mono" style="margin-bottom: 0;">
-              PICKED PREVIEWS ({flaggedCount} 幀)
+        {:else if activeTab === 'catalog'}
+          <!-- CATALOG STAGE: 勾選的圖片預覽清單與前往精修導引 -->
+          <div class="telemetry-box curatorial-preview-box">
+            <div class="curatorial-preview-header">
+              <div class="box-title font-mono" style="margin-bottom: 0;">
+                PICKED PREVIEWS ({flaggedCount} 幀)
+              </div>
+              {#if flaggedCount > 0}
+                <button 
+                  type="button" 
+                  class="clear-flags-btn font-mono" 
+                  onclick={clearAllFlags}
+                  title="清空所有挑圖勾選"
+                >
+                  清空勾選
+                </button>
+              {/if}
             </div>
+
             {#if flaggedCount > 0}
-              <button 
-                type="button" 
-                class="clear-flags-btn font-mono" 
-                onclick={clearAllFlags}
-                title="清空所有挑圖勾選"
-              >
-                清空勾選
-              </button>
+              <div class="curatorial-thumbs-list">
+                {#each flaggedPhotos as item (item.id)}
+                  <div 
+                    class="curatorial-thumb-item hairline-all" 
+                    class:active={activePhoto?.id === item.id}
+                    onclick={() => selectPhoto(item)}
+                    ondblclick={() => openRetouchForPhoto(item)}
+                    title="點擊聚焦預覽，雙擊前往精修"
+                    role="button"
+                    tabindex="0"
+                    onkeydown={(e) => { if (e.key === 'Enter') openRetouchForPhoto(item); }}
+                  >
+                    <div class="thumb-img-wrapper">
+                      <img 
+                        src={item.gradedThumbnail || item.thumbnail} 
+                        alt={item.filename} 
+                        class="thumb-img"
+                        loading="lazy"
+                      />
+                      <span class="thumb-frame-tag font-mono">#{item.frameNo}</span>
+                    </div>
+                    <div class="thumb-info font-mono">
+                      <div class="thumb-filename truncate">{item.filename}</div>
+                      <div class="thumb-meta">
+                        <span>{item.shutter}</span>
+                        <span>{item.aperture}</span>
+                        <span>ISO {item.iso}</span>
+                      </div>
+                    </div>
+                    <button 
+                      type="button" 
+                      class="thumb-unflag-btn" 
+                      onclick={(e) => togglePhotoFlag(item, e)}
+                      title="取消勾選此張相片"
+                    >
+                      <span class="material-symbols-outlined" style="font-size: 14px;">close</span>
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <!-- Empty state when no photo is flagged yet -->
+              <div class="empty-curatorial-card hairline-all font-mono">
+                <span class="material-symbols-outlined empty-guide-icon">bookmarks</span>
+                <div class="empty-guide-title">尚未勾選任何相片</div>
+                <p class="empty-guide-desc">
+                  在目錄中按 <kbd class="kbd-chip">Space</kbd> 或點擊右上角書籤標記挑圖。
+                </p>
+                <div class="empty-guide-sub">
+                  ※ 若未特別勾選，前往精修時將自動帶入全部 ({photoPlates.length} 幀)
+                </div>
+              </div>
             {/if}
           </div>
 
-          {#if flaggedCount > 0}
-            <div class="curatorial-thumbs-list">
-              {#each flaggedPhotos as item (item.id)}
-                <div 
-                  class="curatorial-thumb-item hairline-all" 
-                  class:active={activePhoto?.id === item.id}
-                  onclick={() => selectPhoto(item)}
-                  ondblclick={() => openRetouchForPhoto(item)}
-                  title="點擊聚焦預覽，雙擊前往精修"
-                >
-                  <div class="thumb-img-wrapper">
-                    <img 
-                      src={item.gradedThumbnail || item.thumbnail} 
-                      alt={item.filename} 
-                      class="thumb-img"
-                      loading="lazy"
-                    />
-                    <span class="thumb-frame-tag font-mono">#{item.frameNo}</span>
-                  </div>
-                  <div class="thumb-info font-mono">
-                    <div class="thumb-filename truncate">{item.filename}</div>
-                    <div class="thumb-meta">
-                      <span>{item.shutter}</span>
-                      <span>{item.aperture}</span>
-                      <span>ISO {item.iso}</span>
-                    </div>
-                  </div>
-                  <button 
-                    type="button" 
-                    class="thumb-unflag-btn" 
-                    onclick={(e) => togglePhotoFlag(item, e)}
-                    title="取消勾選此張相片"
-                  >
-                    <span class="material-symbols-outlined" style="font-size: 14px;">close</span>
-                  </button>
-                </div>
-              {/each}
-            </div>
-          {:else}
-            <!-- Empty state when no photo is flagged yet -->
-            <div class="empty-curatorial-card hairline-all font-mono">
-              <span class="material-symbols-outlined empty-guide-icon">bookmarks</span>
-              <div class="empty-guide-title">尚未勾選任何相片</div>
-              <p class="empty-guide-desc">
-                在目錄中按 <kbd class="kbd-chip">Space</kbd> 或點擊右上角書籤標記挑圖。
-              </p>
-              <div class="empty-guide-sub">
-                ※ 若未特別勾選，前往精修時將自動帶入全部 ({photoPlates.length} 幀)
-              </div>
-            </div>
-          {/if}
-        </div>
-
-        <!-- 下一個步驟是前往精修（不顯示 export pipeline spec） -->
-        <div class="telemetry-box hairline-t mt-auto">
-          <button 
-            type="button" 
-            class="archival-btn-primary w-full step-cta-btn" 
-            onclick={goToRetouch}
-            disabled={photoPlates.length === 0}
-            title="下一個步驟：前往暗房精修"
-          >
-            <span class="material-symbols-outlined" style="font-size: 16px;">tonality</span>
-            <span>
-              {flaggedCount > 0 
-                ? `前往暗房精修 (已選 ${flaggedCount} 幀) →` 
-                : `前往暗房精修 (全量 ${photoPlates.length} 幀) →`}
-            </span>
-          </button>
-        </div>
-      {/if}
-    </aside>
+          <!-- 下一個步驟是前往精修 -->
+          <div class="telemetry-box hairline-t mt-auto">
+            <button 
+              type="button" 
+              class="archival-btn-primary w-full step-cta-btn" 
+              onclick={goToRetouch}
+              disabled={photoPlates.length === 0}
+              title="下一個步驟：前往暗房精修"
+            >
+              <span class="material-symbols-outlined" style="font-size: 16px;">tonality</span>
+              <span>
+                {flaggedCount > 0 
+                  ? `前往暗房精修 (已選 ${flaggedCount} 幀) →` 
+                  : `前往暗房精修 (全量 ${photoPlates.length} 幀) →`}
+              </span>
+            </button>
+          </div>
+        {/if}
+      </aside>
+    {/if}
   </main>
 
   <!-- AI Key Vault Modal -->
@@ -3199,7 +3213,7 @@
   .plate-canvas-wrapper.is-side-by-side {
     flex-direction: row;
     gap: 14px;
-    padding: 56px 14px 14px 14px;
+    padding: 56px 14px 48px 14px;
     align-items: stretch;
   }
 
@@ -3214,7 +3228,7 @@
   .plate-render-canvas,
   .plate-render-img {
     max-width: 95%;
-    max-height: 92%;
+    max-height: 88%;
     width: auto;
     height: auto;
     object-fit: contain;
@@ -3310,28 +3324,180 @@
 
   .ab-toggle-btn {
     position: absolute;
-    bottom: 16px;
-    right: 16px;
+    bottom: 48px;
+    right: 14px;
     background-color: rgba(18, 19, 23, 0.88);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     color: var(--parchment-bright);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    padding: 8px 16px;
+    padding: 6px 12px;
     border-radius: var(--radius-sm);
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 11px;
+    gap: 6px;
+    font-size: 10.5px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
     transition: all 0.15s ease;
-    z-index: 10;
+    z-index: 12;
   }
   .ab-toggle-btn:hover {
     background-color: var(--primary-indigo);
     color: var(--canvas-base);
     border-color: var(--primary-indigo);
+  }
+
+  /* FILM REBATE OPTICAL TELEMETRY SLATE */
+  .plate-rebate-bar {
+    position: absolute;
+    bottom: 12px;
+    left: 14px;
+    right: 14px;
+    background-color: rgba(12, 13, 16, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-sm);
+    padding: 6px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    z-index: 15;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.65);
+    pointer-events: auto;
+  }
+
+  .rebate-camera-block {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--parchment-bright);
+    min-width: 0;
+    max-width: 45%;
+  }
+  .rebate-camera-icon {
+    font-size: 14px;
+    color: var(--amber-highlight);
+    flex-shrink: 0;
+  }
+  .rebate-camera-model {
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+  .rebate-sep {
+    color: var(--parchment-dim);
+    opacity: 0.4;
+  }
+  .rebate-lens {
+    color: var(--parchment-muted);
+    font-size: 10.5px;
+  }
+
+  .rebate-optical-chips {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+  .rebate-chip {
+    font-size: 10.5px;
+    padding: 2px 6px;
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    color: var(--parchment-muted);
+    letter-spacing: 0.04em;
+  }
+  .rebate-chip.highlight {
+    color: var(--parchment-bright);
+    font-weight: 500;
+  }
+  .rebate-chip.amber {
+    color: var(--amber-highlight);
+    font-weight: 600;
+    border-color: rgba(212, 163, 115, 0.25);
+  }
+  .rebate-chip.dim {
+    color: var(--parchment-dim);
+    font-size: 9.5px;
+  }
+
+  .rebate-detail-btn {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    background-color: var(--surface-elevated);
+    border: 1px solid var(--hairline-slate);
+    border-radius: 2px;
+    color: var(--parchment-dim);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .rebate-detail-btn:hover,
+  .rebate-detail-btn.active {
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+    background-color: var(--surface-overlay);
+  }
+
+  .rebate-exif-popover {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    width: 290px;
+    background-color: rgba(14, 15, 19, 0.94);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.85);
+    z-index: 25;
+  }
+  .popover-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    color: var(--amber-highlight);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--hairline-slate);
+    margin-bottom: 8px;
+  }
+  .popover-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--parchment-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+  }
+  .popover-close-btn:hover {
+    color: var(--parchment-bright);
+  }
+  .popover-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .pop-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+  }
+  .pop-row span {
+    color: var(--parchment-dim);
+  }
+  .pop-row strong {
+    color: var(--parchment-bright);
+    font-weight: 500;
   }
 
   /* BOTTOM CONTACT SHEET STRIP */
@@ -3458,38 +3624,7 @@
     margin-bottom: 10px;
   }
 
-  .optical-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    margin-bottom: 8px;
-  }
-  .optical-chip {
-    background-color: var(--surface-elevated);
-    border: 1px solid var(--hairline-slate);
-    padding: 6px 8px;
-    border-radius: var(--radius-xs);
-    display: flex;
-    flex-direction: column;
-  }
-  .opt-label {
-    font-size: 9px;
-    color: var(--parchment-dim);
-  }
-  .opt-val {
-    font-size: 13px;
-    color: var(--parchment-bright);
-  }
-  .opt-val.amber {
-    color: var(--amber-highlight);
-  }
-  .lens-line {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    color: var(--parchment-muted);
-  }
+
   .truncate {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3567,51 +3702,6 @@
     margin-top: auto;
   }
 
-  /* EMPTY STAGE & STRIP */
-  .empty-stage-box {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 48px 32px;
-    background-color: var(--surface-panel);
-    border-radius: var(--radius-md);
-    max-width: 520px;
-    text-align: center;
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
-  }
-  .empty-stage-icon {
-    font-size: 56px;
-    color: var(--parchment-dim);
-    margin-bottom: 16px;
-    opacity: 0.7;
-  }
-  .empty-stage-title {
-    font-size: 20px;
-    color: var(--parchment-bright);
-    margin: 0 0 8px 0;
-  }
-  .empty-stage-desc {
-    font-size: 13px;
-    color: var(--parchment-muted);
-    line-height: 1.6;
-    margin: 0 0 24px 0;
-  }
-  .empty-actions {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .empty-strip-hint {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 11px;
-    color: var(--parchment-dim);
-    padding: 12px 4px;
-  }
-
   /* CURATORIAL PICKED PREVIEW (CATALOG MODE RIGHT SIDEBAR) */
   .curatorial-preview-box {
     display: flex;
@@ -3657,6 +3747,7 @@
     padding: 6px;
     cursor: pointer;
     transition: all 0.15s ease;
+    text-align: left;
   }
   .curatorial-thumb-item:hover {
     background-color: var(--surface-overlay);
@@ -3778,6 +3869,53 @@
     font-weight: 600;
     letter-spacing: 0.05em;
   }
+
+  /* EMPTY STAGE & STRIP */
+  .empty-stage-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 32px;
+    background-color: var(--surface-panel);
+    border-radius: var(--radius-md);
+    max-width: 520px;
+    text-align: center;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+  }
+  .empty-stage-icon {
+    font-size: 56px;
+    color: var(--parchment-dim);
+    margin-bottom: 16px;
+    opacity: 0.7;
+  }
+  .empty-stage-title {
+    font-size: 20px;
+    color: var(--parchment-bright);
+    margin: 0 0 8px 0;
+  }
+  .empty-stage-desc {
+    font-size: 13px;
+    color: var(--parchment-muted);
+    line-height: 1.6;
+    margin: 0 0 24px 0;
+  }
+  .empty-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .empty-strip-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--parchment-dim);
+    padding: 12px 4px;
+  }
+
+
 
   /* AI SCOPE RESPONSIBILITY SELECTOR */
   .ai-scope-card {
