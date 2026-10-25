@@ -21,6 +21,21 @@ export interface LutProfile {
 
 export const BUILTIN_PROFILES: LutProfile[] = [
   {
+    id: 'Profile_00_StandardNatural',
+    code: 'NATURAL_00',
+    title: '原色自然直出',
+    englishTitle: 'Standard Natural',
+    toneDescription: '零風格偏調、純淨光學原色、保留相機原始寬容度',
+    technicalCharacteristics: 'Zero color grade + linear dynamic range + pure sensor color',
+    cubeFilePath: '',
+    lutSize: 33,
+    defaultTuning: {
+      exposure: 0.0,
+      shadowLift: 0.0,
+      lutIntensity: 1.0
+    }
+  },
+  {
     id: 'Profile_01_MatteShadow',
     code: 'FILM_LOOK_01',
     title: '啞光微膠卷',

@@ -59,6 +59,7 @@
     flagged?: boolean;
     appliedProfile: string;
     fileHandle?: File;
+    gradedThumbnail?: string;
   }
 
   let photoPlates = $state<PhotoPlate[]>([]);
@@ -91,6 +92,13 @@
   let isWebglActive = $state<boolean>(false);
   let sourceImgElement = $state<HTMLImageElement | null>(null);
 
+  // Dedicated Offscreen WebGL Renderer for Catalog Thumbnails
+  let offscreenCanvas: HTMLCanvasElement | null = null;
+  let offscreenRenderer: WebglLutRenderer | null = null;
+  const thumbnailRenderQueue: PhotoPlate[] = [];
+  let isProcessingQueue = false;
+  let sliderThumbnailTimer: ReturnType<typeof setTimeout> | null = null;
+
   // De-identified 3D LUT Profiles
   const profiles = [
     {
@@ -107,23 +115,9 @@
       cyanSkyDefault: 0.0,
       foliageDefault: 0.0,
       lutIntensityDefault: 1.0,
+      clarityDefault: 0.0,
+      sharpnessDefault: 0.0,
       recommendedScene: '精準微調 / 商業紀實 / 原色直出'
-    },
-    {
-      id: 'Profile_02_TealEmerald',
-      title: 'TealEmerald · 經典冷青',
-      tone: '1:1 正宗 FL · 電影感青空 · 墨綠植物 · 暖金高光',
-      badge: 'FILM_LOOK_FL',
-      accent: '#3aa8a8',
-      evDefault: 0.0,
-      contrastDefault: 0.15,
-      highlightsDefault: -0.20,
-      shadowsDefault: -0.05,
-      fadeDefault: 0.04,
-      cyanSkyDefault: 0.85,
-      foliageDefault: 0.70,
-      lutIntensityDefault: 1.0,
-      recommendedScene: '晴空戶外 / 日系街拍 / 紀實人文'
     },
     {
       id: 'Profile_01_MatteShadow',
@@ -139,7 +133,27 @@
       cyanSkyDefault: 0.20,
       foliageDefault: 0.40,
       lutIntensityDefault: 0.85,
+      clarityDefault: -0.05,
+      sharpnessDefault: 0.10,
       recommendedScene: '街拍 / 夜間微光'
+    },
+    {
+      id: 'Profile_02_TealEmerald',
+      title: 'TealEmerald · 經典冷青',
+      tone: '陰影注入藍青色 · 高光溫潤偏暖金 · 膚色隔離保護',
+      badge: 'COLOR_GRADE_02',
+      accent: '#3aa8a8',
+      evDefault: 0.0,
+      contrastDefault: 0.15,
+      highlightsDefault: -0.20,
+      shadowsDefault: -0.05,
+      fadeDefault: 0.04,
+      cyanSkyDefault: 0.85,
+      foliageDefault: 0.70,
+      lutIntensityDefault: 1.0,
+      clarityDefault: -0.15,
+      sharpnessDefault: 0.05,
+      recommendedScene: '晴空戶外 / 日系街拍 / 紀實人文'
     },
     {
       id: 'Profile_03_TungstenSoft',
@@ -155,6 +169,8 @@
       cyanSkyDefault: 0.0,
       foliageDefault: 0.0,
       lutIntensityDefault: 0.80,
+      clarityDefault: -0.20,
+      sharpnessDefault: 0.0,
       recommendedScene: '室內溫潤人像 / 靜物'
     },
     {
@@ -171,6 +187,8 @@
       cyanSkyDefault: 0.0,
       foliageDefault: 0.0,
       lutIntensityDefault: 1.0,
+      clarityDefault: 0.25,
+      sharpnessDefault: 0.25,
       recommendedScene: '建築幾何 / 經典黑白街頭'
     }
   ];
@@ -191,6 +209,25 @@
   let flaggedCount = $derived<number>(
     photoPlates.filter(p => p.flagged).length
   );
+
+  let flaggedPhotos = $derived<PhotoPlate[]>(
+    photoPlates.filter(p => p.flagged)
+  );
+
+  function togglePhotoFlag(photo: PhotoPlate, event?: MouseEvent) {
+    if (event) event.stopPropagation();
+    photo.flagged = !photo.flagged;
+    photoPlates = [...photoPlates];
+  }
+
+  function clearAllFlags() {
+    photoPlates.forEach(p => p.flagged = false);
+    photoPlates = [...photoPlates];
+  }
+
+  function handleFlagToggled() {
+    photoPlates = [...photoPlates];
+  }
 
   function selectPhoto(plate: PhotoPlate) {
     activePhoto = plate;
@@ -267,15 +304,111 @@
       exposure = found.evDefault;
       contrast = found.contrastDefault || 0.0;
       lutIntensity = found.lutIntensityDefault;
+      clarity = found.clarityDefault ?? 0.0;
+      sharpness = found.sharpnessDefault ?? 0.0;
     }
     triggerWebglRender();
+    enqueueThumbnailRender(activePhoto);
   }
 
   function applyProfileToAll(profileId: string) {
-    photoPlates.forEach(p => p.appliedProfile = profileId);
+    photoPlates.forEach(p => {
+      p.appliedProfile = profileId;
+      enqueueThumbnailRender(p);
+    });
     if (activePhoto) {
       applyProfile(profileId);
     }
+  }
+
+  /**
+   * 離屏 WebGL 縮圖批次渲染管線 (方案 B)
+   */
+  function ensureOffscreenRenderer(): boolean {
+    if (offscreenRenderer) return true;
+    if (typeof document === 'undefined') return false;
+    offscreenCanvas = document.createElement('canvas');
+    offscreenCanvas.width = 400;
+    offscreenCanvas.height = 300;
+    offscreenRenderer = new WebglLutRenderer();
+    return offscreenRenderer.initialize(offscreenCanvas);
+  }
+
+  function enqueueThumbnailRender(plate: PhotoPlate) {
+    if (!thumbnailRenderQueue.some(p => p.id === plate.id)) {
+      thumbnailRenderQueue.push(plate);
+    }
+    if (!isProcessingQueue) {
+      processThumbnailQueue();
+    }
+  }
+
+  async function processThumbnailQueue() {
+    if (thumbnailRenderQueue.length === 0) {
+      isProcessingQueue = false;
+      return;
+    }
+    isProcessingQueue = true;
+
+    if (!ensureOffscreenRenderer() || !offscreenRenderer) {
+      isProcessingQueue = false;
+      return;
+    }
+
+    const plate = thumbnailRenderQueue.shift();
+    if (plate && plate.thumbnail) {
+      if (plate.appliedProfile === 'Profile_00_StandardNatural') {
+        plate.gradedThumbnail = undefined;
+        photoPlates = photoPlates.map(p => p.id === plate.id ? { ...p, gradedThumbnail: undefined } : p);
+        if (activePhoto && activePhoto.id === plate.id) {
+          activePhoto = { ...activePhoto, gradedThumbnail: undefined };
+        }
+      } else {
+        try {
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = (e) => reject(e);
+            img.src = plate.thumbnail;
+          });
+
+          const isCurrentActive = activePhoto && activePhoto.id === plate.id;
+          const found = profiles.find(p => p.id === plate.appliedProfile);
+          const currentEv = isCurrentActive ? exposure : (found ? found.evDefault : 0.0);
+          const currentContrast = isCurrentActive ? contrast : (found ? (found.contrastDefault || 0.0) : 0.0);
+          const currentTemp = isCurrentActive ? colorTemp : 5500;
+          const currentLut = isCurrentActive ? lutIntensity : (found ? found.lutIntensityDefault : 1.0);
+          const currentClarity = isCurrentActive ? clarity : (found ? (found.clarityDefault ?? 0.0) : 0.0);
+          const currentSharpness = isCurrentActive ? sharpness : (found ? (found.sharpnessDefault ?? 0.0) : 0.0);
+
+          offscreenRenderer.setImageSource(img);
+          offscreenRenderer.setProfile(plate.appliedProfile);
+          offscreenRenderer.render({
+            exposure: currentEv,
+            contrast: currentContrast,
+            colorTemp: currentTemp,
+            lutIntensity: currentLut,
+            bypassLut: false,
+            clarity: currentClarity,
+            sharpness: currentSharpness
+          }, img.naturalWidth || 400, img.naturalHeight || 300);
+
+          const dataUrl = offscreenRenderer.exportDataUrl('image/jpeg', 0.85);
+          if (dataUrl) {
+            plate.gradedThumbnail = dataUrl;
+            photoPlates = photoPlates.map(p => p.id === plate.id ? { ...p, gradedThumbnail: dataUrl } : p);
+            if (activePhoto && activePhoto.id === plate.id) {
+              activePhoto = { ...activePhoto, gradedThumbnail: dataUrl };
+            }
+          }
+        } catch (err) {
+          console.warn('[ThumbnailRenderer] 縮圖渲染略過或失敗:', err);
+        }
+      }
+    }
+
+    // 稍微延遲讓出主執行緒，確保 60FPS 流暢
+    setTimeout(processThumbnailQueue, 20);
   }
 
   /**
@@ -360,6 +493,14 @@
 
     if (isWebglActive && sourceImgElement && sourceImgElement.complete) {
       triggerWebglRender();
+
+      // 滑桿微調防抖（Debounce）：拖動調色時非同步同步當前相片在目錄中的縮圖
+      if (activePhoto && activePhoto.appliedProfile !== 'Profile_00_StandardNatural') {
+        if (sliderThumbnailTimer) clearTimeout(sliderThumbnailTimer);
+        sliderThumbnailTimer = setTimeout(() => {
+          if (activePhoto) enqueueThumbnailRender(activePhoto);
+        }, 300);
+      }
     }
   });
 
@@ -404,6 +545,9 @@
             if (photoPlates[i]) {
               if (preview.blob_url || preview.jpeg_base64) {
                 photoPlates[i].thumbnail = preview.blob_url || `data:image/jpeg;base64,${preview.jpeg_base64}`;
+                if (photoPlates[i].appliedProfile && photoPlates[i].appliedProfile !== 'Profile_00_StandardNatural') {
+                  enqueueThumbnailRender(photoPlates[i]);
+                }
               }
               photoPlates[i].camera = preview.exif.camera_model || photoPlates[i].camera;
               photoPlates[i].lens = preview.exif.lens_model || photoPlates[i].lens;
@@ -427,6 +571,9 @@
               if (photoPlates[i]) {
                 if (preview.blob_url || preview.jpeg_base64) {
                   photoPlates[i].thumbnail = preview.blob_url || `data:image/jpeg;base64,${preview.jpeg_base64}`;
+                  if (photoPlates[i].appliedProfile && photoPlates[i].appliedProfile !== 'Profile_00_StandardNatural') {
+                    enqueueThumbnailRender(photoPlates[i]);
+                  }
                 }
                 photoPlates[i].camera = preview.exif.camera_model || photoPlates[i].camera;
                 photoPlates[i].lens = preview.exif.lens_model || photoPlates[i].lens;
@@ -892,6 +1039,7 @@
           onGoToRetouch={goToRetouch}
           onPickDirectory={handlePickDirectory}
           onRefreshMounts={refreshCameraMounts}
+          onToggleFlag={handleFlagToggled}
         />
       {:else if activeTab === 'retouch'}
         <!-- MODULE 2: RETOUCH DARKROOM WORKBENCH -->
@@ -1009,7 +1157,7 @@
                   onclick={() => selectPhoto(plate)}
                 >
                   <div class="film-frame-outer">
-                    <img src={plate.thumbnail} alt={plate.filename} class="film-frame-thumb" />
+                    <img src={plate.gradedThumbnail || plate.thumbnail} alt={plate.filename} class="film-frame-thumb" />
                   </div>
                   <div class="film-frame-meta font-mono">
                     <span class="frame-num">{plate.frameNo}</span>
@@ -1088,175 +1236,266 @@
         </div>
       </div>
 
-      <!-- Color Adjustment Sliders -->
-      <div class="telemetry-box hairline-b">
-        <div class="tuning-box-header">
-          <div class="box-title font-mono">3D LUT TUNING</div>
+      {#if activeTab === 'retouch'}
+        <!-- Color Adjustment Sliders -->
+        <div class="telemetry-box hairline-b">
+          <div class="tuning-box-header">
+            <div class="box-title font-mono">3D LUT TUNING</div>
+            <button 
+              type="button" 
+              class="reset-tuning-btn font-mono"
+              onclick={resetTuningParams}
+              title="一鍵恢復為原始無偏色直出基準值"
+            >
+              <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
+              <span>恢復預設</span>
+            </button>
+          </div>
+
+          <!-- Slider 1: Exposure -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>EXPOSURE (EV)</span>
+              <span class="control-val">{exposure > 0 ? `+${exposure.toFixed(2)}` : exposure.toFixed(2)}</span>
+            </div>
+            <input 
+              type="range" 
+              min="-2.0" 
+              max="2.0" 
+              step="0.05" 
+              bind:value={exposure} 
+              class="darkroom-slider"
+            />
+          </div>
+
+          <!-- Slider 2: Contrast -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>CONTRAST (對比)</span>
+              <span class="control-val">{contrast > 0 ? `+${Math.round(contrast * 100)}%` : `${Math.round(contrast * 100)}%`}</span>
+            </div>
+            <input 
+              type="range" 
+              min="-0.8" 
+              max="0.8" 
+              step="0.02" 
+              bind:value={contrast} 
+              class="darkroom-slider"
+            />
+          </div>
+
+          <!-- Slider 3: LUT Intensity -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>LUT INTENSITY (風格濃度)</span>
+              <span class="control-val amber">{Math.round(lutIntensity * 100)}%</span>
+            </div>
+            <input 
+              type="range" 
+              min="0" 
+              max="1" 
+              step="0.01" 
+              bind:value={lutIntensity} 
+              class="darkroom-slider"
+            />
+          </div>
+
+          <!-- Slider 4: Color Temp -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>KELVIN SCALE</span>
+              <span class="control-val">{colorTemp}K</span>
+            </div>
+            <input 
+              type="range" 
+              min="2800" 
+              max="8500" 
+              step="50" 
+              bind:value={colorTemp} 
+              class="darkroom-slider"
+            />
+          </div>
+
+          <!-- Slider 5: Clarity -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>CLARITY (清晰度)</span>
+              <span class="control-val">{clarity > 0 ? `+${Math.round(clarity * 100)}%` : `${Math.round(clarity * 100)}%`}</span>
+            </div>
+            <input 
+              type="range" 
+              min="-1.0" 
+              max="1.0" 
+              step="0.05" 
+              bind:value={clarity} 
+              class="darkroom-slider"
+            />
+          </div>
+
+          <!-- Slider 6: Sharpness -->
+          <div class="control-row">
+            <div class="control-header font-mono">
+              <span>SHARPNESS (銳利度)</span>
+              <span class="control-val">{Math.round(sharpness * 100)}%</span>
+            </div>
+            <input 
+              type="range" 
+              min="0.0" 
+              max="1.0" 
+              step="0.05" 
+              bind:value={sharpness} 
+              class="darkroom-slider"
+            />
+          </div>
+        </div>
+
+        <!-- 3D LUT Vault Quick Select -->
+        <div class="telemetry-box">
+          <div class="box-title font-mono">3D LUT PROFILES (ANONYMIZED)</div>
+          <div class="profile-cards-list">
+            {#each profiles as prof}
+              <button 
+                type="button"
+                class="profile-card hairline-all" 
+                class:active={activePhoto?.appliedProfile === prof.id}
+                onclick={() => applyProfile(prof.id)}
+              >
+                <div class="prof-card-top">
+                  <span class="prof-title font-headline">{prof.title}</span>
+                  <span class="prof-badge font-mono">{prof.badge}</span>
+                </div>
+                <div class="prof-tone font-body">{prof.tone}</div>
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        <!-- Export Mode Toggle (精修完成後才前往導出) -->
+        <div class="telemetry-box hairline-t mt-auto">
+          <div class="box-title font-mono">EXPORT PIPELINE SPEC</div>
+          <div class="export-mode-toggle hairline-all">
+            <button 
+              class="mode-btn font-mono" 
+              class:active={exportMode === 'modeA'}
+              onclick={() => exportMode = 'modeA'}
+            >
+              MODE A (100ms 極速)
+            </button>
+            <button 
+              class="mode-btn font-mono" 
+              class:active={exportMode === 'modeB'}
+              onclick={() => exportMode = 'modeB'}
+            >
+              MODE B (16-bit 滿血)
+            </button>
+          </div>
+          <div class="export-meta-desc font-body">
+            {exportMode === 'modeA' 
+              ? '離屏 WebGL 重新採樣，直出 95% 高品質 JPEG，極速省電。' 
+              : '調用原生 LibRaw 16-bit 解碼矩陣運算，高解析典藏交付。'}
+          </div>
+
+          <!-- Step 2 Completion CTA Button -->
           <button 
             type="button" 
-            class="reset-tuning-btn font-mono"
-            onclick={resetTuningParams}
-            title="一鍵恢復為原始無偏色直出基準值"
+            class="archival-btn-primary w-full step2-cta-btn" 
+            onclick={goToExport}
+            title="步驟二完成：前往批次導出頁面"
           >
-            <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
-            <span>恢復預設</span>
+            <span class="material-symbols-outlined" style="font-size: 15px;">output_circle</span>
+            <span>完成調色，前往導出 ({activeQueue.length} 幀) →</span>
           </button>
         </div>
-
-        <!-- Slider 1: Exposure -->
-        <div class="control-row">
-          <div class="control-header font-mono">
-            <span>EXPOSURE (EV)</span>
-            <span class="control-val">{exposure > 0 ? `+${exposure.toFixed(2)}` : exposure.toFixed(2)}</span>
+      {:else if activeTab === 'catalog'}
+        <!-- CATALOG STAGE: 勾選的圖片預覽清單 -->
+        <div class="telemetry-box curatorial-preview-box">
+          <div class="curatorial-preview-header">
+            <div class="box-title font-mono" style="margin-bottom: 0;">
+              PICKED PREVIEWS ({flaggedCount} 幀)
+            </div>
+            {#if flaggedCount > 0}
+              <button 
+                type="button" 
+                class="clear-flags-btn font-mono" 
+                onclick={clearAllFlags}
+                title="清空所有挑圖勾選"
+              >
+                清空勾選
+              </button>
+            {/if}
           </div>
-          <input 
-            type="range" 
-            min="-2.0" 
-            max="2.0" 
-            step="0.05" 
-            bind:value={exposure} 
-            class="darkroom-slider"
-          />
-        </div>
 
-        <!-- Slider 2: Contrast -->
-        <div class="control-row">
-          <div class="control-header font-mono">
-            <span>CONTRAST (對比)</span>
-            <span class="control-val">{contrast > 0 ? `+${Math.round(contrast * 100)}%` : `${Math.round(contrast * 100)}%`}</span>
-          </div>
-          <input 
-            type="range" 
-            min="-0.8" 
-            max="0.8" 
-            step="0.02" 
-            bind:value={contrast} 
-            class="darkroom-slider"
-          />
-        </div>
-
-        <!-- Slider 3: LUT Intensity -->
-        <div class="control-row">
-          <div class="control-header font-mono">
-            <span>LUT INTENSITY (風格濃度)</span>
-            <span class="control-val amber">{Math.round(lutIntensity * 100)}%</span>
-          </div>
-          <input 
-            type="range" 
-            min="0" 
-            max="1" 
-            step="0.01" 
-            bind:value={lutIntensity} 
-            class="darkroom-slider"
-          />
-        </div>
-
-        <!-- Slider 4: Color Temp -->
-        <div class="control-row">
-          <div class="control-header font-mono">
-            <span>KELVIN SCALE</span>
-            <span class="control-val">{colorTemp}K</span>
-          </div>
-          <input 
-            type="range" 
-            min="2800" 
-            max="8500" 
-            step="50" 
-            bind:value={colorTemp} 
-            class="darkroom-slider"
-          />
-        </div>
-
-        <!-- Slider 5: Clarity -->
-        <div class="control-row">
-          <div class="control-header font-mono">
-            <span>CLARITY (清晰度)</span>
-            <span class="control-val">{clarity > 0 ? `+${Math.round(clarity * 100)}%` : `${Math.round(clarity * 100)}%`}</span>
-          </div>
-          <input 
-            type="range" 
-            min="-1.0" 
-            max="1.0" 
-            step="0.05" 
-            bind:value={clarity} 
-            class="darkroom-slider"
-          />
-        </div>
-
-        <!-- Slider 6: Sharpness -->
-        <div class="control-row">
-          <div class="control-header font-mono">
-            <span>SHARPNESS (銳利度)</span>
-            <span class="control-val">{Math.round(sharpness * 100)}%</span>
-          </div>
-          <input 
-            type="range" 
-            min="0.0" 
-            max="1.0" 
-            step="0.05" 
-            bind:value={sharpness} 
-            class="darkroom-slider"
-          />
-        </div>
-      </div>
-
-      <!-- 3D LUT Vault Quick Select -->
-      <div class="telemetry-box">
-        <div class="box-title font-mono">3D LUT PROFILES (ANONYMIZED)</div>
-        <div class="profile-cards-list">
-          {#each profiles as prof}
-            <button 
-              type="button"
-              class="profile-card hairline-all" 
-              class:active={activePhoto?.appliedProfile === prof.id}
-              onclick={() => applyProfile(prof.id)}
-            >
-              <div class="prof-card-top">
-                <span class="prof-title font-headline">{prof.title}</span>
-                <span class="prof-badge font-mono">{prof.badge}</span>
+          {#if flaggedCount > 0}
+            <div class="curatorial-thumbs-list">
+              {#each flaggedPhotos as item (item.id)}
+                <div 
+                  class="curatorial-thumb-item hairline-all" 
+                  class:active={activePhoto?.id === item.id}
+                  onclick={() => selectPhoto(item)}
+                  ondblclick={() => openRetouchForPhoto(item)}
+                  title="點擊聚焦預覽，雙擊前往精修"
+                >
+                  <div class="thumb-img-wrapper">
+                    <img 
+                      src={item.gradedThumbnail || item.thumbnail} 
+                      alt={item.filename} 
+                      class="thumb-img"
+                      loading="lazy"
+                    />
+                    <span class="thumb-frame-tag font-mono">#{item.frameNo}</span>
+                  </div>
+                  <div class="thumb-info font-mono">
+                    <div class="thumb-filename truncate">{item.filename}</div>
+                    <div class="thumb-meta">
+                      <span>{item.shutter}</span>
+                      <span>{item.aperture}</span>
+                      <span>ISO {item.iso}</span>
+                    </div>
+                  </div>
+                  <button 
+                    type="button" 
+                    class="thumb-unflag-btn" 
+                    onclick={(e) => togglePhotoFlag(item, e)}
+                    title="取消勾選此張相片"
+                  >
+                    <span class="material-symbols-outlined" style="font-size: 14px;">close</span>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <!-- Empty state when no photo is flagged yet -->
+            <div class="empty-curatorial-card hairline-all font-mono">
+              <span class="material-symbols-outlined empty-guide-icon">bookmarks</span>
+              <div class="empty-guide-title">尚未勾選任何相片</div>
+              <p class="empty-guide-desc">
+                在目錄中按 <kbd class="kbd-chip">Space</kbd> 或點擊右上角書籤標記挑圖。
+              </p>
+              <div class="empty-guide-sub">
+                ※ 若未特別勾選，前往精修時將自動帶入全部 ({photoPlates.length} 幀)
               </div>
-              <div class="prof-tone font-body">{prof.tone}</div>
-            </button>
-          {/each}
-        </div>
-      </div>
-
-      <!-- Export Mode Toggle -->
-      <div class="telemetry-box hairline-t mt-auto">
-        <div class="box-title font-mono">EXPORT PIPELINE SPEC</div>
-        <div class="export-mode-toggle hairline-all">
-          <button 
-            class="mode-btn font-mono" 
-            class:active={exportMode === 'modeA'}
-            onclick={() => exportMode = 'modeA'}
-          >
-            MODE A (100ms 極速)
-          </button>
-          <button 
-            class="mode-btn font-mono" 
-            class:active={exportMode === 'modeB'}
-            onclick={() => exportMode = 'modeB'}
-          >
-            MODE B (16-bit 滿血)
-          </button>
-        </div>
-        <div class="export-meta-desc font-body">
-          {exportMode === 'modeA' 
-            ? '離屏 WebGL 重新採樣，直出 95% 高品質 JPEG，極速省電。' 
-            : '調用原生 LibRaw 16-bit 解碼矩陣運算，高解析典藏交付。'}
+            </div>
+          {/if}
         </div>
 
-        <!-- Step 2 Completion CTA Button -->
-        <button 
-          type="button" 
-          class="archival-btn-primary w-full step2-cta-btn" 
-          onclick={goToExport}
-          title="步驟二完成：前往批次導出頁面"
-        >
-          <span class="material-symbols-outlined" style="font-size: 15px;">output_circle</span>
-          <span>完成調色，前往導出 ({activeQueue.length} 幀) →</span>
-        </button>
-      </div>
+        <!-- 下一個步驟是前往精修（不顯示 export pipeline spec） -->
+        <div class="telemetry-box hairline-t mt-auto">
+          <button 
+            type="button" 
+            class="archival-btn-primary w-full step-cta-btn" 
+            onclick={goToRetouch}
+            disabled={photoPlates.length === 0}
+            title="下一個步驟：前往暗房精修"
+          >
+            <span class="material-symbols-outlined" style="font-size: 16px;">tonality</span>
+            <span>
+              {flaggedCount > 0 
+                ? `前往暗房精修 (已選 ${flaggedCount} 幀) →` 
+                : `前往暗房精修 (全量 ${photoPlates.length} 幀) →`}
+            </span>
+          </button>
+        </div>
+      {/if}
     </aside>
   </main>
 
@@ -2108,6 +2347,173 @@
     font-size: 11px;
     color: var(--parchment-dim);
     padding: 12px 4px;
+  }
+
+  /* CURATORIAL PICKED PREVIEW (CATALOG MODE RIGHT SIDEBAR) */
+  .curatorial-preview-box {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .curatorial-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .clear-flags-btn {
+    background: transparent;
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-dim);
+    font-size: 10px;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .clear-flags-btn:hover {
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+  }
+  .curatorial-thumbs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    max-height: calc(100vh - 380px);
+    padding-right: 4px;
+  }
+  .curatorial-thumb-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background-color: var(--surface-elevated);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-sm);
+    padding: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .curatorial-thumb-item:hover {
+    background-color: var(--surface-overlay);
+    border-color: var(--parchment-muted);
+  }
+  .curatorial-thumb-item.active {
+    border-color: var(--amber-highlight);
+    background-color: var(--surface-overlay);
+  }
+  .thumb-img-wrapper {
+    position: relative;
+    width: 52px;
+    height: 52px;
+    flex-shrink: 0;
+    border-radius: var(--radius-xs);
+    overflow: hidden;
+    background-color: var(--canvas-base);
+  }
+  .thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .thumb-frame-tag {
+    position: absolute;
+    bottom: 2px;
+    left: 2px;
+    background: rgba(0, 0, 0, 0.75);
+    color: var(--amber-highlight);
+    font-size: 9px;
+    padding: 1px 3px;
+    border-radius: 2px;
+  }
+  .thumb-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .thumb-filename {
+    font-size: 11px;
+    color: var(--parchment-bright);
+    font-weight: 500;
+  }
+  .thumb-meta {
+    font-size: 9px;
+    color: var(--parchment-dim);
+    display: flex;
+    gap: 6px;
+  }
+  .thumb-unflag-btn {
+    background: transparent;
+    border: none;
+    color: var(--parchment-dim);
+    padding: 4px;
+    cursor: pointer;
+    border-radius: var(--radius-xs);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+    transition: all 0.15s ease;
+  }
+  .thumb-unflag-btn:hover {
+    opacity: 1;
+    color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.15);
+  }
+  .empty-curatorial-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px 14px;
+    background-color: var(--surface-elevated);
+    border: 1px dashed var(--hairline-slate);
+    border-radius: var(--radius-sm);
+    color: var(--parchment-muted);
+    gap: 8px;
+  }
+  .empty-guide-icon {
+    font-size: 28px;
+    color: var(--parchment-dim);
+  }
+  .empty-guide-title {
+    font-size: 12px;
+    color: var(--parchment-bright);
+    font-weight: 600;
+  }
+  .empty-guide-desc {
+    font-size: 10px;
+    color: var(--parchment-dim);
+    line-height: 1.5;
+    margin: 0;
+  }
+  .kbd-chip {
+    background: var(--canvas-base);
+    border: 1px solid var(--hairline-slate);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 9px;
+    color: var(--amber-highlight);
+  }
+  .empty-guide-sub {
+    font-size: 9px;
+    color: var(--parchment-dim);
+    opacity: 0.8;
+    margin-top: 4px;
+  }
+  .step-cta-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
   }
 
 </style>

@@ -14,6 +14,7 @@
     selected: boolean;
     flagged?: boolean;
     appliedProfile: string;
+    gradedThumbnail?: string;
   }
 
   interface Props {
@@ -25,6 +26,7 @@
     onGoToRetouch?: () => void;
     onPickDirectory: () => void;
     onRefreshMounts: () => void;
+    onToggleFlag?: (p: CatalogPhotoItem) => void;
   }
 
   let {
@@ -35,7 +37,8 @@
     onOpenRetouch,
     onGoToRetouch,
     onPickDirectory,
-    onRefreshMounts
+    onRefreshMounts,
+    onToggleFlag
   }: Props = $props();
 
   // Grid density: 'small' (dense) | 'medium' (standard) | 'large' (spacious)
@@ -59,14 +62,17 @@
   function toggleFlag(photo: CatalogPhotoItem, event?: MouseEvent) {
     if (event) event.stopPropagation();
     photo.flagged = !photo.flagged;
+    onToggleFlag?.(photo);
   }
 
   function selectAll() {
     photos.forEach(p => p.flagged = true);
+    if (photos.length > 0) onToggleFlag?.(photos[0]);
   }
 
   function clearAllFlags() {
     photos.forEach(p => p.flagged = false);
+    if (photos.length > 0) onToggleFlag?.(photos[0]);
   }
 
   function scrollToPhoto(photoId: string) {
@@ -258,7 +264,7 @@
   <div class="catalog-grid-container custom-scroll">
     {#if displayedPhotos.length > 0}
       <div class="film-grid {gridDensity}">
-        {#each displayedPhotos as photo}
+        {#each displayedPhotos as photo (photo.id + '_' + (photo.gradedThumbnail ? 'graded' : 'raw'))}
           <div 
             id={`film-card-${photo.id}`}
             class="film-card hairline-all" 
@@ -285,7 +291,7 @@
 
             <!-- Photo Canvas Frame -->
             <div class="film-card-image-wrap">
-              <img src={photo.thumbnail} alt={photo.filename} class="film-thumb-img" loading="lazy" />
+              <img src={photo.gradedThumbnail || photo.thumbnail} alt={photo.filename} class="film-thumb-img" loading="lazy" />
               
               <!-- Quick Flag Button Floating on Top-Right -->
               <button 

@@ -7,8 +7,16 @@
     accent: string;
     description?: string;
     evDefault: number;
-    shadowLiftDefault: number;
+    contrastDefault?: number;
+    highlightsDefault?: number;
+    shadowLiftDefault?: number;
+    shadowsDefault?: number;
+    fadeDefault?: number;
+    cyanSkyDefault?: number;
+    foliageDefault?: number;
     lutIntensityDefault: number;
+    clarityDefault?: number;
+    sharpnessDefault?: number;
     recommendedScene: string;
   }
 
@@ -98,8 +106,12 @@
               <span class="spec-val">{prof.evDefault > 0 ? `+${prof.evDefault}` : prof.evDefault}</span>
             </div>
             <div class="spec-cell">
-              <span class="spec-label">SHADOW LIFT</span>
-              <span class="spec-val">+{Math.round(prof.shadowLiftDefault * 100)}%</span>
+              <span class="spec-label">{prof.contrastDefault !== undefined ? 'CONTRAST' : 'SHADOW LIFT'}</span>
+              <span class="spec-val">
+                {prof.contrastDefault !== undefined
+                  ? (prof.contrastDefault > 0 ? `+${Math.round(prof.contrastDefault * 100)}%` : `${Math.round(prof.contrastDefault * 100)}%`)
+                  : `+${Math.round((prof.shadowLiftDefault || 0) * 100)}%`}
+              </span>
             </div>
             <div class="spec-cell">
               <span class="spec-label">LUT RATIO</span>
