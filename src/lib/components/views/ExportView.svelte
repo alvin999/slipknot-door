@@ -108,10 +108,10 @@
   const STORAGE_KEY_DATE_SUBDIR = 'slipknot_export_date_subdir';
   const STORAGE_KEY_BACKUP_RAW = 'slipknot_export_backup_raw';
 
-  // 讀取既有設定或預設路徑
+  // 讀取既有設定或預設路徑（不再寫死 ~/Pictures/）
   const initialDir = typeof localStorage !== 'undefined' && localStorage.getItem(STORAGE_KEY_DIR)
     ? localStorage.getItem(STORAGE_KEY_DIR)!
-    : '~/Pictures/Slipknot_Curatorial_Export';
+    : './Exports';
 
   const initialDateSubdir = typeof localStorage !== 'undefined' 
     ? localStorage.getItem(STORAGE_KEY_DATE_SUBDIR) !== 'false'
@@ -145,20 +145,35 @@
 
   // 互動式選取資料夾
   async function handlePickTargetFolder() {
-    if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+    // A. 處於 Tauri 桌面環境：呼叫原生系統對話框（絕無 Upload 提示，直接取得實體絕對路徑）
+    if (isTauri) {
       try {
-        const dirHandle = await (window as any).showDirectoryPicker();
-        if (dirHandle && dirHandle.name) {
-          targetDirectory = dirHandle.name.startsWith('/') || dirHandle.name.includes(':') 
-            ? dirHandle.name 
-            : `~/Pictures/${dirHandle.name}`;
+        const { open } = await import('@tauri-apps/plugin-dialog');
+        const selected = await open({
+          directory: true,
+          multiple: false,
+          title: '選擇匯出目標目錄'
+        });
+        if (selected && typeof selected === 'string') {
+          targetDirectory = selected;
           saveSettings();
         }
-      } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          console.warn('選取資料夾失敗:', err);
-        }
+        return;
+      } catch (err) {
+        console.warn('Tauri 原生對話框呼叫失敗:', err);
       }
+    }
+
+    // B. 若在純 Web 瀏覽器環境（無桌面權限）：直接引導使用者在輸入框指定本機路徑，絕不調用瀏覽器 Upload
+    const promptPath = window.prompt(
+      '【Web 預覽模式提示】\n瀏覽器安全沙箱無法直接選取本機硬碟目錄。\n請輸入或貼上本機目標目錄絕對路徑（例如 /home/alvin/Pictures 或 D:/Photos）：',
+      targetDirectory || './Exports'
+    );
+    if (promptPath && promptPath.trim()) {
+      targetDirectory = promptPath.trim();
+      saveSettings();
     }
   }
 
@@ -167,7 +182,7 @@
 
   // 動態即時計算路徑預覽
   const previewPath = $derived(() => {
-    const cleanBase = targetDirectory.trim().replace(/\/+$/, '') || '~/Pictures/Slipknot_Curatorial_Export';
+    const cleanBase = targetDirectory.trim().replace(/\/+$/, '') || './Exports';
     return autoDateSubdir ? `${cleanBase}/${todayStr}` : cleanBase;
   });
 
@@ -582,21 +597,13 @@
             </div>
           </div>
 
-          <div class="setting-item">
+          <div class="setting-item col-span-2">
             <span class="setting-label">COLOR SPACE MAPPING (色彩空間)</span>
             <select bind:value={colorSpace} class="setting-input select">
               <option value="DisplayP3">Display P3 (Apple 寬色域標準 · 建議)</option>
               <option value="sRGB">sRGB (網路與傳統設備通用)</option>
               <option value="ProPhotoRGB">ProPhoto RGB (暗房典藏廣色域)</option>
             </select>
-          </div>
-
-          <div class="setting-item">
-            <span class="setting-label">STORAGE LOGIC (儲存原則)</span>
-            <div class="fixed-policy-tag">
-              <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">lock</span>
-              <span>固定目錄結構 · 杜絕 AI 任意分散分類</span>
-            </div>
           </div>
         </div>
 
@@ -1070,6 +1077,25 @@
     outline: none;
   }
 
+  select.setting-input {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: var(--canvas-base);
+    color: var(--parchment-bright);
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+  }
+
+  select.setting-input option {
+    background-color: var(--surface-panel);
+    color: var(--parchment-bright);
+    padding: 6px;
+  }
+
   .setting-input.flex-1 {
     flex: 1;
   }
@@ -1092,18 +1118,6 @@
   .browse-btn:hover {
     border-color: var(--parchment-dim);
     background-color: var(--canvas-base);
-  }
-
-  .fixed-policy-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background-color: var(--canvas-base);
-    border: 1px solid var(--hairline-slate);
-    border-radius: var(--radius-xs);
-    padding: 8px 12px;
-    font-size: 11px;
-    color: var(--parchment-dim);
   }
 
   .setting-input:focus {

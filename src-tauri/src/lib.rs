@@ -25,6 +25,7 @@ fn extract_embedded_jpeg(file_path: String) -> Result<EmbeddedPreviewResult, Str
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             detect_camera_mounts,
             scan_dcim_directory,
