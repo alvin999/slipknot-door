@@ -65,6 +65,7 @@ export interface CropGeometry {
   aspectRatio: 'original' | '1:1' | '4:5' | '16:9' | '9:16' | 'free';
   flipH: boolean;     // 水平翻轉
   flipV: boolean;     // 垂直翻轉
+  rationale?: string; // AI 構圖與裁切理由
 }
 
 export interface AiScopePreferences {

@@ -1,17 +1,25 @@
 <script lang="ts">
   import { AiSceneService } from '$lib/services/aiSceneService';
 
-  interface PhotoPlateItem {
+  export interface PhotoPlateItem {
     id: string;
     frameNo: string;
     filename: string;
     camera: string;
     appliedProfile: string;
     selected: boolean;
+    flagged?: boolean;
+    thumbnail?: string;
+    gradedThumbnail?: string;
+    tuning?: any;
+    crop?: any;
   }
+
+  export type ExportScope = 'picked' | 'edited' | 'selected' | 'all';
 
   interface Props {
     photos: PhotoPlateItem[];
+    activePhoto?: PhotoPlateItem | null;
     exportMode: 'modeA' | 'modeB';
     isExporting: boolean;
     exportProgress: number;
@@ -19,11 +27,12 @@
     aiVisionTags?: string[];
     aiSceneTitle?: string;
     onSetExportMode: (m: 'modeA' | 'modeB') => void;
-    onTriggerExport: () => void;
+    onTriggerExport: (subset?: PhotoPlateItem[]) => void;
   }
 
   let {
-    photos,
+    photos = [],
+    activePhoto = null,
     exportMode,
     isExporting,
     exportProgress,
@@ -33,6 +42,67 @@
     onSetExportMode,
     onTriggerExport
   }: Props = $props();
+
+  let exportScope = $state<ExportScope>('picked');
+  let previewLayout = $state<'strip' | 'grid'>('strip'); // 膠卷帶模式 or 網格展開模式
+
+  function isPhotoEdited(p: PhotoPlateItem): boolean {
+    const hasCustomProfile = p.appliedProfile && p.appliedProfile !== 'Profile_00_StandardNatural';
+    const hasTuning = p.tuning && (
+      p.tuning.exposure !== 0 ||
+      p.tuning.contrast !== 0 ||
+      p.tuning.lutIntensity !== 1 ||
+      (p.tuning.clarity && p.tuning.clarity !== 0) ||
+      (p.tuning.sharpness && p.tuning.sharpness !== 0)
+    );
+    const hasCrop = p.crop && (p.crop.width < 1 || p.crop.height < 1 || p.crop.rotation !== 0);
+    return Boolean(hasCustomProfile || hasTuning || hasCrop);
+  }
+
+  let pickedPhotos = $derived(photos.filter(p => p.flagged));
+  let editedPhotos = $derived(photos.filter(p => isPhotoEdited(p)));
+  let selectedPhotos = $derived(activePhoto ? [activePhoto] : (photos.length > 0 ? [photos[0]] : []));
+  let allPhotos = $derived(photos);
+
+  // 當前作用的匯出清單：嚴格對應所選範疇
+  let effectivePhotos = $derived<PhotoPlateItem[]>(
+    exportScope === 'picked' ? pickedPhotos :
+    exportScope === 'edited' ? editedPhotos :
+    exportScope === 'selected' ? selectedPhotos :
+    allPhotos
+  );
+
+  // 使用者手動排除的底片 ID 集合
+  let excludedPhotoIds = $state<Set<string>>(new Set());
+
+  // 切換範疇時重設排除名單
+  $effect(() => {
+    const _scope = exportScope;
+    excludedPhotoIds = new Set();
+  });
+
+  // 實際將被輸出的最終底片清單 (排除了被使用者手動取消勾選的底片)
+  let finalExportPhotos = $derived<PhotoPlateItem[]>(
+    effectivePhotos.filter(p => !excludedPhotoIds.has(p.id))
+  );
+
+  function togglePhotoInclusion(id: string) {
+    const next = new Set(excludedPhotoIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    excludedPhotoIds = next;
+  }
+
+  function selectAllInQueue() {
+    excludedPhotoIds = new Set();
+  }
+
+  function deselectAllInQueue() {
+    excludedPhotoIds = new Set(effectivePhotos.map(p => p.id));
+  }
 
   const STORAGE_KEY_DIR = 'slipknot_export_target_dir';
   const STORAGE_KEY_DATE_SUBDIR = 'slipknot_export_date_subdir';
@@ -173,20 +243,268 @@
     if (userSocialPrompt && !aiSocialCaption) {
       handleGenerateSocialCopy();
     }
-    onTriggerExport();
+    onTriggerExport(finalExportPhotos);
   }
 </script>
 
 <div class="export-viewport">
   <header class="export-toolbar hairline-b font-mono">
     <div class="header-left">
-      <span class="tool-title font-headline">批次雙軌匯出管線 (Dual Pipeline)</span>
-      <span class="counter-badge">{photos.length} FRAMES QUEUED</span>
+      <span class="tool-title font-headline">批次雙軌匯出管線</span>
+      <span class="counter-badge amber">
+        {finalExportPhotos.length} FRAMES QUEUED
+        {#if excludedPhotoIds.size > 0}
+          <span class="counter-excluded">({excludedPhotoIds.size} EXCLUDED)</span>
+        {/if}
+      </span>
+    </div>
+
+    <!-- EXPORT SCOPE SELECTOR TABS -->
+    <div class="scope-selector-group hairline-all font-mono">
+      <span class="scope-label">匯出範疇：</span>
+      <button 
+        type="button" 
+        class="scope-chip" 
+        class:active={exportScope === 'picked'}
+        onclick={() => exportScope = 'picked'}
+        title="僅匯出有標記 Pick 旗標的相片"
+      >
+        <span>已挑選 (Picked)</span>
+        <span class="scope-badge">{pickedPhotos.length}</span>
+      </button>
+
+      <button 
+        type="button" 
+        class="scope-chip" 
+        class:active={exportScope === 'edited'}
+        onclick={() => exportScope = 'edited'}
+        title="匯出所有已調整光影或套用風格的相片 (即使未標記 Pick 也能一鍵導出)"
+      >
+        <span>所有已調色 (Edited)</span>
+        <span class="scope-badge amber">{editedPhotos.length}</span>
+      </button>
+
+      <button 
+        type="button" 
+        class="scope-chip" 
+        class:active={exportScope === 'selected'}
+        onclick={() => exportScope = 'selected'}
+        title="僅匯出目前畫面選中的單張底片"
+      >
+        <span>當前底片 (Selected)</span>
+      </button>
+
+      <button 
+        type="button" 
+        class="scope-chip" 
+        class:active={exportScope === 'all'}
+        onclick={() => exportScope = 'all'}
+        title="匯出相卷中的全部底片"
+      >
+        <span>全量底片 (All)</span>
+        <span class="scope-badge">{allPhotos.length}</span>
+      </button>
     </div>
   </header>
 
   <div class="export-content custom-scroll">
     <div class="export-deck max-w-4xl">
+      <!-- QUEUED FRAMES VISUAL INSPECTION DOCK (所選底片視覺檢視佇列) -->
+      <section class="queued-gallery-section hairline-all">
+        <div class="gallery-header font-mono">
+          <div class="gallery-title-left">
+            <span class="material-symbols-outlined icon">photo_library</span>
+            <span class="gallery-title">QUEUED FRAMES TELEMETRY // 待匯出底片預覽</span>
+            <span class="gallery-scope-tag">
+              {#if exportScope === 'picked'}
+                [已挑選 PICKED · {finalExportPhotos.length}/{effectivePhotos.length} 幀]
+              {:else if exportScope === 'edited'}
+                [所有已調色 EDITED · {finalExportPhotos.length}/{effectivePhotos.length} 幀]
+              {:else if exportScope === 'selected'}
+                [當前底片 SELECTED · {finalExportPhotos.length}/{effectivePhotos.length} 幀]
+              {:else}
+                [全量底片 ALL · {finalExportPhotos.length}/{effectivePhotos.length} 幀]
+              {/if}
+            </span>
+          </div>
+
+          <div class="gallery-controls-right">
+            <!-- 勾選/排除快捷操作 -->
+            {#if effectivePhotos.length > 0}
+              <div class="selection-action-group hairline-all font-mono">
+                <button 
+                  type="button" 
+                  class="select-action-btn" 
+                  onclick={selectAllInQueue}
+                  disabled={excludedPhotoIds.size === 0}
+                  title="將目前範疇的所有底片全部納入匯出"
+                >
+                  <span class="material-symbols-outlined" style="font-size: 13px;">check_box</span>
+                  <span>全選</span>
+                </button>
+                <button 
+                  type="button" 
+                  class="select-action-btn" 
+                  onclick={deselectAllInQueue}
+                  disabled={finalExportPhotos.length === 0}
+                  title="暫時排除目前範疇的所有底片"
+                >
+                  <span class="material-symbols-outlined" style="font-size: 13px;">check_box_outline_blank</span>
+                  <span>全不選</span>
+                </button>
+              </div>
+            {/if}
+
+            <div class="gallery-layout-toggle">
+              <button 
+                type="button" 
+                class="layout-btn" 
+                class:active={previewLayout === 'strip'} 
+                onclick={() => previewLayout = 'strip'}
+                title="橫向膠卷帶檢視"
+              >
+                <span class="material-symbols-outlined" style="font-size: 15px;">view_timeline</span>
+                <span>膠卷帶</span>
+              </button>
+              <button 
+                type="button" 
+                class="layout-btn" 
+                class:active={previewLayout === 'grid'} 
+                onclick={() => previewLayout = 'grid'}
+                title="網格展開檢視"
+              >
+                <span class="material-symbols-outlined" style="font-size: 15px;">grid_view</span>
+                <span>網格</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {#if effectivePhotos.length > 0}
+          <div 
+            class="gallery-scroll-container"
+            class:is-strip={previewLayout === 'strip'}
+            class:is-grid={previewLayout === 'grid'}
+          >
+            {#each effectivePhotos as photo (photo.id)}
+              <div 
+                class="queued-photo-card hairline-all"
+                class:is-flagged={photo.flagged}
+                class:is-edited={isPhotoEdited(photo)}
+                class:is-excluded={excludedPhotoIds.has(photo.id)}
+                onclick={() => togglePhotoInclusion(photo.id)}
+                role="button"
+                tabindex="0"
+                onkeydown={(e) => {
+                  if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    togglePhotoInclusion(photo.id);
+                  }
+                }}
+                title={excludedPhotoIds.has(photo.id) ? '點擊納入匯出清單' : '點擊自本次匯出排除'}
+              >
+                <!-- 縮圖容器 -->
+                <div class="card-thumb-wrapper">
+                  {#if photo.gradedThumbnail || photo.thumbnail}
+                    <img 
+                      src={photo.gradedThumbnail || photo.thumbnail} 
+                      alt={photo.filename} 
+                      class="card-img" 
+                      loading="lazy"
+                    />
+                  {:else}
+                    <div class="thumb-placeholder font-mono">NO THUMB</div>
+                  {/if}
+
+                  <!-- 互動核取方塊 (Checkbox) -->
+                  <div 
+                    class="card-checkbox"
+                    class:checked={!excludedPhotoIds.has(photo.id)}
+                    title={excludedPhotoIds.has(photo.id) ? '未勾選（已排除）' : '已勾選（將匯出）'}
+                  >
+                    {#if !excludedPhotoIds.has(photo.id)}
+                      <span class="material-symbols-outlined check-icon">check</span>
+                    {/if}
+                  </div>
+
+                  <!-- 膠卷幀號徽章 -->
+                  <span class="plate-frame-badge font-mono">#{photo.frameNo}</span>
+
+                  <!-- 排除暗化遮罩標記 -->
+                  {#if excludedPhotoIds.has(photo.id)}
+                    <div class="excluded-overlay font-mono">
+                      <span class="material-symbols-outlined" style="font-size: 14px;">block</span>
+                      <span>已排除</span>
+                    </div>
+                  {/if}
+
+                  <!-- 狀態標籤（Pick 旗標 / 已調色 / 裁切） -->
+                  <div class="plate-status-badges font-mono">
+                    {#if photo.flagged}
+                      <span class="badge-flagged" title="已標記挑選 (Picked)">
+                        <span class="material-symbols-outlined" style="font-size: 11px;">flag</span>
+                        <span>PICK</span>
+                      </span>
+                    {/if}
+                    {#if isPhotoEdited(photo)}
+                      <span class="badge-edited" title="已調色顯影">
+                        <span class="material-symbols-outlined" style="font-size: 11px;">auto_fix_high</span>
+                        <span>EDITED</span>
+                      </span>
+                    {/if}
+                    {#if photo.crop && (photo.crop.width < 1 || photo.crop.height < 1)}
+                      <span class="badge-crop" title="自訂裁切比例">
+                        <span class="material-symbols-outlined" style="font-size: 11px;">crop</span>
+                        <span>{photo.crop.aspectRatio || 'CROP'}</span>
+                      </span>
+                    {/if}
+                  </div>
+                </div>
+
+                <!-- 底片資訊 -->
+                <div class="card-meta font-mono">
+                  <span class="meta-filename truncate" title={photo.filename}>{photo.filename}</span>
+                  <div class="meta-profile-row truncate">
+                    <span class="profile-dot" style:background={isPhotoEdited(photo) ? 'var(--cyan-accent)' : 'var(--parchment-dim)'}></span>
+                    <span class="meta-profile truncate">{photo.appliedProfile || '標準風格'}</span>
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <!-- 空狀態引導面板 -->
+          <div class="gallery-empty-slate font-mono hairline-all">
+            <span class="material-symbols-outlined empty-icon">filter_none</span>
+            <div class="empty-text">
+              {#if exportScope === 'picked'}
+                <strong>目前佇列無挑選底片</strong>
+                <p>您尚未標記任何底片為 Pick。可切換至「所有已調色」或「全量底片」以匯出相片。</p>
+                <div class="empty-actions">
+                  <button type="button" class="empty-cta-btn" onclick={() => exportScope = 'edited'}>
+                    切換至「所有已調色 ({editedPhotos.length})」
+                  </button>
+                  <button type="button" class="empty-cta-btn outline" onclick={() => exportScope = 'all'}>
+                    切換至「全量底片 ({allPhotos.length})」
+                  </button>
+                </div>
+              {:else if exportScope === 'edited'}
+                <strong>目前佇列無調色底片</strong>
+                <p>相片尚未進行暗房調色。您可以切換至全量底片，或前往暗房進行風格微調。</p>
+                <div class="empty-actions">
+                  <button type="button" class="empty-cta-btn" onclick={() => exportScope = 'all'}>
+                    切換至「全量底片 ({allPhotos.length})」
+                  </button>
+                </div>
+              {:else}
+                <strong>目前目錄無底片</strong>
+                <p>請先由「膠卷目錄」載入相簿以進行批次匯出。</p>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      </section>
+
       <!-- DUAL PIPELINE SELECTOR CARDS -->
       <div class="pipeline-cards-row">
         <!-- MODE A: 社群速報 -->
@@ -422,9 +740,15 @@
       <!-- QUEUE SUMMARY & ACTION -->
       <div class="action-dock hairline-all">
         <div class="queue-info font-mono">
-          <span class="queue-count">{photos.length} 幀底片就緒</span>
+          <span class="queue-count">
+            {finalExportPhotos.length} 幀底片就緒
+            {#if excludedPhotoIds.size > 0}
+              <span class="queue-excluded-note">({excludedPhotoIds.size} 幀已排除)</span>
+            {/if}
+          </span>
           <span class="queue-mode">
             模式：{exportMode === 'modeA' ? 'Mode A (社群速報 · 極速離屏採樣)' : 'Mode B (出版典藏 · 16-bit 滿血轉譯)'}
+            · 範疇：{exportScope === 'picked' ? '已挑選 (Picked)' : exportScope === 'edited' ? '已調色 (Edited)' : exportScope === 'selected' ? '當前單幀' : '全量底片'}
           </span>
         </div>
 
@@ -461,10 +785,18 @@
               type="button" 
               class="archival-btn-primary launch-btn" 
               onclick={handleTriggerExportWithCopy}
-              disabled={photos.length === 0}
+              disabled={finalExportPhotos.length === 0}
             >
               <span class="material-symbols-outlined" style="font-size: 18px;">play_arrow</span>
-              <span>{photos.length === 0 ? '相卷為空 · 請先載入相片' : '啟動批次雙軌匯出'}</span>
+              <span>
+                {#if effectivePhotos.length === 0}
+                  目前範圍無底片 · 請切換範疇
+                {:else if finalExportPhotos.length === 0}
+                  全部底片已排除 · 請至少勾選 1 幀
+                {:else}
+                  啟動批次匯出 ({finalExportPhotos.length} 幀) ⚡
+                {/if}
+              </span>
             </button>
           </div>
         {/if}
@@ -497,6 +829,59 @@
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+
+  .scope-selector-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background-color: rgba(22, 23, 27, 0.85);
+    padding: 3px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .scope-label {
+    font-size: 11px;
+    color: var(--parchment-dim);
+    margin-right: 4px;
+  }
+
+  .scope-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-xs);
+    color: var(--parchment-muted);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .scope-chip:hover {
+    color: var(--parchment-bright);
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .scope-chip.active {
+    background: rgba(212, 163, 115, 0.15);
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+
+  .scope-badge {
+    padding: 1px 5px;
+    font-size: 10px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--parchment-bright);
+  }
+  .scope-badge.amber {
+    background: rgba(212, 163, 115, 0.25);
+    color: var(--amber-highlight);
   }
 
   .tool-title {
@@ -1105,5 +1490,403 @@
     justify-content: space-between;
     font-size: 11px;
     color: var(--parchment-muted);
+  }
+
+  /* QUEUED FRAMES PREVIEW GALLERY */
+  .queued-gallery-section {
+    background-color: var(--surface-panel);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .gallery-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .gallery-title-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--parchment-bright);
+    letter-spacing: 0.05em;
+  }
+
+  .gallery-title-left .icon {
+    font-size: 16px;
+    color: var(--amber-highlight);
+  }
+
+  .gallery-scope-tag {
+    font-size: 11px;
+    color: var(--amber-highlight);
+    background: rgba(212, 163, 115, 0.12);
+    padding: 1px 8px;
+    border-radius: var(--radius-xs);
+    border: 1px solid rgba(212, 163, 115, 0.3);
+  }
+
+  .gallery-controls-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .selection-action-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background-color: var(--surface-elevated);
+    padding: 2px;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--hairline-slate);
+  }
+
+  .select-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 7px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-xs);
+    color: var(--parchment-dim);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .select-action-btn:hover:not(:disabled) {
+    color: var(--parchment-bright);
+    background-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .select-action-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .gallery-layout-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background-color: var(--surface-elevated);
+    padding: 2px;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--hairline-slate);
+  }
+
+  .layout-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-xs);
+    color: var(--parchment-dim);
+    font-size: 10.5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .layout-btn:hover {
+    color: var(--parchment-bright);
+  }
+
+  .layout-btn.active {
+    background-color: var(--surface-overlay);
+    color: var(--amber-highlight);
+  }
+
+  /* 膠卷滾動帶模式 */
+  .gallery-scroll-container.is-strip {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    scroll-behavior: smooth;
+  }
+
+  /* 網格展開模式 */
+  .gallery-scroll-container.is-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 12px;
+    max-height: 280px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  .queued-photo-card {
+    flex: 0 0 130px;
+    width: 130px;
+    background-color: var(--surface-elevated);
+    border-radius: var(--radius-xs);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.15s ease, border-color 0.15s ease, opacity 0.2s ease, filter 0.2s ease;
+  }
+
+  .gallery-scroll-container.is-grid .queued-photo-card {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .queued-photo-card:hover {
+    border-color: var(--amber-highlight);
+    transform: translateY(-2px);
+  }
+
+  .queued-photo-card.is-flagged {
+    border-color: rgba(212, 163, 115, 0.4);
+  }
+
+  /* 排除狀態卡片 */
+  .queued-photo-card.is-excluded {
+    opacity: 0.45;
+    filter: grayscale(0.65);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .queued-photo-card.is-excluded:hover {
+    opacity: 0.75;
+    filter: grayscale(0.2);
+    border-color: var(--hairline-slate);
+  }
+
+  .card-thumb-wrapper {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 3 / 2;
+    background-color: #0b0c0e;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .card-checkbox {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    background: rgba(18, 19, 22, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    z-index: 2;
+  }
+
+  .card-checkbox.checked {
+    background: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+  }
+
+  .card-checkbox .check-icon {
+    font-size: 13px;
+    color: #121316;
+    font-weight: 700;
+  }
+
+  .excluded-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(11, 12, 14, 0.7);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    color: var(--parchment-dim);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .card-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .thumb-placeholder {
+    font-size: 9px;
+    color: var(--parchment-dim);
+  }
+
+  .plate-frame-badge {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    font-size: 9px;
+    background: rgba(18, 19, 22, 0.85);
+    color: var(--parchment-bright);
+    padding: 1px 4px;
+    border-radius: 2px;
+    border: 1px solid var(--hairline-slate);
+    line-height: 1;
+    z-index: 2;
+  }
+
+  .counter-excluded {
+    font-size: 9.5px;
+    color: var(--parchment-dim);
+    margin-left: 3px;
+  }
+
+  .queue-excluded-note {
+    font-size: 11px;
+    color: var(--parchment-dim);
+    font-weight: normal;
+    margin-left: 4px;
+  }
+
+  .plate-status-badges {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-end;
+  }
+
+  .badge-flagged, .badge-edited, .badge-crop {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 8.5px;
+    padding: 1px 4px;
+    border-radius: 2px;
+    line-height: 1;
+    font-weight: 600;
+  }
+
+  .badge-flagged {
+    background: rgba(212, 163, 115, 0.9);
+    color: #121316;
+  }
+
+  .badge-edited {
+    background: rgba(94, 234, 212, 0.9);
+    color: #121316;
+  }
+
+  .badge-crop {
+    background: rgba(18, 19, 22, 0.85);
+    color: var(--amber-highlight);
+    border: 1px solid rgba(212, 163, 115, 0.4);
+  }
+
+  .card-meta {
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--surface-elevated);
+  }
+
+  .meta-filename {
+    font-size: 10px;
+    color: var(--parchment-bright);
+    font-weight: 500;
+  }
+
+  .meta-profile-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    color: var(--parchment-dim);
+  }
+
+  .profile-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* 空狀態引導面板 */
+  .gallery-empty-slate {
+    background-color: var(--surface-elevated);
+    border-radius: var(--radius-xs);
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: var(--parchment-muted);
+  }
+
+  .empty-icon {
+    font-size: 32px;
+    color: var(--amber-highlight);
+    opacity: 0.7;
+    flex-shrink: 0;
+  }
+
+  .empty-text {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .empty-text strong {
+    font-size: 13px;
+    color: var(--parchment-bright);
+  }
+
+  .empty-text p {
+    font-size: 11px;
+    color: var(--parchment-dim);
+    margin: 0;
+  }
+
+  .empty-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .empty-cta-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    border-radius: var(--radius-xs);
+    background: rgba(212, 163, 115, 0.15);
+    border: 1px solid var(--amber-highlight);
+    color: var(--amber-highlight);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .empty-cta-btn:hover {
+    background: rgba(212, 163, 115, 0.25);
+  }
+
+  .empty-cta-btn.outline {
+    background: transparent;
+    border-color: var(--hairline-slate);
+    color: var(--parchment-muted);
+  }
+
+  .empty-cta-btn.outline:hover {
+    color: var(--parchment-bright);
+    border-color: var(--parchment-dim);
   }
 </style>

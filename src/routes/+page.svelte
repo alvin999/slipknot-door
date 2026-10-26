@@ -4,6 +4,8 @@
   import { KeyVaultService } from '$lib/services/keyVaultService';
   import { AiSceneService } from '$lib/services/aiSceneService';
   import KeyVaultModal from '$lib/components/KeyVaultModal.svelte';
+  import HelpGuideModal from '$lib/components/HelpGuideModal.svelte';
+  import QuickExportModal from '$lib/components/QuickExportModal.svelte';
   import CatalogView from '$lib/components/views/CatalogView.svelte';
   import ProfilesView from '$lib/components/views/ProfilesView.svelte';
   import ExportView from '$lib/components/views/ExportView.svelte';
@@ -15,8 +17,10 @@
   type ModuleTab = 'catalog' | 'retouch' | 'profiles' | 'export' | 'devices';
   let activeTab = $state<ModuleTab>('catalog'); // Default to catalog on fresh load for curatorial overview
 
-  // Key Vault State
+  // Key Vault & Help Modal State
   let isVaultOpen = $state<boolean>(false);
+  let isHelpOpen = $state<boolean>(false);
+  let isQuickExportOpen = $state<boolean>(false);
   let geminiKeyStatus = $state<{ exists: boolean; mode: string | null }>({ exists: false, mode: null });
 
   // Hardware Ingestion State
@@ -174,6 +178,91 @@
     flipH = false;
     flipV = false;
     aiCropRationale = '';
+    syncCropToActivePhoto();
+  }
+
+  type CropRatioPreset = 'original' | '1:1' | '4:5' | '16:9' | '9:16' | 'free';
+
+  function syncCropToActivePhoto() {
+    if (!activePhoto) return;
+    const isDefaultCrop = 
+      cropX === 0.0 && 
+      cropY === 0.0 && 
+      cropWidth === 1.0 && 
+      cropHeight === 1.0 && 
+      cropRotation === 0.0;
+
+    activePhoto.crop = isDefaultCrop ? undefined : {
+      x: cropX,
+      y: cropY,
+      width: cropWidth,
+      height: cropHeight,
+      rotation: cropRotation,
+      keystoneV,
+      keystoneH,
+      aspectRatio: cropAspectRatio,
+      flipH,
+      flipV,
+      rationale: aiCropRationale
+    };
+
+    photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? {
+      ...p,
+      crop: activePhoto!.crop
+    } : p);
+  }
+
+  function applyAspectRatioPreset(ratio: CropRatioPreset) {
+    cropAspectRatio = ratio;
+    isCropMode = true; // 點擊比例時自動啟動裁切模式與構圖框
+
+    if (ratio === 'free') {
+      syncCropToActivePhoto();
+      return;
+    }
+
+    if (ratio === 'original') {
+      cropX = 0.0;
+      cropY = 0.0;
+      cropWidth = 1.0;
+      cropHeight = 1.0;
+      syncCropToActivePhoto();
+      return;
+    }
+
+    // 計算照片原生寬高比 R_img
+    let imgRatio = 1.5; // 預設 3:2
+    if (sourceImgElement && sourceImgElement.naturalWidth && sourceImgElement.naturalHeight) {
+      imgRatio = sourceImgElement.naturalWidth / sourceImgElement.naturalHeight;
+    } else if (canvasContainerRef && canvasContainerRef.clientWidth && canvasContainerRef.clientHeight) {
+      imgRatio = canvasContainerRef.clientWidth / canvasContainerRef.clientHeight;
+    }
+
+    // 目標長寬比 R_target
+    let targetRatio = 1.0;
+    if (ratio === '1:1') targetRatio = 1.0;
+    else if (ratio === '4:5') targetRatio = 0.8;
+    else if (ratio === '16:9') targetRatio = 16 / 9;
+    else if (ratio === '9:16') targetRatio = 9 / 16;
+
+    // r = targetRatio / imgRatio
+    const r = targetRatio / imgRatio;
+
+    if (r <= 1.0) {
+      // 目標比原圖更窄 / 更高：高度佔滿 1.0，寬度縮減並水平置中
+      cropHeight = 1.0;
+      cropWidth = parseFloat(Math.max(0.1, Math.min(1.0, r)).toFixed(3));
+      cropX = parseFloat(((1.0 - cropWidth) / 2).toFixed(3));
+      cropY = 0.0;
+    } else {
+      // 目標比原圖更寬：寬度佔滿 1.0，高度縮減並垂直置中
+      cropWidth = 1.0;
+      cropHeight = parseFloat(Math.max(0.1, Math.min(1.0, 1.0 / r)).toFixed(3));
+      cropX = 0.0;
+      cropY = parseFloat(((1.0 - cropHeight) / 2).toFixed(3));
+    }
+
+    syncCropToActivePhoto();
   }
 
   let canvasContainerRef = $state<HTMLDivElement | null>(null);
@@ -194,6 +283,9 @@
   }
 
   function handleStagePointerUp() {
+    if (isDraggingCrop) {
+      syncCropToActivePhoto();
+    }
     isDraggingSplit = false;
     isDraggingCrop = null;
   }
@@ -240,6 +332,8 @@
   // WebGL 2.0 3D LUT Hardware Engine State
   let webglCanvas = $state<HTMLCanvasElement | null>(null);
   let webglRenderer: WebglLutRenderer | null = null;
+  let currentBoundCanvas: HTMLCanvasElement | null = null;
+  let hasRenderedFirstFrame = $state<boolean>(false);
   let isWebglActive = $state<boolean>(false);
   let sourceImgElement = $state<HTMLImageElement | null>(null);
   let isExifSlateOpen = $state<boolean>(false);
@@ -484,16 +578,37 @@
   function openRetouchForPhoto(plate: PhotoPlate) {
     selectPhoto(plate);
     activeTab = 'retouch';
+    hasRenderedFirstFrame = false;
+    lastBoundImageSrc = '';
+    requestAnimationFrame(() => {
+      if (webglCanvas && (!webglRenderer || webglCanvas !== currentBoundCanvas)) {
+        currentBoundCanvas = webglCanvas;
+        webglRenderer = new WebglLutRenderer();
+        isWebglActive = webglRenderer.initialize(webglCanvas);
+      }
+      triggerWebglRender();
+    });
   }
 
-  // 步驟一：一鍵進入精修頁面 (只出現選取的，沒選則全部顯示)
+  // 步驟一：一鍵進入精修頁面 (優先以當前焦點或選取相片作為首幀)
   function goToRetouch() {
-    if (activeQueue.length > 0) {
-      if (!activePhoto || !activeQueue.some(p => p.id === activePhoto?.id)) {
-        selectPhoto(activeQueue[0]);
-      }
+    const target = (activePhoto && activeQueue.some(p => p.id === activePhoto?.id))
+      ? activePhoto
+      : (activeQueue.length > 0 ? activeQueue[0] : activePhoto);
+    if (target) {
+      selectPhoto(target);
     }
     activeTab = 'retouch';
+    hasRenderedFirstFrame = false;
+    lastBoundImageSrc = '';
+    requestAnimationFrame(() => {
+      if (webglCanvas && (!webglRenderer || webglCanvas !== currentBoundCanvas)) {
+        currentBoundCanvas = webglCanvas;
+        webglRenderer = new WebglLutRenderer();
+        isWebglActive = webglRenderer.initialize(webglCanvas);
+      }
+      triggerWebglRender();
+    });
   }
 
   // 步驟二：前往批次導出頁面
@@ -516,14 +631,47 @@
     selectPhoto(activeQueue[nextIndex]);
   }
 
-  // 精修暗房中的 Vim (H/L) 瀏覽切換與鍵盤操作
+  // 全域工作流程導航與精修鍵盤操作 (方案 A 流水線)
   function handleRetouchKeydown(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
       return;
     }
 
+    // 全域叫出或關閉說明指南 (? 鍵)
+    if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+      e.preventDefault();
+      isHelpOpen = !isHelpOpen;
+      return;
+    }
+
+    // 若說明、金庫或即時出圖視窗開啟，Esc 優先關閉浮層
+    if (e.key === 'Escape') {
+      if (isQuickExportOpen) {
+        e.preventDefault();
+        isQuickExportOpen = false;
+        return;
+      }
+      if (isHelpOpen) {
+        e.preventDefault();
+        isHelpOpen = false;
+        return;
+      }
+      if (isVaultOpen) {
+        e.preventDefault();
+        isVaultOpen = false;
+        return;
+      }
+    }
+
     if (activeTab === 'retouch') {
+      // 支援 Cmd/Ctrl + E 叫出單張即時出圖視窗
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'e' || e.key === 'E')) {
+        e.preventDefault();
+        isQuickExportOpen = true;
+        return;
+      }
+
       if (e.key === 'h' || e.key === 'ArrowLeft') {
         e.preventDefault();
         selectAdjacentPhoto(-1);
@@ -539,6 +687,17 @@
       } else if (e.key === 'Escape') {
         e.preventDefault();
         goToCatalog();
+      }
+    } else if (activeTab === 'export') {
+      // 方案 A 流水線 Step 3：按 Enter 直接觸發批次出圖，按 Esc 返回暗房精修
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (!isExporting) {
+          triggerExport();
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        goToRetouch();
       }
     }
   }
@@ -676,7 +835,46 @@
   }
 
   /**
-   * 一鍵恢復當前相片調色參數（Reset to Natural Baseline 5500K / 0 EV）
+   * 同步當前滑桿調色狀態至 activePhoto 與 photoPlates
+   * 若所有滑桿為預設值且為標準風格，則判定為未調色 (tuning = undefined)
+   */
+  function syncActivePhotoTuning() {
+    if (!activePhoto) return;
+
+    const isDefaultTuning = 
+      exposure === 0.0 &&
+      contrast === 0.0 &&
+      colorTemp === 5500 &&
+      tint === 0.0 &&
+      lutIntensity === 1.0 &&
+      clarity === 0.0 &&
+      sharpness === 0.0;
+
+    if (isDefaultTuning) {
+      activePhoto.tuning = undefined;
+    } else {
+      activePhoto.tuning = {
+        exposure,
+        contrast,
+        lutIntensity,
+        colorTemp,
+        tint,
+        clarity,
+        sharpness
+      };
+    }
+
+    photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { 
+      ...p, 
+      tuning: activePhoto!.tuning, 
+      crop: activePhoto!.crop,
+      appliedProfile: activePhoto!.appliedProfile 
+    } : p);
+  }
+
+  /**
+   * 一鍵完全重設底片（恢復原廠未修原始狀態：清除所有調色、風格濾鏡與構圖裁切）
+   * 執行後該照片即刻自「已調色」清單與匯出佇列中排除
    */
   function resetTuningParams() {
     exposure = 0.0;
@@ -686,8 +884,20 @@
     lutIntensity = 1.0;
     clarity = 0.0;
     sharpness = 0.0;
+    resetCropState();
+
     if (activePhoto) {
       activePhoto.appliedProfile = 'Profile_00_StandardNatural';
+      activePhoto.tuning = undefined;
+      activePhoto.crop = undefined;
+      activePhoto.gradedThumbnail = undefined;
+      photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { 
+        ...p, 
+        tuning: undefined, 
+        crop: undefined,
+        appliedProfile: 'Profile_00_StandardNatural',
+        gradedThumbnail: undefined 
+      } : p);
     }
     triggerWebglRender();
   }
@@ -744,11 +954,17 @@
       clarity,
       sharpness
     }, imgWidth, imgHeight);
+    hasRenderedFirstFrame = true;
   }
 
   function onSourceImgLoaded() {
     lastBoundImageSrc = '';
-    if (webglRenderer && sourceImgElement && sourceImgElement.complete && sourceImgElement.naturalWidth > 0) {
+    if (webglCanvas && (!webglRenderer || webglCanvas !== currentBoundCanvas)) {
+      currentBoundCanvas = webglCanvas;
+      webglRenderer = new WebglLutRenderer();
+      isWebglActive = webglRenderer.initialize(webglCanvas);
+    }
+    if (webglRenderer && sourceImgElement && sourceImgElement.naturalWidth > 0) {
       ensureImageTexture();
       triggerWebglRender();
     }
@@ -778,15 +994,18 @@
     const _diff = diffMode;
     const canvas = webglCanvas;
 
-    if (canvas && !webglRenderer) {
+    // 關鍵修復：每次 canvas DOM 實例重新掛載（如從目錄進入精修），立即為新 canvas 初始化 WebGL
+    if (canvas && (!webglRenderer || canvas !== currentBoundCanvas)) {
+      currentBoundCanvas = canvas;
       webglRenderer = new WebglLutRenderer();
       isWebglActive = webglRenderer.initialize(canvas);
       lastBoundImageSrc = '';
     }
 
-    if (isWebglActive && sourceImgElement && sourceImgElement.complete) {
+    if (isWebglActive && sourceImgElement && (sourceImgElement.complete || sourceImgElement.naturalWidth > 0)) {
       ensureImageTexture();
       triggerWebglRender();
+      syncActivePhotoTuning();
 
       // 滑桿微調防抖（Debounce）：拖動調色時非同步同步當前相片在目錄中的縮圖
       if (activePhoto && activePhoto.appliedProfile !== 'Profile_00_StandardNatural') {
@@ -1347,37 +1566,83 @@
   let isExporting = $state<boolean>(false);
   let exportNotice = $state<string>('');
 
-  async function triggerExport() {
-    if (!activePhoto) {
+  async function handleSingleQuickExport(mode: 'modeA' | 'modeB') {
+    if (!activePhoto) return;
+    try {
+      if (webglRenderer) {
+        const quality = mode === 'modeA' ? 0.95 : 1.0;
+        const blob = await webglRenderer.exportBlob('image/jpeg', quality);
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const baseName = activePhoto.filename.replace(/\.[^/.]+$/, '');
+          const suffix = mode === 'modeA' ? '_preview' : '_graded';
+          a.href = url;
+          a.download = `${baseName}${suffix}.jpg`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      }
+      exportNotice = `已即時匯出 ${activePhoto.filename} (${mode === 'modeA' ? '極速模式' : '滿血典藏'})`;
+    } catch {
+      exportNotice = '即時匯出發生錯誤';
+    } finally {
+      setTimeout(() => { exportNotice = ''; }, 3500);
+    }
+  }
+
+  async function triggerExport(subset?: PhotoPlate[]) {
+    const listToExport = (subset && subset.length > 0)
+      ? subset
+      : (activeQueue.length > 0 ? activeQueue : (activePhoto ? [activePhoto] : []));
+
+    if (listToExport.length === 0) {
       exportNotice = '目前相簿為空，請先載入照片';
       setTimeout(() => { exportNotice = ''; }, 2500);
       return;
     }
 
     isExporting = true;
-    exportProgress = 20;
-    exportNotice = 'WebGL 著色器離屏採樣中...';
+    exportProgress = 5;
+    exportNotice = `準備批次匯出 ${listToExport.length} 幀底片...`;
 
     try {
-      if (webglRenderer) {
-        exportProgress = 50;
-        const blob = await webglRenderer.exportBlob('image/jpeg', 0.96);
-        if (blob) {
-          exportProgress = 85;
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          const baseName = activePhoto.filename.replace(/\.[^/.]+$/, '');
-          a.href = url;
-          a.download = `${baseName}_graded.jpg`;
-          a.click();
-          URL.revokeObjectURL(url);
+      for (let i = 0; i < listToExport.length; i++) {
+        const p = listToExport[i];
+        exportProgress = Math.round(((i + 0.5) / listToExport.length) * 100);
+        exportNotice = `正在渲染第 ${i + 1}/${listToExport.length} 幀: ${p.filename}...`;
+
+        // 若是當前底片，直接透過 webglRenderer 導出高畫質
+        if (webglRenderer && activePhoto && p.id === activePhoto.id) {
+          const blob = await webglRenderer.exportBlob('image/jpeg', exportMode === 'modeA' ? 0.95 : 1.0);
+          if (blob) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const baseName = p.filename.replace(/\.[^/.]+$/, '');
+            a.href = url;
+            a.download = `${baseName}_graded.jpg`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }
+        } else {
+          // 其他照片使用 gradedThumbnail 或 thumbnail
+          const targetSrc = p.gradedThumbnail || p.thumbnail;
+          if (targetSrc) {
+            const a = document.createElement('a');
+            const baseName = p.filename.replace(/\.[^/.]+$/, '');
+            a.href = targetSrc;
+            a.download = `${baseName}_graded.jpg`;
+            a.click();
+          }
         }
+        await new Promise(r => setTimeout(r, 100));
       }
+
       exportProgress = 100;
       exportNotice = exportMode === 'modeA' 
-        ? '已成功匯出所見即所得調色 JPEG (極速完成)' 
-        : '16-bit 滿血無損 JPEG 已儲存 (典藏模式)';
-    } catch (e) {
+        ? `已成功批次匯出 ${listToExport.length} 幀所見即所得調色 JPEG (極速完成)` 
+        : `已成功批次儲存 ${listToExport.length} 幀 16-bit 滿血無損 JPEG (典藏模式)`;
+    } catch {
       exportNotice = '匯出發生錯誤';
     } finally {
       isExporting = false;
@@ -1581,6 +1846,15 @@
           </span>
         </button>
       {:else if activeTab === 'retouch'}
+        <button 
+          class="archival-btn-secondary" 
+          onclick={() => isQuickExportOpen = true}
+          title="單張即時出圖 (⌘E)"
+          style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-xs); border: 1px solid var(--hairline-slate); background: var(--surface-panel); color: var(--amber-highlight); cursor: pointer; font-size: 11px;"
+        >
+          <span class="material-symbols-outlined" style="font-size: 15px;">bolt</span>
+          <span>即時出圖 (⌘E)</span>
+        </button>
         <!-- STEP 2 PRIMARY ACTION -->
         <button 
           class="archival-btn-primary stepper-cta cyan-glow" 
@@ -1594,7 +1868,7 @@
         <!-- STEP 3 PRIMARY ACTION -->
         <button 
           class="archival-btn-primary stepper-cta" 
-          onclick={triggerExport}
+          onclick={() => triggerExport()}
           disabled={isExporting || activeQueue.length === 0}
           title="步驟三動作：執行批次出圖管線"
         >
@@ -1604,6 +1878,18 @@
           <span>{isExporting ? '匯出中...' : `批次導出 (${activeQueue.length} 幀) ⚡`}</span>
         </button>
       {/if}
+
+      <!-- Help & Shortcuts Button -->
+      <button 
+        type="button" 
+        class="help-trigger-btn hairline-all font-mono" 
+        onclick={() => isHelpOpen = true}
+        title="系統操作與鍵盤快捷鍵指南 (按 ?)"
+      >
+        <span class="material-symbols-outlined icon">help_outline</span>
+        <span class="help-btn-label">說明</span>
+        <kbd class="kbd-chip">?</kbd>
+      </button>
     </div>
   </header>
 
@@ -1663,6 +1949,17 @@
         >
           <span class="material-symbols-outlined">settings_input_component</span>
           <span class="nav-label">設備與存儲設定</span>
+        </button>
+
+        <button 
+          type="button"
+          class="nav-item help-nav-btn" 
+          onclick={() => isHelpOpen = true}
+          title="開啟系統操作與快捷鍵速查 (按 ?)"
+        >
+          <span class="material-symbols-outlined">help</span>
+          <span class="nav-label">操作說明與快速鍵</span>
+          <kbd class="kbd-chip">?</kbd>
         </button>
       </nav>
 
@@ -1930,6 +2227,16 @@
                   <div class="hud-right">
                     <button 
                       type="button" 
+                      class="quick-export-hud-btn" 
+                      onclick={() => isQuickExportOpen = true}
+                      title="單張即時出圖 (⌘E)"
+                    >
+                      <span class="material-symbols-outlined" style="font-size: 14px;">bolt</span>
+                      <span>即時出圖 (⌘E)</span>
+                    </button>
+
+                    <button 
+                      type="button" 
                       class="crop-toggle-btn" 
                       class:active={isCropMode}
                       onclick={() => isCropMode = !isCropMode}
@@ -1985,11 +2292,12 @@
                 <canvas 
                   bind:this={webglCanvas}
                   class="plate-render-canvas"
+                  class:canvas-hidden={!hasRenderedFirstFrame}
                   style:transform={`scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1}) rotate(${cropRotation}deg)`}
                 ></canvas>
 
-                <!-- Fallback Image if WebGL is initializing or unsupported -->
-                {#if !isWebglActive}
+                <!-- 零延遲預載入／回退底圖：在 WebGL 首幀著色完成前立即顯示原圖，杜絕死黑 -->
+                {#if !hasRenderedFirstFrame || !isWebglActive}
                   <img 
                     src={activePhoto.thumbnail} 
                     alt={activePhoto.filename} 
@@ -2026,7 +2334,6 @@
                   </div>
                 {/if}
 
-                <!-- INTERACTIVE CROP OVERLAY -->
                 {#if isCropMode}
                   <div class="crop-overlay-stage">
                     <div 
@@ -2036,13 +2343,6 @@
                       style:width={`${cropWidth * 100}%`}
                       style:height={`${cropHeight * 100}%`}
                       onmousedown={(e) => handleCropStart('move', e)}
-                      onkeydown={(e) => {
-                        if (e.key === 'ArrowLeft') cropX = Math.max(0, cropX - 0.02);
-                        if (e.key === 'ArrowRight') cropX = Math.min(1 - cropWidth, cropX + 0.02);
-                        if (e.key === 'ArrowUp') cropY = Math.max(0, cropY - 0.02);
-                        if (e.key === 'ArrowDown') cropY = Math.min(1 - cropHeight, cropY + 0.02);
-                      }}
-                      tabindex="0"
                       role="region"
                       aria-label="可拖曳調整之裁切構圖框"
                     >
@@ -2061,6 +2361,21 @@
                         {#if cropRotation !== 0}
                           · {cropRotation > 0 ? `+${cropRotation}°` : `${cropRotation}°`}
                         {/if}
+                      </div>
+                    </div>
+                  </div>
+                {:else if (cropWidth < 0.999 || cropHeight < 0.999 || cropX > 0.001 || cropY > 0.001)}
+                  <!-- STATIC CROP PREVIEW MASK (維持暗角遮罩，呈現裁切後視角) -->
+                  <div class="crop-overlay-stage static-preview">
+                    <div 
+                      class="crop-box-element static"
+                      style:left={`${cropX * 100}%`}
+                      style:top={`${cropY * 100}%`}
+                      style:width={`${cropWidth * 100}%`}
+                      style:height={`${cropHeight * 100}%`}
+                    >
+                      <div class="crop-readout font-mono static">
+                        {cropAspectRatio.toUpperCase()} · 構圖裁切預覽
                       </div>
                     </div>
                   </div>
@@ -2220,9 +2535,10 @@
           onApplyToAll={(id) => applyProfileToAll(id)}
         />
       {:else if activeTab === 'export'}
-        <!-- MODULE 4: DUAL PIPELINE EXPORT DOCK (BOUND TO ACTIVE QUEUE) -->
+        <!-- MODULE 4: DUAL PIPELINE EXPORT DOCK (BOUND TO PHOTO PLATES WITH SCOPE SELECTOR) -->
         <ExportView 
-          photos={activeQueue}
+          photos={photoPlates}
+          {activePhoto}
           {exportMode}
           {isExporting}
           {exportProgress}
@@ -2230,7 +2546,7 @@
           {aiVisionTags}
           {aiSceneTitle}
           onSetExportMode={(m: 'modeA' | 'modeB') => exportMode = m}
-          onTriggerExport={triggerExport}
+          onTriggerExport={(subset) => triggerExport(subset as PhotoPlate[])}
         />
       {:else if activeTab === 'devices'}
         <!-- MODULE 5: HARDWARE MOUNTS & STORAGE SETTINGS -->
@@ -2288,7 +2604,7 @@
                 type="button" 
                 class="reset-tuning-btn font-mono"
                 onclick={resetTuningParams}
-                title="恢復為無偏色直出基準值 (5500K / 0 EV)"
+                title="完全還原為未編輯原片（清除所有調色與裁切，並自已調色匯出佇列排除）"
               >
                 <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
                 <span>重設</span>
@@ -2444,7 +2760,8 @@
                 type="button" 
                 class="ratio-chip" 
                 class:active={cropAspectRatio === ratio}
-                onclick={() => cropAspectRatio = ratio}
+                onclick={() => applyAspectRatioPreset(ratio)}
+                title={`切換為 ${ratio} 比例並開啟裁切框`}
               >
                 {ratio === 'original' ? '原圖' : ratio}
               </button>
@@ -2661,6 +2978,18 @@
 
   <!-- AI Key Vault Modal -->
   <KeyVaultModal bind:isOpen={isVaultOpen} onClose={refreshKeyStatus} />
+
+  <!-- Curatorial Workflow & Keyboard Shortcuts Cheat Sheet Modal -->
+  <HelpGuideModal bind:isOpen={isHelpOpen} onClose={() => isHelpOpen = false} />
+
+  <!-- Single Photo Quick Export Modal (⌘E) -->
+  <QuickExportModal 
+    bind:isOpen={isQuickExportOpen}
+    photo={activePhoto}
+    {exportMode}
+    onClose={() => isQuickExportOpen = false}
+    onExport={handleSingleQuickExport}
+  />
 </div>
 
 <style>
@@ -2757,6 +3086,42 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+
+  .help-trigger-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px;
+    background-color: var(--surface-panel);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-sm);
+    color: var(--parchment-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .help-trigger-btn:hover {
+    color: var(--parchment-bright);
+    border-color: var(--amber-highlight);
+    background-color: var(--surface-overlay);
+  }
+  .help-trigger-btn .icon {
+    font-size: 16px;
+    color: var(--amber-highlight);
+  }
+  .help-trigger-btn .help-btn-label {
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+  .help-nav-btn {
+    margin-top: 8px;
+    border-top: 1px dashed var(--hairline-dim);
+    color: var(--parchment-muted);
+  }
+  .help-nav-btn:hover {
+    color: var(--amber-highlight) !important;
   }
 
   /* 3-STEP SEQUENTIAL PIPELINE */
@@ -3238,6 +3603,12 @@
     border-radius: 2px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.85);
     transition: transform 0.2s ease;
+  }
+
+  .canvas-hidden {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
   }
 
   .tuning-box-header {
@@ -4042,6 +4413,25 @@
     align-items: center;
     gap: 4px;
   }
+  .quick-export-hud-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background-color: rgba(212, 163, 115, 0.12);
+    border: 1px solid rgba(212, 163, 115, 0.35);
+    border-radius: var(--radius-xs);
+    color: var(--amber-highlight);
+    font-size: 10.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .quick-export-hud-btn:hover {
+    background-color: rgba(212, 163, 115, 0.22);
+    border-color: var(--amber-highlight);
+    box-shadow: 0 0 8px rgba(212, 163, 115, 0.25);
+  }
   .crop-toggle-btn {
     display: flex;
     align-items: center;
@@ -4199,6 +4589,17 @@
     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.65);
     pointer-events: auto;
     cursor: move;
+  }
+  .crop-box-element.static {
+    border: 1px dashed rgba(212, 163, 115, 0.55);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.72);
+    cursor: default;
+    pointer-events: none;
+  }
+  .crop-readout.static {
+    background: rgba(18, 19, 22, 0.85);
+    border-color: rgba(212, 163, 115, 0.4);
+    color: var(--parchment-dim);
   }
   .crop-grid-line {
     position: absolute;

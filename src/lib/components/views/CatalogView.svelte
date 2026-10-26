@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import QuickLookModal from '$lib/components/QuickLookModal.svelte';
   export interface CatalogPhotoItem {
     id: string;
     frameNo: string;
@@ -44,6 +46,7 @@
   // Grid density: 'small' (dense) | 'medium' (standard) | 'large' (spacious)
   let gridDensity = $state<'small' | 'medium' | 'large'>('medium');
   let filterFlaggedOnly = $state<boolean>(false);
+  let isQuickLookOpen = $state<boolean>(false);
 
   // Derived filtered photos
   let displayedPhotos = $derived(
@@ -59,8 +62,13 @@
     gridDensity === 'small' ? 6 : gridDensity === 'medium' ? 4 : 3
   );
 
-  function toggleFlag(photo: CatalogPhotoItem, event?: MouseEvent) {
-    if (event) event.stopPropagation();
+  function toggleFlag(photo: CatalogPhotoItem, event?: MouseEvent | KeyboardEvent) {
+    if (event) {
+      event.stopPropagation();
+      if ('target' in event && event.target && typeof (event.target as HTMLElement).blur === 'function') {
+        (event.target as HTMLElement).blur();
+      }
+    }
     photo.flagged = !photo.flagged;
     onToggleFlag?.(photo);
   }
@@ -83,7 +91,38 @@
     }
   }
 
-  // Vim Style (HJKL) Keyboard Navigation & Spacebar Selection
+  // 從暗房按 Esc 返回目錄時，自動恢復捲軸與焦點至上一次選中的相片
+  onMount(() => {
+    if (activePhoto?.id) {
+      setTimeout(() => {
+        scrollToPhoto(activePhoto.id);
+      }, 60);
+    }
+  });
+
+  function selectNextPhoto() {
+    if (displayedPhotos.length === 0) return;
+    const currentIndex = displayedPhotos.findIndex(p => p.id === activePhoto?.id);
+    const nextIndex = currentIndex >= 0 
+      ? (currentIndex < displayedPhotos.length - 1 ? currentIndex + 1 : 0)
+      : 0;
+    const targetPhoto = displayedPhotos[nextIndex];
+    onSelectPhoto(targetPhoto);
+    scrollToPhoto(targetPhoto.id);
+  }
+
+  function selectPrevPhoto() {
+    if (displayedPhotos.length === 0) return;
+    const currentIndex = displayedPhotos.findIndex(p => p.id === activePhoto?.id);
+    const prevIndex = currentIndex >= 0
+      ? (currentIndex > 0 ? currentIndex - 1 : displayedPhotos.length - 1)
+      : 0;
+    const targetPhoto = displayedPhotos[prevIndex];
+    onSelectPhoto(targetPhoto);
+    scrollToPhoto(targetPhoto.id);
+  }
+
+  // Vim Style (HJKL) Keyboard Navigation & Spacebar QuickLook & P Pick
   function handleKeyNavigation(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
@@ -92,10 +131,52 @@
 
     if (displayedPhotos.length === 0) return;
 
+    // === 狀態一：快速大圖開啟中 ===
+    if (isQuickLookOpen) {
+      // 1. 空白鍵或 Esc 關閉大圖
+      if (e.key === ' ' || e.code === 'Space' || e.key === 'Escape') {
+        e.preventDefault();
+        isQuickLookOpen = false;
+        return;
+      }
+      // 2. H / Left 鍵切換上一張
+      if (e.key === 'h' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        selectPrevPhoto();
+        return;
+      }
+      // 3. L / Right 鍵切換下一張
+      if (e.key === 'l' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        selectNextPhoto();
+        return;
+      }
+      // 4. P 鍵切換挑選
+      if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        if (activePhoto) {
+          toggleFlag(activePhoto);
+        }
+        return;
+      }
+      return;
+    }
+
+    // === 狀態二：目錄網格瀏覽中 ===
     const currentIndex = displayedPhotos.findIndex(p => p.id === activePhoto?.id);
 
-    // Space: Toggle selection / flag
+    // Space: 開啟快速大圖預覽
     if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      // 確保黃框所選取的相片為大圖預覽對象
+      if (!activePhoto && displayedPhotos.length > 0) {
+        onSelectPhoto(displayedPhotos[0]);
+      }
+      isQuickLookOpen = true;
+      return;
+    }
+    // P: Toggle Pick / Flag selection
+    else if (e.key === 'p' || e.key === 'P') {
       e.preventDefault();
       const current = currentIndex >= 0 ? displayedPhotos[currentIndex] : displayedPhotos[0];
       if (current) {
@@ -105,23 +186,18 @@
     // H / Left Arrow: Previous photo
     else if (e.key === 'h' || e.key === 'ArrowLeft') {
       e.preventDefault();
-      const nextIndex = currentIndex > 0 ? currentIndex - 1 : displayedPhotos.length - 1;
-      const targetPhoto = displayedPhotos[nextIndex];
-      onSelectPhoto(targetPhoto);
-      scrollToPhoto(targetPhoto.id);
+      selectPrevPhoto();
     } 
     // L / Right Arrow: Next photo
     else if (e.key === 'l' || e.key === 'ArrowRight') {
       e.preventDefault();
-      const nextIndex = currentIndex < displayedPhotos.length - 1 ? currentIndex + 1 : 0;
-      const targetPhoto = displayedPhotos[nextIndex];
-      onSelectPhoto(targetPhoto);
-      scrollToPhoto(targetPhoto.id);
+      selectNextPhoto();
     } 
     // K / Up Arrow: Up one row
     else if (e.key === 'k' || e.key === 'ArrowUp') {
       e.preventDefault();
-      const nextIndex = Math.max(0, (currentIndex >= 0 ? currentIndex : 0) - columns);
+      const current = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = Math.max(0, current - columns);
       const targetPhoto = displayedPhotos[nextIndex];
       onSelectPhoto(targetPhoto);
       scrollToPhoto(targetPhoto.id);
@@ -129,18 +205,20 @@
     // J / Down Arrow: Down one row
     else if (e.key === 'j' || e.key === 'ArrowDown') {
       e.preventDefault();
-      const nextIndex = Math.min(displayedPhotos.length - 1, (currentIndex >= 0 ? currentIndex : 0) + columns);
+      const current = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = Math.min(displayedPhotos.length - 1, current + columns);
       const targetPhoto = displayedPhotos[nextIndex];
       onSelectPhoto(targetPhoto);
       scrollToPhoto(targetPhoto.id);
     } 
-    // Enter: Trigger Step 1 action (One-click enter retouch)
+    // Enter: Trigger Step 1 action (進入暗房精修焦點底片)
     else if (e.key === 'Enter') {
       e.preventDefault();
-      if (onGoToRetouch) {
+      const current = currentIndex >= 0 ? displayedPhotos[currentIndex] : (activePhoto || displayedPhotos[0]);
+      if (current) {
+        onOpenRetouch(current);
+      } else if (onGoToRetouch) {
         onGoToRetouch();
-      } else if (activePhoto) {
-        onOpenRetouch(activePhoto);
       }
     }
   }
@@ -161,13 +239,16 @@
 
     <div class="tool-group actions">
       <!-- Vim Keyboard Shortcuts Hint -->
-      <div class="vim-nav-indicator hairline-all" title="Vim 鍵盤導航：HJKL 移動，空白鍵標記選取，Enter 一鍵進入精修">
+      <div class="vim-nav-indicator hairline-all" title="鍵盤導航：HJKL 移動，P 挑選/取消，空白鍵大圖審查，Enter 一鍵進入精修">
         <span class="material-symbols-outlined" style="font-size: 13px; color: var(--amber-highlight);">keyboard</span>
         <span class="key-cap">HJKL</span>
         <span class="key-desc">移動</span>
         <span class="key-sep">·</span>
+        <span class="key-cap">P</span>
+        <span class="key-desc">挑選</span>
+        <span class="key-sep">·</span>
         <span class="key-cap">Space</span>
-        <span class="key-desc">選取</span>
+        <span class="key-desc">大圖</span>
         <span class="key-sep">·</span>
         <span class="key-cap">Enter</span>
         <span class="key-desc">精修</span>
@@ -270,14 +351,13 @@
             class="film-card hairline-all" 
             class:selected={activePhoto?.id === photo.id}
             class:flagged={photo.flagged}
-            role="button"
-            tabindex="0"
-            onclick={() => onSelectPhoto(photo)}
-            ondblclick={() => onOpenRetouch(photo)}
-            onkeydown={(e) => {
-              if (e.key === 'Enter') onOpenRetouch(photo);
-              if (e.key === ' ') toggleFlag(photo, e as any);
+            role="gridcell"
+            tabindex="-1"
+            onclick={(e) => {
+              (e.currentTarget as HTMLElement).blur();
+              onSelectPhoto(photo);
             }}
+            ondblclick={() => onOpenRetouch(photo)}
           >
             <!-- 35mm Film Top Sprocket Bar -->
             <div class="sprocket-strip top font-mono">
@@ -361,6 +441,18 @@
     {/if}
   </div>
 </div>
+
+<!-- Quick Look Instant Fullscreen Preview Modal -->
+<QuickLookModal 
+  bind:isOpen={isQuickLookOpen}
+  photo={activePhoto}
+  onClose={() => isQuickLookOpen = false}
+  onToggleFlag={(p) => toggleFlag(p)}
+  onNext={selectNextPhoto}
+  onPrev={selectPrevPhoto}
+  hasNext={displayedPhotos.length > 1}
+  hasPrev={displayedPhotos.length > 1}
+/>
 
 <style>
   .catalog-viewport {
