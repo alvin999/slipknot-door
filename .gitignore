@@ -17,3 +17,6 @@ vite.config.ts.timestamp-*
 # Rust / Tauri builds
 target/
 src-tauri/target/
+
+# Scratch & temporary test scripts
+scratch/

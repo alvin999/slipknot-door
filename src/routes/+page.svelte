@@ -21,6 +21,7 @@
   let isVaultOpen = $state<boolean>(false);
   let isHelpOpen = $state<boolean>(false);
   let isQuickExportOpen = $state<boolean>(false);
+  let isKeyPromptModalOpen = $state<boolean>(false);
   let geminiKeyStatus = $state<{ exists: boolean; mode: string | null }>({ exists: false, mode: null });
 
   // Hardware Ingestion State
@@ -36,6 +37,12 @@
   function refreshKeyStatus() {
     const s = KeyVaultService.getKeyStatus('gemini');
     geminiKeyStatus = { exists: s.exists, mode: s.mode };
+  }
+
+  function hasActiveApiKey(): boolean {
+    const gemini = KeyVaultService.getKeyStatus('gemini');
+    const groq = KeyVaultService.getKeyStatus('groq');
+    return gemini.exists || groq.exists;
   }
 
   async function refreshCameraMounts() {
@@ -802,11 +809,11 @@
           }, img.naturalWidth || 400, img.naturalHeight || 300);
 
           const dataUrl = offscreenRenderer.exportDataUrl('image/jpeg', 0.85);
-          if (dataUrl) {
+          if (dataUrl && plate.gradedThumbnail !== dataUrl) {
             plate.gradedThumbnail = dataUrl;
             photoPlates = photoPlates.map(p => p.id === plate.id ? { ...p, gradedThumbnail: dataUrl } : p);
             if (activePhoto && activePhoto.id === plate.id) {
-              activePhoto = { ...activePhoto, gradedThumbnail: dataUrl };
+              activePhoto.gradedThumbnail = dataUrl;
             }
           }
         } catch (err) {
@@ -815,8 +822,9 @@
       }
     }
 
-    // 稍微延遲讓出主執行緒，確保 60FPS 流暢
-    setTimeout(processThumbnailQueue, 20);
+    // 稍微延遲讓出主執行緒，確保 60FPS 流暢（批次時拉長間隔防止吃滿 GPU 與 CPU 資源）
+    const queueInterval = isBatchAiRunning ? 100 : 25;
+    setTimeout(processThumbnailQueue, queueInterval);
   }
 
   /**
@@ -1002,18 +1010,13 @@
       lastBoundImageSrc = '';
     }
 
+    // 批次執行中時，主畫布不需要高頻重繪與同步，避免凍結主執行緒
+    if (isBatchAiRunning) return;
+
     if (isWebglActive && sourceImgElement && (sourceImgElement.complete || sourceImgElement.naturalWidth > 0)) {
       ensureImageTexture();
       triggerWebglRender();
       syncActivePhotoTuning();
-
-      // 滑桿微調防抖（Debounce）：拖動調色時非同步同步當前相片在目錄中的縮圖
-      if (activePhoto && activePhoto.appliedProfile !== 'Profile_00_StandardNatural') {
-        if (sliderThumbnailTimer) clearTimeout(sliderThumbnailTimer);
-        sliderThumbnailTimer = setTimeout(() => {
-          if (activePhoto) enqueueThumbnailRender(activePhoto);
-        }, 300);
-      }
     }
   });
 
@@ -1203,14 +1206,24 @@
     requestAnimationFrame(step);
   }
 
-  async function appendAiLog(msg: string, delayMs = 60) {
-    aiTerminalLogs = [...aiTerminalLogs.slice(-25), msg];
+  let terminalBodyElement = $state<HTMLDivElement | null>(null);
+
+  async function appendAiLog(msg: string, delayMs = 50) {
+    aiTerminalLogs = [...aiTerminalLogs.slice(-35), msg];
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(() => {
+        if (terminalBodyElement) {
+          terminalBodyElement.scrollTop = terminalBodyElement.scrollHeight;
+        }
+      });
+    }
     if (delayMs > 0) {
       await new Promise(r => setTimeout(r, delayMs));
     }
   }
 
   // Authentic AI Scene Analysis & Organic Parameter Tuning
+  // 支援單幀互動模式（含滑桿動畫與畫布更新）與高速批次背景顯影（純資料更新，零主執行緒凍結）
   async function runAiAnalysis(targetPhoto?: PhotoPlate): Promise<boolean> {
     const photoToProcess = targetPhoto || activePhoto;
     if (!photoToProcess) {
@@ -1219,7 +1232,10 @@
       return false;
     }
 
-    if (photoToProcess.id !== activePhoto?.id) {
+    const isCurrentActive = activePhoto && activePhoto.id === photoToProcess.id;
+
+    // 僅在非批次模式且相片不同時，才切換全局焦點相片
+    if (!isBatchAiRunning && !isCurrentActive) {
       selectPhoto(photoToProcess);
     }
 
@@ -1227,9 +1243,14 @@
     if (!isBatchAiRunning) {
       aiTerminalLogs = [];
     }
-    await appendAiLog(`> [OPTICAL_SCAN] 掃描 ${photoToProcess.filename} 影格直方圖...`);
-    await appendAiLog(`> [EXIF] ISO ${photoToProcess.iso} · ${photoToProcess.aperture} · ${photoToProcess.shutter} · ${photoToProcess.focalLength}`);
-    await appendAiLog(`> [STREAM] 傳輸 512px 縮圖至視覺多模態引擎...`, 100);
+    const hasKey = hasActiveApiKey();
+    await appendAiLog(`> [OPTICAL_SCAN] 掃描 ${photoToProcess.filename} 影格光學數據...`, 20);
+    await appendAiLog(`> [EXIF] ISO ${photoToProcess.iso} · ${photoToProcess.aperture} · ${photoToProcess.shutter} · ${photoToProcess.focalLength}`, 20);
+    if (hasKey) {
+      await appendAiLog(`> [STREAM] 傳輸 512px 縮圖至視覺多模態雲端引擎...`, 40);
+    } else {
+      await appendAiLog(`> [LOCAL_EVAL] 在地光學特徵評估中 (免連線降級)...`, 20);
+    }
 
     try {
       const decision = await AiSceneService.analyzeScene(
@@ -1244,88 +1265,166 @@
         }
       );
 
-      aiConfidence = decision.confidence;
-      aiSuggestedScene = decision.isFallback ? `${decision.scene_type} (在地光學推估)` : `${decision.scene_type} (視覺即時判讀)`;
-      aiSceneTitle = decision.scene_title || decision.scene_type;
-      aiStyleInsight = decision.style_insight || '';
-      aiRecommendedMood = decision.recommended_mood || '';
-      aiRecommendedProfile = decision.recommended_profile;
-      aiVisionTags = decision.tags || [];
+      // 若為焦點相片或單幀模式，同步頂部與面板 AI 決策狀態
+      if (isCurrentActive || !isBatchAiRunning) {
+        aiConfidence = decision.confidence;
+        aiSuggestedScene = decision.isFallback ? `${decision.scene_type} (在地光學推估)` : `${decision.scene_type} (視覺即時判讀)`;
+        aiSceneTitle = decision.scene_title || decision.scene_type;
+        aiStyleInsight = decision.style_insight || '';
+        aiRecommendedMood = decision.recommended_mood || '';
+        aiRecommendedProfile = decision.recommended_profile;
+        aiVisionTags = decision.tags || [];
 
-      // 若有視覺標籤，自動預熱 Groq 文案生成（秒回體驗）
-      if (aiVisionTags.length > 0 && !isBatchAiRunning) {
-        triggerGroqCopywriting();
+        // 若有視覺標籤，自動預熱 Groq 文案生成（秒回體驗）
+        if (aiVisionTags.length > 0 && !isBatchAiRunning) {
+          triggerGroqCopywriting();
+        }
       }
 
-      await appendAiLog(`> [DETECTED] 識別場景：【${aiSceneTitle}】(信心度 ${(decision.confidence * 100).toFixed(0)}%)`);
+      if (decision.isFallback) {
+        await appendAiLog(`> [LOCAL_FALLBACK] 在地光學推估：【${decision.scene_title || decision.scene_type}】(無雲端消耗)`, 20);
+      } else {
+        await appendAiLog(`> [CLOUD_DETECTED] 雲端視覺識別：【${decision.scene_title || decision.scene_type}】(信心度 ${(decision.confidence * 100).toFixed(0)}%)`, 20);
+      }
       if (decision.tags && decision.tags.length > 0) {
-        await appendAiLog(`> [VISION_TAGS] 視覺特徵：#${decision.tags.join(' #')}`, 50);
+        await appendAiLog(`> [VISION_TAGS] 視覺特徵：#${decision.tags.join(' #')}`, 20);
       }
       if (decision.style_insight) {
-        await appendAiLog(`> [INSIGHT] ${decision.style_insight}`, 80);
+        await appendAiLog(`> [INSIGHT] ${decision.style_insight}`, 20);
       }
       if (decision.recommended_mood) {
-        await appendAiLog(`> [MOOD_SUGGEST] 建議風格調性：${decision.recommended_mood}`);
+        await appendAiLog(`> [MOOD_SUGGEST] 建議風格調性：${decision.recommended_mood}`, 20);
       }
-      await appendAiLog(`> [AUTOTUNE] 依據 AI 職責勾選開始套用參數...`);
+      await appendAiLog(`> [AUTOTUNE] 依據 AI 職責勾選開始套用參數...`, 20);
 
-      // 1. 基礎光影與色調 (Tone)
-      const targetAnim: { exposure?: number; contrast?: number; colorTemp?: number; tint?: number; lutIntensity?: number } = {};
+      // 計算目標參數值
+      const foundProfile = profiles.find(pr => pr.id === decision.recommended_profile);
+      const targetProfile = aiScope.lutProfile ? decision.recommended_profile : photoToProcess.appliedProfile;
+
+      const baseEv = aiScope.tone ? decision.exposure_compensation : (photoToProcess.tuning?.exposure ?? (foundProfile ? foundProfile.evDefault : (photoToProcess.asShotExposure ?? 0.0)));
+      const baseContrast = aiScope.tone ? (decision.contrast ?? 0.0) : (photoToProcess.tuning?.contrast ?? 0.0);
+      const baseTemp = aiScope.whiteBalance ? (decision.color_temp ?? 5500) : (photoToProcess.tuning?.colorTemp ?? photoToProcess.asShotTemp ?? 5500);
+      const baseTint = aiScope.whiteBalance ? (decision.tint ?? 0.0) : (photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0);
+      const baseLut = aiScope.lutProfile ? decision.lut_intensity : (photoToProcess.tuning?.lutIntensity ?? (foundProfile ? foundProfile.lutIntensityDefault : 1.0));
+      const baseClarity = photoToProcess.tuning?.clarity ?? (foundProfile ? (foundProfile.clarityDefault ?? 0.0) : 0.0);
+      const baseSharpness = photoToProcess.tuning?.sharpness ?? (foundProfile ? (foundProfile.sharpnessDefault ?? 0.0) : 0.0);
+
       if (aiScope.tone) {
-        targetAnim.exposure = decision.exposure_compensation;
-        targetAnim.contrast = decision.contrast ?? contrast;
-        shadows = decision.lift_shadows;
-        await appendAiLog(`> [AI_TONE] 光影對比已推進 (EV: ${decision.exposure_compensation > 0 ? '+' : ''}${decision.exposure_compensation})`);
+        await appendAiLog(`> [AI_TONE] 光影對比已推進 (EV: ${decision.exposure_compensation > 0 ? '+' : ''}${decision.exposure_compensation})`, 15);
       }
-
-      // 2. 自動白平衡 (White Balance)
       if (aiScope.whiteBalance) {
-        targetAnim.colorTemp = decision.color_temp ?? colorTemp;
-        targetAnim.tint = decision.tint ?? tint;
-        await appendAiLog(`> [AI_WB] 自動白平衡已校正 (${decision.color_temp ?? colorTemp}K, Tint: ${decision.tint ?? tint})`);
+        await appendAiLog(`> [AI_WB] 自動白平衡已校正 (${decision.color_temp ?? 5500}K, Tint: ${decision.tint ?? 0})`, 15);
       }
-
-      // 3. 3D LUT 風格推薦 (Film Profile)
       if (aiScope.lutProfile) {
-        targetAnim.lutIntensity = decision.lut_intensity;
-        applyProfile(decision.recommended_profile);
-        await appendAiLog(`> [AI_LUT] 套用底片風格：${decision.recommended_profile}`);
+        await appendAiLog(`> [AI_LUT] 套用底片風格：${decision.recommended_profile}`, 15);
       }
 
-      // 觸發推桿動畫
-      if (Object.keys(targetAnim).length > 0) {
-        animateAdjustmentValues(targetAnim, 700);
-      }
-
-      // 4. 構圖與智慧裁切 (Crop)
+      // 構圖與智慧裁切計算
+      let targetCrop = photoToProcess.crop;
       if (aiScope.crop && decision.crop_box) {
-        cropY = decision.crop_box[0];
-        cropX = decision.crop_box[1];
-        cropHeight = decision.crop_box[2] - decision.crop_box[0];
-        cropWidth = decision.crop_box[3] - decision.crop_box[1];
-        if (decision.aspect_ratio && ['original', '1:1', '4:5', '16:9', '9:16', 'free'].includes(decision.aspect_ratio)) {
-          cropAspectRatio = decision.aspect_ratio as any;
-        }
-        aiCropRationale = decision.crop_rationale || '';
-        await appendAiLog(`> [AI_CROP] 智慧構圖裁切已套用：${decision.crop_rationale || '黃金三分點重心'}`);
+        targetCrop = {
+          x: decision.crop_box[1],
+          y: decision.crop_box[0],
+          width: decision.crop_box[3] - decision.crop_box[1],
+          height: decision.crop_box[2] - decision.crop_box[0],
+          rotation: (aiScope.keystone && typeof decision.rotation_deg === 'number') ? decision.rotation_deg : (photoToProcess.crop?.rotation ?? 0),
+          keystoneV: (aiScope.keystone && typeof decision.keystone_v === 'number') ? decision.keystone_v : (photoToProcess.crop?.keystoneV ?? 0),
+          keystoneH: photoToProcess.crop?.keystoneH ?? 0,
+          aspectRatio: (decision.aspect_ratio && ['original', '1:1', '4:5', '16:9', '9:16', 'free'].includes(decision.aspect_ratio)) ? decision.aspect_ratio as any : (photoToProcess.crop?.aspectRatio ?? 'original'),
+          flipH: photoToProcess.crop?.flipH ?? false,
+          flipV: photoToProcess.crop?.flipV ?? false
+        };
+        await appendAiLog(`> [AI_CROP] 智慧構圖裁切已套用：${decision.crop_rationale || '黃金三分點重心'}`, 15);
+      } else if (aiScope.keystone && (typeof decision.rotation_deg === 'number' || typeof decision.keystone_v === 'number')) {
+        targetCrop = {
+          x: photoToProcess.crop?.x ?? 0,
+          y: photoToProcess.crop?.y ?? 0,
+          width: photoToProcess.crop?.width ?? 1,
+          height: photoToProcess.crop?.height ?? 1,
+          rotation: typeof decision.rotation_deg === 'number' ? decision.rotation_deg : (photoToProcess.crop?.rotation ?? 0),
+          keystoneV: typeof decision.keystone_v === 'number' ? decision.keystone_v : (photoToProcess.crop?.keystoneV ?? 0),
+          keystoneH: photoToProcess.crop?.keystoneH ?? 0,
+          aspectRatio: photoToProcess.crop?.aspectRatio ?? 'original',
+          flipH: photoToProcess.crop?.flipH ?? false,
+          flipV: photoToProcess.crop?.flipV ?? false
+        };
+        await appendAiLog(`> [AI_LEVEL] 地平線與垂直透視已校正 (${(targetCrop.rotation || 0).toFixed(1)}°)`, 15);
       }
 
-      // 5. 梯形與水平校正 (Keystone & Leveling)
-      if (aiScope.keystone) {
-        if (typeof decision.rotation_deg === 'number') {
-          cropRotation = decision.rotation_deg;
-        }
-        if (typeof decision.keystone_v === 'number') {
-          keystoneV = decision.keystone_v;
-        }
-        await appendAiLog(`> [AI_LEVEL] 地平線與垂直透視已校正 (${cropRotation.toFixed(1)}°)`);
+      // 靜態寫入目標底片資料實體
+      photoToProcess.appliedProfile = targetProfile;
+      photoToProcess.tuning = {
+        exposure: baseEv,
+        contrast: baseContrast,
+        lutIntensity: baseLut,
+        colorTemp: baseTemp,
+        tint: baseTint,
+        clarity: baseClarity,
+        sharpness: baseSharpness
+      };
+      if (targetCrop) {
+        photoToProcess.crop = targetCrop;
       }
 
-      await appendAiLog(`> [SUCCESS] 顯影調校完成 ✓`);
+      // 若目前為聚焦相片且為手動單幀觸發，更新全域滑桿與動態動畫
+      if (isCurrentActive) {
+        if (!isBatchAiRunning) {
+          applyProfile(targetProfile);
+          const targetAnim: { exposure?: number; contrast?: number; colorTemp?: number; tint?: number; lutIntensity?: number } = {};
+          if (aiScope.tone) { targetAnim.exposure = baseEv; targetAnim.contrast = baseContrast; }
+          if (aiScope.whiteBalance) { targetAnim.colorTemp = baseTemp; targetAnim.tint = baseTint; }
+          if (aiScope.lutProfile) { targetAnim.lutIntensity = baseLut; }
+          if (Object.keys(targetAnim).length > 0) {
+            animateAdjustmentValues(targetAnim, 650);
+          }
+          if (targetCrop) {
+            cropX = targetCrop.x;
+            cropY = targetCrop.y;
+            cropWidth = targetCrop.width;
+            cropHeight = targetCrop.height;
+            cropRotation = targetCrop.rotation;
+            keystoneV = targetCrop.keystoneV ?? 0;
+            keystoneH = targetCrop.keystoneH ?? 0;
+            cropAspectRatio = targetCrop.aspectRatio;
+            flipH = targetCrop.flipH;
+            flipV = targetCrop.flipV;
+          }
+        } else {
+          // 批次模式中直接更新全域狀態，絕不觸發高頻動畫或重繪風暴
+          exposure = baseEv;
+          contrast = baseContrast;
+          colorTemp = baseTemp;
+          tint = baseTint;
+          lutIntensity = baseLut;
+          clarity = baseClarity;
+          sharpness = baseSharpness;
+          if (targetCrop) {
+            cropX = targetCrop.x;
+            cropY = targetCrop.y;
+            cropWidth = targetCrop.width;
+            cropHeight = targetCrop.height;
+            cropRotation = targetCrop.rotation;
+            keystoneV = targetCrop.keystoneV ?? 0;
+            keystoneH = targetCrop.keystoneH ?? 0;
+            cropAspectRatio = targetCrop.aspectRatio;
+            flipH = targetCrop.flipH;
+            flipV = targetCrop.flipV;
+          }
+        }
+      }
+
+      // 更新陣列中該相片，並排程非同步離屏縮圖渲染
+      photoPlates = photoPlates.map(p => p.id === photoToProcess.id ? { ...photoToProcess } : p);
+      if (activePhoto && activePhoto.id === photoToProcess.id) {
+        activePhoto = { ...photoToProcess };
+      }
+      enqueueThumbnailRender(photoToProcess);
+
+      await appendAiLog(`> [SUCCESS] 顯影調校完成 ✓`, 10);
       return true;
     } catch (err: any) {
       console.error('AI Analysis failed:', err);
-      await appendAiLog(`> [ERROR] 顯影推估異常：${err.message || '未知錯誤'}`);
+      await appendAiLog(`> [ERROR] 顯影推估異常：${err.message || '未知錯誤'}`, 20);
       return false;
     } finally {
       isAiAnalyzing = false;
@@ -1508,56 +1607,104 @@
     }
   }
 
-  // 批次 AI 顯影調色（含 4.2s 速率保護與取消中斷）
-  async function runBatchAiAnalysis() {
+  // 啟動 AI 批次顯影（Pre-flight 檢查金鑰，未配置時彈出對話框詢問）
+  function requestBatchAiAnalysis() {
     const targetList = flaggedPhotos.length > 0 ? flaggedPhotos : photoPlates;
     if (targetList.length === 0) {
-      exportNotice = '目前相簿無相片可供批次顯影';
+      exportNotice = '目前相簿無相片可供 AI 批次顯影';
       setTimeout(() => { exportNotice = ''; }, 2500);
       return;
     }
 
+    if (!hasActiveApiKey()) {
+      isKeyPromptModalOpen = true;
+    } else {
+      runBatchAiAnalysis();
+    }
+  }
+
+  function confirmOfflineBatch() {
+    isKeyPromptModalOpen = false;
+    runBatchAiAnalysis();
+  }
+
+  function openVaultFromPrompt() {
+    isKeyPromptModalOpen = false;
+    isVaultOpen = true;
+  }
+
+  // AI 批次顯影調色（含 4.2s 速率保護與取消中斷）
+  async function runBatchAiAnalysis() {
+    const targetList = flaggedPhotos.length > 0 ? [...flaggedPhotos] : [...photoPlates];
+    if (targetList.length === 0) {
+      exportNotice = '目前相簿無相片可供 AI 批次顯影';
+      setTimeout(() => { exportNotice = ''; }, 2500);
+      return;
+    }
+
+    const hasOnlineKey = hasActiveApiKey();
+
     isBatchAiRunning = true;
     cancelBatchRequested = false;
     aiTerminalLogs = [];
-    await appendAiLog(`> [BATCH_START] 啟動批次 AI 顯影調色，共 ${targetList.length} 張相片...`);
-    await appendAiLog(`> [RATE_LIMIT] 啟用 Gemini Free Tier 速率保護 (每分鐘 15 次限制，間隔 4.2 秒)`);
+    await appendAiLog(`> [BATCH_START] 啟動 AI 批次顯影調色，共 ${targetList.length} 張相片...`, 20);
+
+    if (hasOnlineKey) {
+      await appendAiLog(`> [CLOUD_AI] 已偵測到有效金鑰，啟動視覺多模態雲端推論`, 20);
+      await appendAiLog(`> [RATE_LIMIT] 啟用雲端 API 速率保護 (間隔 4.2 秒防超限冷卻)`, 20);
+    } else {
+      await appendAiLog(`> [OFFLINE_NOTICE] ⚠️ 未配置雲端 API 金鑰，全面採用「本機光學降級演算法 (EXIF Fallback)」`, 20);
+      await appendAiLog(`> [TIP] 可點擊右下角「金鑰保險庫 🔑」輸入 Gemini / Groq Key 以解鎖完整多模態視覺判讀`, 20);
+      await appendAiLog(`> [SPEED_BOOST] 本機推估無雲端配額限制，已自動停用冷卻倒數，極速批次顯影中 ⚡`, 20);
+    }
 
     for (let i = 0; i < targetList.length; i++) {
       if (cancelBatchRequested) {
-        await appendAiLog(`> [BATCH_ABORT] 使用者已手動中止批次顯影程序。`);
+        await appendAiLog(`> [BATCH_ABORT] 使用者已手動中止批次顯影程序。`, 10);
         break;
       }
 
       const p = targetList[i];
       batchProgress = { current: i + 1, total: targetList.length, countdown: 0 };
-      await appendAiLog(`----------------------------------------`);
-      await appendAiLog(`> [BATCH ${i + 1}/${targetList.length}] 正在顯影：${p.filename}`);
+      await appendAiLog(`----------------------------------------`, 10);
+      await appendAiLog(`> [BATCH ${i + 1}/${targetList.length}] 正在顯影：${p.filename}`, 20);
+
+      // 讓出微任務讓瀏覽器 DOM 渲染與事件處理器有空隙運作
+      await new Promise(r => setTimeout(r, 16));
 
       await runAiAnalysis(p);
 
-      // 如果不是最後一張且未被中斷，進行防超限 Sleep 倒數 (4.2 秒)
-      if (i < targetList.length - 1 && !cancelBatchRequested) {
+      // 只有在真正連接雲端在線 API（有有效金鑰）時，才需要 4.2 秒的速率保護等待
+      // 若為純本地光學推估（無金鑰），直接跳過等待，避免浪費使用者時間與主機資源
+      if (hasOnlineKey && i < targetList.length - 1 && !cancelBatchRequested) {
         for (let cd = 4; cd > 0; cd--) {
           if (cancelBatchRequested) break;
           batchProgress.countdown = cd;
-          await new Promise(r => setTimeout(r, 1050));
+          await new Promise(r => setTimeout(r, 1000));
         }
-        batchProgress.countdown = 0;
+        if (batchProgress) batchProgress.countdown = 0;
       }
     }
 
     if (!cancelBatchRequested) {
-      await appendAiLog(`> [BATCH_COMPLETE] 全部 ${targetList.length} 張相片批次顯影完成！🎉`);
+      await appendAiLog(`> [BATCH_COMPLETE] 全部 ${targetList.length} 張相片批次顯影完成！🎉`, 10);
     }
 
     isBatchAiRunning = false;
     batchProgress = null;
     cancelBatchRequested = false;
+
+    // 批次完成後，若當前焦點底片有被處理，重繪畫布一次
+    if (activePhoto && webglRenderer) {
+      requestAnimationFrame(() => {
+        triggerWebglRender();
+      });
+    }
   }
 
   function cancelBatchAi() {
     cancelBatchRequested = true;
+    appendAiLog('> [BATCH_INTERRUPT] 正在中斷批次顯影程序...', 0);
   }
 
   // Export Pipeline State
@@ -1984,7 +2131,7 @@
                 <span class="term-dot green"></span>
                 <span class="term-title">DARKROOM://NEURAL_DEVELOP</span>
               </div>
-              <div class="terminal-body custom-scroll">
+              <div class="terminal-body custom-scroll" bind:this={terminalBodyElement}>
                 {#each aiTerminalLogs as line}
                   <div class="term-line">{line}</div>
                 {/each}
@@ -2096,7 +2243,7 @@
                 onclick={cancelBatchAi}
               >
                 <span class="material-symbols-outlined" style="font-size: 16px;">cancel</span>
-                <span>中止批次顯影 ({batchProgress?.current || 1}/{batchProgress?.total || 1})</span>
+                <span>中止 AI 批次顯影 ({batchProgress?.current || 1}/{batchProgress?.total || 1})</span>
               </button>
             {:else}
               <button 
@@ -2115,12 +2262,12 @@
                 <button 
                   type="button"
                   class="archival-btn-secondary w-full batch-btn font-mono" 
-                  onclick={runBatchAiAnalysis}
+                  onclick={requestBatchAiAnalysis}
                   disabled={isAiAnalyzing}
-                  title="針對所有已標記（或全部）相片循序進行 AI 顯影調色，含 15 RPM 速率保護"
+                  title="針對所有已標記（或全部）相片循序進行 AI 批次顯影調色"
                 >
                   <span class="material-symbols-outlined" style="font-size: 15px;">auto_mode</span>
-                  <span>批次顯影 ({flaggedPhotos.length > 0 ? `${flaggedPhotos.length} 張勾選` : `全簿 ${photoPlates.length} 張`})</span>
+                  <span>AI 批次顯影 ({flaggedPhotos.length > 0 ? `${flaggedPhotos.length} 張勾選` : `全簿 ${photoPlates.length} 張`})</span>
                 </button>
               {/if}
             {/if}
@@ -2975,6 +3122,96 @@
       </aside>
     {/if}
   </main>
+
+  <!-- 未配置金鑰引導確認 Modal (Fallback Confirmation Prompt) -->
+  {#if isKeyPromptModalOpen}
+    <div 
+      class="key-prompt-backdrop" 
+      onclick={() => isKeyPromptModalOpen = false}
+      role="presentation"
+    >
+      <div 
+        class="key-prompt-modal hairline-all" 
+        onclick={(e) => e.stopPropagation()}
+        role="dialog"
+        tabindex="-1"
+        aria-modal="true"
+        aria-labelledby="prompt-modal-title"
+      >
+        <div class="prompt-header hairline-b">
+          <div class="prompt-title-group">
+            <span class="material-symbols-outlined prompt-icon amber">vpn_key_off</span>
+            <div>
+              <div id="prompt-modal-title" class="prompt-title font-headline">尚未配置 AI 雲端金鑰</div>
+              <div class="prompt-subtitle font-mono">NEURAL DEVELOP // OFFLINE HEURISTIC CONFIRMATION</div>
+            </div>
+          </div>
+          <button 
+            type="button" 
+            class="prompt-close-btn" 
+            onclick={() => isKeyPromptModalOpen = false}
+            aria-label="關閉對話框"
+          >
+            <span class="material-symbols-outlined" style="font-size: 16px;">close</span>
+          </button>
+        </div>
+
+        <div class="prompt-body">
+          <p class="prompt-desc">
+            目前尚未檢測到已配置的 <strong>Google Gemini</strong> 或 <strong>Groq</strong> API 金鑰。
+          </p>
+
+          <div class="prompt-modes-grid">
+            <div class="prompt-mode-card highlight">
+              <div class="mode-card-header font-mono amber">
+                <span class="material-symbols-outlined">computer</span>
+                <span>由電腦自己跑 (本機光學推算)</span>
+              </div>
+              <p class="mode-card-text">
+                採用相機 EXIF 光學幾何、大光圈景深與色彩動態特徵演算法。<strong>無網路依賴、0 雲端配額消耗、極速完成</strong>。
+              </p>
+            </div>
+
+            <div class="prompt-mode-card">
+              <div class="mode-card-header font-mono">
+                <span class="material-symbols-outlined">psychology</span>
+                <span>雲端 AI 多模態顯影</span>
+              </div>
+              <p class="mode-card-text">
+                需先前往金鑰保險庫設定 API Key。解鎖 Gemini 視覺光學神經判讀與 Groq 極速策展社群文案。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="prompt-actions hairline-t">
+          <button 
+            type="button" 
+            class="archival-btn-secondary prompt-action-btn font-mono"
+            onclick={() => isKeyPromptModalOpen = false}
+          >
+            取消
+          </button>
+          <button 
+            type="button" 
+            class="archival-btn-secondary prompt-action-btn font-mono amber-border"
+            onclick={openVaultFromPrompt}
+          >
+            <span class="material-symbols-outlined" style="font-size: 15px;">vpn_key</span>
+            <span>前往配置金鑰 🔑</span>
+          </button>
+          <button 
+            type="button" 
+            class="archival-btn-primary prompt-action-btn font-mono"
+            onclick={confirmOfflineBatch}
+          >
+            <span class="material-symbols-outlined" style="font-size: 15px;">bolt</span>
+            <span>電腦自己跑 (啟動本機顯影) ⚡</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <!-- AI Key Vault Modal -->
   <KeyVaultModal bind:isOpen={isVaultOpen} onClose={refreshKeyStatus} />
@@ -4717,6 +4954,131 @@
   .quick-ai-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  /* KEY PROMPT MODAL STYLES */
+  .key-prompt-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .key-prompt-modal {
+    width: 90%;
+    max-width: 520px;
+    background-color: var(--surface-panel);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-md);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .prompt-header {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: var(--surface-elevated);
+  }
+  .prompt-title-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .prompt-icon {
+    font-size: 24px;
+  }
+  .prompt-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--parchment-bright);
+    letter-spacing: 0.04em;
+  }
+  .prompt-subtitle {
+    font-size: 10px;
+    color: var(--parchment-dim);
+    letter-spacing: 0.08em;
+  }
+  .prompt-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--parchment-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+  }
+  .prompt-close-btn:hover {
+    color: var(--parchment-bright);
+    background-color: var(--surface-overlay);
+  }
+  .prompt-body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .prompt-desc {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--parchment-muted);
+    margin: 0;
+  }
+  .prompt-modes-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .prompt-mode-card {
+    padding: 12px 14px;
+    border-radius: var(--radius-xs);
+    background-color: var(--surface-panel);
+    border: 1px solid var(--hairline-slate);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .prompt-mode-card.highlight {
+    border-color: rgba(212, 163, 115, 0.5);
+    background-color: rgba(212, 163, 115, 0.05);
+  }
+  .mode-card-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--parchment-bright);
+  }
+  .mode-card-text {
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--parchment-dim);
+    margin: 0;
+  }
+  .prompt-actions {
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    background-color: var(--surface-elevated);
+  }
+  .prompt-action-btn {
+    padding: 8px 14px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .amber-border {
+    border-color: rgba(212, 163, 115, 0.5) !important;
+    color: var(--amber-highlight) !important;
   }
 
 </style>

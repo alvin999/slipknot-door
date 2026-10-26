@@ -4,8 +4,12 @@
  */
 
 :root {
+  /* Color Scheme Integration (Enforces dark UA styles across WebKitGTK and Chromium) */
+  color-scheme: dark;
+
   /* Surfaces & Canvas Architecture */
   --canvas-base: #121316;
+  --surface-base: #141519;
   --surface-panel: #18191d;
   --surface-elevated: #202227;
   --surface-overlay: #282b32;
@@ -54,6 +58,7 @@
 }
 
 html, body {
+  color-scheme: dark;
   background-color: var(--canvas-base);
   color: var(--parchment-bright);
   font-family: var(--font-body);
@@ -65,6 +70,28 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   user-select: none;
+}
+
+/* Darkroom Form Controls Calibration (Prevents UA light-mode bleaching & autofill discoloring) */
+select, input, textarea, button {
+  color-scheme: dark;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--parchment-bright);
+  -webkit-box-shadow: 0 0 0px 1000px var(--canvas-base) inset;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+input[type="checkbox"], input[type="radio"] {
+  accent-color: var(--amber-highlight);
+}
+
+::placeholder {
+  color: var(--parchment-dim);
+  opacity: 0.8;
 }
 
 /* Typography Helpers */
