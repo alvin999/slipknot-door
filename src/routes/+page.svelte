@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { IngestionService, type CameraMountInfo } from '$lib/services/ingestionService';
   import { KeyVaultService } from '$lib/services/keyVaultService';
-  import { AiSceneService } from '$lib/services/aiSceneService';
+  import { AiSceneService, type AiSceneDecision } from '$lib/services/aiSceneService';
   import KeyVaultModal from '$lib/components/KeyVaultModal.svelte';
   import HelpGuideModal from '$lib/components/HelpGuideModal.svelte';
   import QuickExportModal from '$lib/components/QuickExportModal.svelte';
@@ -81,6 +81,7 @@
     asShotTint?: number;
     asShotExposure?: number;
     crop?: CropGeometry;
+    aiDecision?: AiSceneDecision;
     tuning?: {
       exposure: number;
       contrast: number;
@@ -580,6 +581,27 @@
     } else {
       resetCropState();
     }
+
+    // 載入當前選中相片的專屬 AI 決策與場景 Label (若尚未分析則顯示初始狀態)
+    if (plate.aiDecision) {
+      aiConfidence = plate.aiDecision.confidence;
+      aiSuggestedScene = plate.aiDecision.isFallback
+        ? `${plate.aiDecision.scene_type} (在地光學推估)`
+        : `${plate.aiDecision.scene_type} (視覺即時判讀)`;
+      aiSceneTitle = plate.aiDecision.scene_title || plate.aiDecision.scene_type;
+      aiStyleInsight = plate.aiDecision.style_insight || '';
+      aiRecommendedMood = plate.aiDecision.recommended_mood || '';
+      aiRecommendedProfile = plate.aiDecision.recommended_profile || plate.appliedProfile;
+      aiVisionTags = plate.aiDecision.tags || [];
+    } else {
+      aiConfidence = 0.0;
+      aiSuggestedScene = '尚未分析';
+      aiSceneTitle = plate.sceneTag && plate.sceneTag !== '本機相簿幀' ? plate.sceneTag : '';
+      aiStyleInsight = '';
+      aiRecommendedMood = '';
+      aiRecommendedProfile = plate.appliedProfile || 'Profile_00_StandardNatural';
+      aiVisionTags = [];
+    }
   }
 
   function openRetouchForPhoto(plate: PhotoPlate) {
@@ -845,6 +867,7 @@
   /**
    * 同步當前滑桿調色狀態至 activePhoto 與 photoPlates
    * 若所有滑桿為預設值且為標準風格，則判定為未調色 (tuning = undefined)
+   * 包含 dirty check 保護，避免數值無變化時重複重建陣列造成反應式無窮迴圈
    */
   function syncActivePhotoTuning() {
     if (!activePhoto) return;
@@ -858,25 +881,46 @@
       clarity === 0.0 &&
       sharpness === 0.0;
 
-    if (isDefaultTuning) {
-      activePhoto.tuning = undefined;
-    } else {
-      activePhoto.tuning = {
-        exposure,
-        contrast,
-        lutIntensity,
-        colorTemp,
-        tint,
-        clarity,
-        sharpness
-      };
+    const targetTuning = isDefaultTuning ? undefined : {
+      exposure,
+      contrast,
+      lutIntensity,
+      colorTemp,
+      tint,
+      clarity,
+      sharpness
+    };
+
+    const currentPlate = photoPlates.find(p => p.id === activePhoto!.id);
+    const tuningMatches = 
+      (!currentPlate?.tuning && !targetTuning) ||
+      (currentPlate?.tuning && targetTuning &&
+        currentPlate.tuning.exposure === targetTuning.exposure &&
+        currentPlate.tuning.contrast === targetTuning.contrast &&
+        currentPlate.tuning.lutIntensity === targetTuning.lutIntensity &&
+        currentPlate.tuning.colorTemp === targetTuning.colorTemp &&
+        currentPlate.tuning.tint === targetTuning.tint &&
+        (currentPlate.tuning.clarity ?? 0) === (targetTuning.clarity ?? 0) &&
+        (currentPlate.tuning.sharpness ?? 0) === (targetTuning.sharpness ?? 0)
+      );
+
+    const profileMatches = currentPlate?.appliedProfile === activePhoto.appliedProfile;
+    const cropMatches = JSON.stringify(currentPlate?.crop) === JSON.stringify(activePhoto.crop);
+
+    activePhoto.tuning = targetTuning;
+
+    // 若底片屬性完全一致，短路返回，絕不重複指派 photoPlates 觸發連鎖效應
+    if (tuningMatches && profileMatches && cropMatches) {
+      return;
     }
 
     photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { 
       ...p, 
       tuning: activePhoto!.tuning, 
       crop: activePhoto!.crop,
-      appliedProfile: activePhoto!.appliedProfile 
+      appliedProfile: activePhoto!.appliedProfile,
+      aiDecision: activePhoto!.aiDecision,
+      sceneTag: activePhoto!.sceneTag
     } : p);
   }
 
@@ -894,17 +938,29 @@
     sharpness = 0.0;
     resetCropState();
 
+    aiConfidence = 0.0;
+    aiSuggestedScene = '尚未分析';
+    aiSceneTitle = '';
+    aiStyleInsight = '';
+    aiRecommendedMood = '';
+    aiRecommendedProfile = 'Profile_00_StandardNatural';
+    aiVisionTags = [];
+
     if (activePhoto) {
       activePhoto.appliedProfile = 'Profile_00_StandardNatural';
       activePhoto.tuning = undefined;
       activePhoto.crop = undefined;
       activePhoto.gradedThumbnail = undefined;
+      activePhoto.aiDecision = undefined;
+      activePhoto.sceneTag = '本機相簿幀';
       photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { 
         ...p, 
         tuning: undefined, 
         crop: undefined,
         appliedProfile: 'Profile_00_StandardNatural',
-        gradedThumbnail: undefined 
+        gradedThumbnail: undefined,
+        aiDecision: undefined,
+        sceneTag: '本機相簿幀'
       } : p);
     }
     triggerWebglRender();
@@ -1207,6 +1263,19 @@
   }
 
   let terminalBodyElement = $state<HTMLDivElement | null>(null);
+  let copiedLogNotice = $state<boolean>(false);
+
+  async function copyTerminalLogs() {
+    if (aiTerminalLogs.length === 0) return;
+    const fullLog = aiTerminalLogs.join('\n');
+    try {
+      await navigator.clipboard.writeText(fullLog);
+      copiedLogNotice = true;
+      setTimeout(() => { copiedLogNotice = false; }, 2000);
+    } catch {
+      // pass
+    }
+  }
 
   async function appendAiLog(msg: string, delayMs = 50) {
     aiTerminalLogs = [...aiTerminalLogs.slice(-35), msg];
@@ -1282,6 +1351,9 @@
       }
 
       if (decision.isFallback) {
+        if (decision.fallbackReason) {
+          await appendAiLog(`> [CLOUD_NOTICE] 轉入在地推估原因：${decision.fallbackReason}`, 20);
+        }
         await appendAiLog(`> [LOCAL_FALLBACK] 在地光學推估：【${decision.scene_title || decision.scene_type}】(無雲端消耗)`, 20);
       } else {
         await appendAiLog(`> [CLOUD_DETECTED] 雲端視覺識別：【${decision.scene_title || decision.scene_type}】(信心度 ${(decision.confidence * 100).toFixed(0)}%)`, 20);
@@ -1295,7 +1367,11 @@
       if (decision.recommended_mood) {
         await appendAiLog(`> [MOOD_SUGGEST] 建議風格調性：${decision.recommended_mood}`, 20);
       }
-      await appendAiLog(`> [AUTOTUNE] 依據 AI 職責勾選開始套用參數...`, 20);
+      if (decision.isFallback) {
+        await appendAiLog(`> [AUTOTUNE] 依據在地推估光學參數開始套用...`, 20);
+      } else {
+        await appendAiLog(`> [AUTOTUNE] 依據 AI 職責勾選開始套用參數...`, 20);
+      }
 
       // 計算目標參數值
       const foundProfile = profiles.find(pr => pr.id === decision.recommended_profile);
@@ -1351,8 +1427,10 @@
         await appendAiLog(`> [AI_LEVEL] 地平線與垂直透視已校正 (${(targetCrop.rotation || 0).toFixed(1)}°)`, 15);
       }
 
-      // 靜態寫入目標底片資料實體
+      // 靜態寫入目標底片資料實體（保存專屬 AI 決策與場景標籤）
       photoToProcess.appliedProfile = targetProfile;
+      photoToProcess.aiDecision = decision;
+      photoToProcess.sceneTag = decision.scene_title || decision.scene_type;
       photoToProcess.tuning = {
         exposure: baseEv,
         contrast: baseContrast,
@@ -2130,6 +2208,15 @@
                 <span class="term-dot amber"></span>
                 <span class="term-dot green"></span>
                 <span class="term-title">DARKROOM://NEURAL_DEVELOP</span>
+                <button
+                  type="button"
+                  class="term-copy-btn font-mono"
+                  title="複製終端機所有日誌"
+                  onclick={copyTerminalLogs}
+                >
+                  <span class="material-symbols-outlined" style="font-size: 11px;">{copiedLogNotice ? 'check' : 'content_copy'}</span>
+                  <span>{copiedLogNotice ? '已複製' : '複製 Log'}</span>
+                </button>
               </div>
               <div class="terminal-body custom-scroll" bind:this={terminalBodyElement}>
                 {#each aiTerminalLogs as line}
@@ -3621,6 +3708,8 @@
     margin-bottom: 10px;
     box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8), 0 0 10px rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(226, 157, 82, 0.25);
+    user-select: text;
+    -webkit-user-select: text;
   }
   .terminal-bar {
     background-color: #12141a;
@@ -3643,6 +3732,25 @@
     color: var(--parchment-dim);
     margin-left: 4px;
   }
+  .term-copy-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid rgba(226, 157, 82, 0.2);
+    color: var(--parchment-dim);
+    font-size: 8px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    transition: all 0.15s ease;
+  }
+  .term-copy-btn:hover {
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+    background: rgba(226, 157, 82, 0.08);
+  }
   .terminal-body {
     padding: 8px 10px;
     max-height: 120px;
@@ -3650,12 +3758,16 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
+    user-select: text;
+    -webkit-user-select: text;
   }
   .term-line {
     font-size: 10px;
     line-height: 1.35;
     color: #98c379;
     word-break: break-all;
+    user-select: text;
+    -webkit-user-select: text;
   }
   .term-line.active {
     color: var(--amber-highlight);

@@ -22,6 +22,7 @@ export interface AiSceneDecision {
   lut_intensity: number;
   tags?: string[];
   isFallback: boolean;
+  fallbackReason?: string; // 記錄跌入本地兜底的真實原因 (透明化 Log 呈現)
   // 智慧構圖、裁切與透視校正
   crop_box?: [number, number, number, number]; // [ymin, xmin, ymax, xmax] 0.0 ~ 1.0
   rotation_deg?: number;                       // 水平傾斜校正角度 (-45 ~ +45)
@@ -51,6 +52,49 @@ export class AiSceneService {
   private static TIMEOUT_MS = 10000;
 
   /**
+   * Convert any image payload (Data URL, Blob URL, HTTP URL) into clean Base64 string and MIME type.
+   */
+  public static async toCleanBase64(imageSrc: string): Promise<{ base64: string; mimeType: string }> {
+    if (!imageSrc || imageSrc.trim() === '') {
+      throw new Error('影像資料為空');
+    }
+
+    // 1. 若已經是 data:image/xxx;base64,yyy
+    if (imageSrc.startsWith('data:')) {
+      const match = imageSrc.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+      if (match) {
+        return { mimeType: match[1], base64: match[2] };
+      }
+      const commaIdx = imageSrc.indexOf(',');
+      if (commaIdx !== -1) {
+        return { mimeType: 'image/jpeg', base64: imageSrc.slice(commaIdx + 1) };
+      }
+    }
+
+    // 2. 若為 blob: 或一般 URL，透過 fetch 轉為 Blob 並用 FileReader 讀成 base64
+    try {
+      const resp = await fetch(imageSrc);
+      const blob = await resp.blob();
+      const mimeType = blob.type || 'image/jpeg';
+
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const res = reader.result as string;
+          const comma = res.indexOf(',');
+          resolve(comma !== -1 ? res.slice(comma + 1) : res);
+        };
+        reader.onerror = () => reject(new Error('FileReader 讀取 Blob 失敗'));
+        reader.readAsDataURL(blob);
+      });
+
+      return { base64, mimeType };
+    } catch (err: any) {
+      throw new Error(`無法將縮圖 Blob/URL 轉換為 Base64：${err?.message || err}`);
+    }
+  }
+
+  /**
    * Run optical scene analysis with automatic 10000ms offline fallback.
    */
   public static async analyzeScene(
@@ -67,22 +111,24 @@ export class AiSceneService {
       const inferencePromise = this.callVisionModel(imagePayload512pxBase64, exif);
 
       return await Promise.race([inferencePromise, timeoutPromise]);
-    } catch (err) {
-      console.warn('AI Scene Service switching to optical heuristic fallback:', err);
-      return this.heuristicFallback(exif);
+    } catch (err: any) {
+      const errMsg = err?.message || '雲端服務連線異常';
+      console.warn('AI Scene Service switching to optical heuristic fallback:', errMsg);
+      return this.heuristicFallback(exif, errMsg);
     }
   }
 
   /**
    * Rule-based Optical Heuristics when offline or timeout occurs
    */
-  public static heuristicFallback(exif: ExifOpticalData): AiSceneDecision {
-    const focalMm = parseInt(exif.focalLength, 10) || 50;
-    const aperture = parseFloat(exif.apertureValue.replace('f/', '')) || 2.8;
+  public static heuristicFallback(exif: ExifOpticalData, reason?: string): AiSceneDecision {
+    const focalMm = parseInt(exif.focalLength, 10) || 0;
+    const aperture = parseFloat(exif.apertureValue.replace('f/', '')) || 0;
     const iso = exif.iso || 100;
+    const hasCompleteExif = focalMm > 0 && aperture > 0;
 
     // Rule 1: Portrait condition (large aperture + focal length >= 50mm)
-    if (aperture <= 2.0 && focalMm >= 50) {
+    if (hasCompleteExif && aperture <= 2.0 && focalMm >= 50) {
       return {
         scene_type: 'portrait',
         scene_title: '大光圈淺景深人像',
@@ -98,6 +144,7 @@ export class AiSceneService {
         lut_intensity: 0.85,
         tags: ['大光圈', '淺景深', '柔焦暖光', '人像特寫'],
         isFallback: true,
+        fallbackReason: reason,
         crop_box: [0.06, 0.10, 0.94, 0.90],
         rotation_deg: 0.0,
         keystone_v: 0.0,
@@ -123,6 +170,7 @@ export class AiSceneService {
         lut_intensity: 0.80,
         tags: ['微光夜景', '高感度', '暗夜影調', '低光街拍'],
         isFallback: true,
+        fallbackReason: reason,
         crop_box: [0.03, 0.04, 0.97, 0.96],
         rotation_deg: -0.5,
         keystone_v: 0.0,
@@ -132,7 +180,7 @@ export class AiSceneService {
     }
 
     // Rule 3: High contrast architecture (aperture >= f/5.6)
-    if (aperture >= 5.6) {
+    if (hasCompleteExif && aperture >= 5.6) {
       return {
         scene_type: 'urban_geometry',
         scene_title: '幾何建築線條',
@@ -148,6 +196,7 @@ export class AiSceneService {
         lut_intensity: 1.0,
         tags: ['幾何建築', '深景深', '高反差黑白', '結構線條'],
         isFallback: true,
+        fallbackReason: reason,
         crop_box: [0.04, 0.05, 0.96, 0.95],
         rotation_deg: 0.0,
         keystone_v: -1.0,
@@ -156,7 +205,33 @@ export class AiSceneService {
       };
     }
 
-    // Default Fallback: Cool teal emerald
+    // Rule 4: Daylight / Landscape / Street base when EXIF is incomplete or ISO is low
+    if (iso <= 400) {
+      return {
+        scene_type: 'outdoor_street',
+        scene_title: '日光寫實紀實',
+        style_insight: '低感光度自然光照環境，賦予通透層次與適度反差，推薦經典人文寫實底片調性。',
+        recommended_mood: '人文寫實紀實',
+        recommended_profile: 'Profile_05_DocumentaryChrome',
+        confidence: 0.80,
+        exposure_compensation: 0.1,
+        contrast: 0.04,
+        color_temp: 5600,
+        tint: 0.5,
+        lift_shadows: 0.08,
+        lut_intensity: 0.85,
+        tags: ['自然日光', '低感光度', '人文紀實', '層次分明'],
+        isFallback: true,
+        fallbackReason: reason,
+        crop_box: [0.02, 0.02, 0.98, 0.98],
+        rotation_deg: 0.0,
+        keystone_v: 0.0,
+        aspect_ratio: 'original',
+        crop_rationale: '開闊平衡光照，維持原尺寸構圖，微調四邊邊界。'
+      };
+    }
+
+    // Default Fallback: Cool teal emerald for medium ISO scenes
     return {
       scene_type: 'outdoor_street',
       scene_title: '開闊日常光景',
@@ -164,14 +239,15 @@ export class AiSceneService {
       recommended_mood: '青綠冷調紀實',
       recommended_profile: 'Profile_02_TealEmerald',
       confidence: 0.78,
-      exposure_compensation: 0.0,
-      contrast: 0.0,
+      exposure_compensation: 0.05,
+      contrast: 0.02,
       color_temp: 5400,
       tint: -1.5,
       lift_shadows: 0.1,
       lut_intensity: 0.9,
       tags: ['日常光景', '平衡光照', '電影質感', '青綠冷調'],
       isFallback: true,
+      fallbackReason: reason,
       crop_box: [0.02, 0.02, 0.98, 0.98],
       rotation_deg: 0.0,
       keystone_v: 0.0,
@@ -189,6 +265,8 @@ export class AiSceneService {
     exif: ExifOpticalData
   ): Promise<AiSceneDecision> {
     // 1. Determine active provider
+    // Note: Multimodal visual inference requires Gemini (or vision-capable endpoints).
+    // If user has Gemini Key configured, prioritize it for image grading over text-only Groq.
     let provider: 'gemini' | 'groq' = 'gemini';
     if (typeof localStorage !== 'undefined') {
       const storedProv = localStorage.getItem('slipknot_active_provider');
@@ -206,6 +284,20 @@ export class AiSceneService {
       // Protected or locked
     }
 
+    // If active provider is Groq (which is primarily text in current free tier), check if Gemini is available
+    if (provider === 'groq') {
+      try {
+        const geminiRes = await KeyVaultService.loadKey('gemini');
+        if (geminiRes.apiKey && geminiRes.apiKey.trim() !== '') {
+          // Transparently promote visual inference to Gemini
+          provider = 'gemini';
+          apiKey = geminiRes.apiKey;
+        }
+      } catch {
+        // pass
+      }
+    }
+
     if (!apiKey || apiKey.trim() === '') {
       // Try alternate provider
       const altProvider: 'gemini' | 'groq' = provider === 'gemini' ? 'groq' : 'gemini';
@@ -221,16 +313,21 @@ export class AiSceneService {
     }
 
     if (!apiKey || apiKey.trim() === '') {
-      // If no valid key provided, immediately fallback without faking online responses
-      return this.heuristicFallback(exif);
+      // If no valid key provided, immediately fallback with explicit reason
+      return this.heuristicFallback(exif, '未配置可用之 AI 金鑰 (請於右下角保險庫輸入)');
+    }
+
+    if (provider === 'groq') {
+      // Groq does not offer official vision in current free tiers
+      throw new Error('Groq 目前端點僅支援文字生成，影像多模態視覺顯影請於金鑰保險庫配置 Gemini 金鑰');
     }
 
     // If image payload is empty, fallback directly
     if (!imagePayload512pxBase64 || imagePayload512pxBase64.trim() === '') {
-      return this.heuristicFallback(exif);
+      return this.heuristicFallback(exif, '縮圖影像資料為空');
     }
 
-    const cleanBase64 = imagePayload512pxBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+    const { base64: cleanBase64, mimeType } = await this.toCleanBase64(imagePayload512pxBase64);
 
     // 3. Resolve dynamic model ID
     let modelId: string | null = null;
@@ -277,7 +374,7 @@ Respond ONLY with raw JSON matching this schema:
                 { text: promptText },
                 {
                   inlineData: {
-                    mimeType: 'image/jpeg',
+                    mimeType: mimeType || 'image/jpeg',
                     data: cleanBase64
                   }
                 }
@@ -291,13 +388,15 @@ Respond ONLY with raw JSON matching this schema:
       });
 
       if (!response.ok) {
-        throw new Error(`Gemini Vision API error status ${response.status}`);
+        const errJson = await response.json().catch(() => null);
+        const detail = errJson?.error?.message || `HTTP ${response.status}`;
+        throw new Error(`Gemini 端點回應異常 (${detail})`);
       }
 
       const jsonRes = await response.json();
       const rawContent = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!rawContent) {
-        throw new Error('Empty response from Gemini Vision model');
+        throw new Error('Gemini 多模態視覺模型未回傳分析文字');
       }
 
       const parsed = JSON.parse(rawContent);
@@ -354,7 +453,9 @@ Respond ONLY with raw JSON matching this schema:
       });
 
       if (!response.ok) {
-        throw new Error(`Groq Vision API error status ${response.status}`);
+        const errJson = await response.json().catch(() => null);
+        const detail = errJson?.error?.message || `HTTP ${response.status}`;
+        throw new Error(`Groq 端點回應異常 (${detail})`);
       }
 
       const jsonRes = await response.json();

@@ -17,6 +17,7 @@
     flagged?: boolean;
     appliedProfile: string;
     gradedThumbnail?: string;
+    aiDecision?: any;
   }
 
   interface Props {
@@ -408,6 +409,10 @@
               <div class="applied-profile-pill font-mono">
                 <span class="profile-dot" style:background={photo.appliedProfile ? 'var(--amber-highlight)' : 'var(--parchment-dim)'}></span>
                 <span class="truncate">{photo.appliedProfile}</span>
+                {#if photo.sceneTag && photo.sceneTag !== '本機相簿幀'}
+                  <span style="opacity: 0.6; margin: 0 2px;">·</span>
+                  <span class="truncate" style="color: var(--amber-highlight);">{photo.sceneTag}</span>
+                {/if}
               </div>
             </div>
 
