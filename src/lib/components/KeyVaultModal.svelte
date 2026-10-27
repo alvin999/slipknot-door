@@ -10,7 +10,44 @@
 
   let { isOpen = $bindable(false), onClose }: Props = $props();
 
+  export interface ProviderMeta {
+    id: 'gemini' | 'groq';
+    name: string;
+    tabLabel: string;
+    keyPlaceholder: string;
+    category: 'vision' | 'text';
+    categoryLabel: string;
+  }
+
+  export const PROVIDER_REGISTRY: ProviderMeta[] = [
+    {
+      id: 'gemini',
+      name: 'Google Gemini',
+      tabLabel: 'Google Gemini (多模態視覺)',
+      keyPlaceholder: 'AIza...',
+      category: 'vision',
+      categoryLabel: '自動適配視覺模型 (DYNAMIC VISION DISCOVERY)'
+    },
+    {
+      id: 'groq',
+      name: 'Groq',
+      tabLabel: 'Groq (極速社群文案與標籤)',
+      keyPlaceholder: 'gsk_...',
+      category: 'text',
+      categoryLabel: '自動適配文字模型 (DYNAMIC TEXT MODELS)'
+    }
+  ];
+
+  function getProviderMeta(id: 'gemini' | 'groq' | null | undefined): ProviderMeta {
+    return PROVIDER_REGISTRY.find(p => p.id === id) || PROVIDER_REGISTRY[0];
+  }
+
+  function getProviderName(id: 'gemini' | 'groq' | null | undefined): string {
+    return getProviderMeta(id).name;
+  }
+
   let selectedProvider = $state<'gemini' | 'groq'>('gemini');
+  let currentProviderMeta = $derived(getProviderMeta(selectedProvider));
   let currentMode = $state<KeyEncryptionMode>('transparent');
   let apiKeyInput = $state<string>('');
   let masterPassword = $state<string>('');
@@ -22,6 +59,9 @@
   let selectedModelId = $state<string | null>(null);
   let isDiscoveringModels = $state<boolean>(false);
   let discoveryTimer: any = null;
+  let showUnsavedPrompt = $state<boolean>(false);
+  let unsavedActionType = $state<'close' | 'switch'>('close');
+  let pendingProviderTarget = $state<'gemini' | 'groq' | null>(null);
 
   // Stored key status
   let vaultStatus = $state<{ exists: boolean; mode: KeyEncryptionMode | null; updatedAt: string | null }>({
@@ -49,15 +89,30 @@
   }
 
   /**
-   * Switch provider tab cleanly without erasing user input accidentally
+   * Intercept provider tab switching if there is an unsaved API Key
+   */
+  async function handleTabClick(prov: 'gemini' | 'groq') {
+    if (selectedProvider === prov) return;
+    if (apiKeyInput.trim().length > 0) {
+      pendingProviderTarget = prov;
+      unsavedActionType = 'switch';
+      showUnsavedPrompt = true;
+      return;
+    }
+    await switchProvider(prov);
+  }
+
+  /**
+   * Switch provider tab cleanly
    */
   async function switchProvider(prov: 'gemini' | 'groq') {
-    if (selectedProvider === prov) return;
     selectedProvider = prov;
     apiKeyInput = '';
     masterPassword = '';
     discoveredModels = [];
     statusMessage = null;
+    showUnsavedPrompt = false;
+    pendingProviderTarget = null;
     refreshStatus();
     loadStoredModelSelection();
     await autoLoadModelsForSavedKey();
@@ -109,8 +164,9 @@
    */
   async function executeDiscovery(prov: 'gemini' | 'groq', key: string, isManualTest: boolean) {
     isDiscoveringModels = true;
+    const meta = getProviderMeta(prov);
     if (isManualTest) {
-      statusMessage = { text: `正在連線 ${prov.toUpperCase()} 端點驗證金鑰與探測多模態視覺模型...`, type: 'info' };
+      statusMessage = { text: `正在連線 ${meta.name} 端點驗證金鑰與探測可用模型...`, type: 'info' };
     }
 
     try {
@@ -129,14 +185,14 @@
           }
           if (isManualTest) {
             statusMessage = {
-              text: `連線成功！已動態載入 ${res.models.length} 個視覺模型（建議首選：${res.recommendedModelId}）`,
+              text: `連線成功！已動態載入 ${res.models.length} 個可用模型（建議首選：${res.recommendedModelId}）`,
               type: 'success'
             };
           }
         } else {
           if (isManualTest) {
             statusMessage = {
-              text: `連線成功，但該金鑰未匹配到多模態視覺模型（如 ${prov === 'groq' ? 'llama-3.2-vision' : 'gemini-flash'}）`,
+              text: `連線成功，但該金鑰未匹配到可用的 ${meta.category === 'vision' ? '多模態視覺' : '文字'} 模型`,
               type: 'error'
             };
           }
@@ -247,6 +303,43 @@
       case 'password': return '密碼加密（主密碼 PBKDF2）';
     }
   }
+
+  function requestClose() {
+    if (apiKeyInput.trim().length > 0) {
+      unsavedActionType = 'close';
+      showUnsavedPrompt = true;
+      return;
+    }
+    forceClose();
+  }
+
+  function forceClose() {
+    showUnsavedPrompt = false;
+    apiKeyInput = '';
+    masterPassword = '';
+    pendingProviderTarget = null;
+    isOpen = false;
+    onClose?.();
+  }
+
+  async function handleDiscardAndProceed() {
+    if (unsavedActionType === 'switch' && pendingProviderTarget) {
+      await switchProvider(pendingProviderTarget);
+    } else {
+      forceClose();
+    }
+  }
+
+  async function handleSaveAndProceed() {
+    await handleSave();
+    if (statusMessage?.type === 'success') {
+      if (unsavedActionType === 'switch' && pendingProviderTarget) {
+        await switchProvider(pendingProviderTarget);
+      } else {
+        forceClose();
+      }
+    }
+  }
 </script>
 
 {#if isOpen}
@@ -264,7 +357,8 @@
         <button 
           type="button" 
           class="close-btn" 
-          onclick={() => { isOpen = false; onClose?.(); }}
+          onclick={requestClose}
+          title="關閉保險庫"
         >
           <span class="material-symbols-outlined">close</span>
         </button>
@@ -272,24 +366,18 @@
 
       <!-- Modal Body -->
       <div class="modal-body">
-        <!-- Model Provider Tabs -->
+        <!-- Model Provider Tabs (Data-driven / Extensible) -->
         <div class="provider-switch hairline-all">
-          <button 
-            type="button" 
-            class="prov-btn font-mono" 
-            class:active={selectedProvider === 'gemini'}
-            onclick={() => switchProvider('gemini')}
-          >
-            Google Gemini Flash Vision
-          </button>
-          <button 
-            type="button" 
-            class="prov-btn font-mono" 
-            class:active={selectedProvider === 'groq'}
-            onclick={() => switchProvider('groq')}
-          >
-            Groq Llama-Vision
-          </button>
+          {#each PROVIDER_REGISTRY as prov}
+            <button 
+              type="button" 
+              class="prov-btn font-mono" 
+              class:active={selectedProvider === prov.id}
+              onclick={() => handleTabClick(prov.id)}
+            >
+              {prov.tabLabel}
+            </button>
+          {/each}
         </div>
 
         <!-- Current Key Status Readout -->
@@ -361,7 +449,7 @@
             <span class="material-symbols-outlined input-icon">vpn_key</span>
             <input 
               type={showKey ? 'text' : 'password'} 
-              placeholder={`請輸入 ${selectedProvider === 'gemini' ? 'AIza...' : 'gsk_...'} API Key`}
+              placeholder={`請輸入 ${currentProviderMeta.name} (${currentProviderMeta.keyPlaceholder}) API Key`}
               value={apiKeyInput}
               oninput={(e) => handleKeyInputChange((e.target as HTMLInputElement).value)}
               class="vault-input font-mono"
@@ -369,10 +457,10 @@
           </div>
         </div>
 
-        <!-- Dynamic Vision Model Discovery (Non-hardcoded) -->
+        <!-- Dynamic Model Discovery -->
         <div class="section-block">
           <div class="section-label font-mono">
-            <span>自動適配視覺模型 (DYNAMIC VISION DISCOVERY)</span>
+            <span>{currentProviderMeta.categoryLabel}</span>
             <div class="model-action-right">
               {#if isDiscoveringModels}
                 <span class="detecting-label">
@@ -427,7 +515,7 @@
           {:else}
             <div class="model-hint-box hairline-all font-mono">
               <span class="material-symbols-outlined" style="font-size: 14px; color: var(--parchment-dim);">troubleshoot</span>
-              <span>輸入 API Key 後將自動經由端點動態探測可用的多模態視覺模型（非寫死名稱）。</span>
+              <span>輸入 API Key 後將自動經由端點動態探測可用模型清單。</span>
             </div>
           {/if}
         </div>
@@ -482,7 +570,7 @@
           {isDiscoveringModels ? '連線中...' : '測試連線'}
         </button>
         <div class="spacer"></div>
-        <button type="button" class="archival-btn-secondary" onclick={() => { isOpen = false; onClose?.(); }}>
+        <button type="button" class="archival-btn-secondary" onclick={requestClose}>
           關閉
         </button>
         <button type="button" class="archival-btn-primary" onclick={handleSave}>
@@ -490,6 +578,51 @@
           儲存設定
         </button>
       </div>
+
+      <!-- Unsaved Changes Prompt Dialog -->
+      {#if showUnsavedPrompt}
+        <div class="unsaved-modal-overlay">
+          <div class="unsaved-modal-box hairline-all">
+            <div class="unsaved-header font-mono">
+              <span class="material-symbols-outlined unsaved-warn-icon">warning</span>
+              <span>
+                {unsavedActionType === 'switch' ? '切換標籤前有未儲存的金鑰' : '未儲存的金鑰變更'}
+              </span>
+            </div>
+            <p class="unsaved-text font-body">
+              {#if unsavedActionType === 'switch'}
+                您目前在 <strong>{getProviderName(selectedProvider)}</strong> 標籤已輸入 API Key 但尚未儲存。若直接切換至 <strong>{getProviderName(pendingProviderTarget)}</strong>，剛才輸入的金鑰將會遺失。
+              {:else}
+                您已在輸入框鍵入 API Key，尚未點擊「儲存設定」。若直接關閉畫面，剛才輸入的內容將會遺失。
+              {/if}
+            </p>
+            <div class="unsaved-actions">
+              <button 
+                type="button" 
+                class="archival-btn-secondary" 
+                onclick={() => { showUnsavedPrompt = false; pendingProviderTarget = null; }}
+              >
+                繼續編輯
+              </button>
+              <button 
+                type="button" 
+                class="archival-btn-secondary danger" 
+                onclick={handleDiscardAndProceed}
+              >
+                {unsavedActionType === 'switch' ? '放棄並切換' : '放棄離開'}
+              </button>
+              <button 
+                type="button" 
+                class="archival-btn-primary" 
+                onclick={handleSaveAndProceed}
+              >
+                <span class="material-symbols-outlined" style="font-size: 14px;">save</span>
+                {unsavedActionType === 'switch' ? '儲存並切換' : '儲存並關閉'}
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -510,6 +643,7 @@
   }
 
   .modal-card {
+    position: relative;
     width: 580px;
     max-width: 90vw;
     background-color: var(--surface-panel);
@@ -860,5 +994,54 @@
   }
   .spacer {
     flex: 1;
+  }
+
+  /* Unsaved confirmation dialog */
+  .unsaved-modal-overlay {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(5, 6, 8, 0.85);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 50;
+  }
+  .unsaved-modal-box {
+    width: 420px;
+    max-width: 100%;
+    background-color: var(--surface-panel);
+    border-radius: var(--radius-md);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.9);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    border: 1px solid var(--border-hairline);
+  }
+  .unsaved-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--amber-highlight);
+  }
+  .unsaved-warn-icon {
+    font-size: 20px;
+  }
+  .unsaved-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--parchment-dim);
+    margin: 0;
+  }
+  .unsaved-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
   }
 </style>

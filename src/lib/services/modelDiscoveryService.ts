@@ -144,7 +144,7 @@ export class ModelDiscoveryService {
         }
       }
 
-      // Rule 3: Dynamic Vision Capability Detection
+      // Rule 3: Dynamic Vision / Text Capability Detection
       const hasVisionSignal = VISION_SIGNAL_REGEX.test(combinedMeta);
       
       // For Gemini, standard generation models support multimodal inputs unless explicitly legacy
@@ -152,27 +152,53 @@ export class ModelDiscoveryService {
         ? (hasVisionSignal || combinedMeta.includes('gemini'))
         : hasVisionSignal;
 
-      if (!isVisionCapable) {
+      // Gemini requires multimodal vision capabilities for photo inspection.
+      // Groq is utilized for lightning-fast text processing (copywriting & IPTC keywords), so pure text models are supported.
+      if (provider === 'gemini' && !isVisionCapable) {
         continue;
       }
 
-      // Rule 4: Real-time Darkroom Suitability Scoring (Lower Latency = Higher Score)
+      // Rule 4: Suitability Scoring & Precise Tags ('latest' recommended)
       let score = 50;
       let recommendationTag = '';
 
-      // High-speed / Low-latency tier (Flash, Lite, Mini, 8B, 11B)
-      if (/(flash|instant|lite|mini|turbo)/i.test(combinedMeta)) {
-        score += 40;
-        recommendationTag = '極速低延遲 · 首選推薦';
-      } else if (/(8b|11b|small)/i.test(combinedMeta)) {
-        score += 25;
-        recommendationTag = '輕量多模態';
+      // Check if model explicitly contains 'latest'
+      const isLatest = /latest/i.test(cleanId) || /latest/i.test(displayName);
+
+      if (provider === 'gemini') {
+        if (/lite/i.test(combinedMeta)) {
+          score += 35;
+          recommendationTag = isLatest ? '⭐ 首選推薦 (latest · 輕量多模態)' : '⚡ 極低延遲 · 輕量多模態';
+        } else if (/flash/i.test(combinedMeta)) {
+          score += 40;
+          recommendationTag = isLatest ? '⭐ 首選推薦 (latest · 極速多模態)' : '⚡ 極速多模態';
+        } else if (/pro/i.test(combinedMeta)) {
+          score += 15;
+          recommendationTag = isLatest ? '🎯 官方最新 (latest · 高精細解析)' : '🎯 高精細解析';
+        } else if (/thinking/i.test(combinedMeta)) {
+          score += 10;
+          recommendationTag = '🧠 深度思考推理';
+        } else if (/exp|experimental|preview/i.test(combinedMeta)) {
+          score += 20;
+          recommendationTag = '🧪 實驗預覽版';
+        }
+      } else {
+        // Groq text models for copywriting & IPTC metadata
+        if (/70b|versatile/i.test(combinedMeta)) {
+          score += 40;
+          recommendationTag = isLatest ? '⭐ 首選推薦 (latest · 文案策展)' : '📝 高品質文案策展 (70B)';
+        } else if (/8b|instant/i.test(combinedMeta)) {
+          score += 35;
+          recommendationTag = isLatest ? '⭐ 首選推薦 (latest · 極速文字)' : '⚡ 極速文字生成 (8B)';
+        } else if (/mixtral|qwen|gemma/i.test(combinedMeta)) {
+          score += 25;
+          recommendationTag = '通用文字處理';
+        }
       }
 
-      // High-parameter / Heavy models (Pro, 70B, Ultra) - functional but slower for real-time slider updates
-      if (/(pro|ultra|70b|thinking)/i.test(combinedMeta)) {
-        score -= 20;
-        if (!recommendationTag) recommendationTag = '高精度 · 延遲較長';
+      // Boost score if explicitly tagged as latest
+      if (isLatest) {
+        score += 50;
       }
 
       results.push({
@@ -180,7 +206,7 @@ export class ModelDiscoveryService {
         displayName,
         provider,
         description,
-        isVisionCapable: true,
+        isVisionCapable,
         score,
         recommendationTag
       });
