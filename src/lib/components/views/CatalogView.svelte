@@ -57,10 +57,26 @@
     photos.filter(p => p.flagged).length
   );
 
-  // Columns calculation for HJKL grid navigation
+  // Columns calculation for HJKL grid navigation (fallback)
   let columns = $derived(
     gridDensity === 'small' ? 6 : gridDensity === 'medium' ? 4 : 3
   );
+
+  let gridElement: HTMLElement | null = $state(null);
+
+  // 動態依據 DOM 實際排版偵測當前視窗寬度下的每列欄數
+  function getCurrentColumns(): number {
+    if (!gridElement) return columns;
+    const cards = gridElement.querySelectorAll<HTMLElement>('.film-card');
+    if (cards.length <= 1) return 1;
+    const firstTop = cards[0].offsetTop;
+    for (let i = 1; i < cards.length; i++) {
+      if (cards[i].offsetTop > firstTop + 5) {
+        return i; // 超過第一行 offsetTop 的位置即為換行點，得到每列欄數
+      }
+    }
+    return cards.length;
+  }
 
   function toggleFlag(photo: CatalogPhotoItem, event?: MouseEvent | KeyboardEvent) {
     if (event) {
@@ -197,7 +213,8 @@
     else if (e.key === 'k' || e.key === 'ArrowUp') {
       e.preventDefault();
       const current = currentIndex >= 0 ? currentIndex : 0;
-      const nextIndex = Math.max(0, current - columns);
+      const step = getCurrentColumns();
+      const nextIndex = Math.max(0, current - step);
       const targetPhoto = displayedPhotos[nextIndex];
       onSelectPhoto(targetPhoto);
       scrollToPhoto(targetPhoto.id);
@@ -206,7 +223,8 @@
     else if (e.key === 'j' || e.key === 'ArrowDown') {
       e.preventDefault();
       const current = currentIndex >= 0 ? currentIndex : 0;
-      const nextIndex = Math.min(displayedPhotos.length - 1, current + columns);
+      const step = getCurrentColumns();
+      const nextIndex = Math.min(displayedPhotos.length - 1, current + step);
       const targetPhoto = displayedPhotos[nextIndex];
       onSelectPhoto(targetPhoto);
       scrollToPhoto(targetPhoto.id);
@@ -344,7 +362,7 @@
   <!-- MAIN GRID BODY -->
   <div class="catalog-grid-container custom-scroll">
     {#if displayedPhotos.length > 0}
-      <div class="film-grid {gridDensity}">
+      <div bind:this={gridElement} class="film-grid {gridDensity}">
         {#each displayedPhotos as photo (photo.id + '_' + (photo.gradedThumbnail ? 'graded' : 'raw'))}
           <div 
             id={`film-card-${photo.id}`}
