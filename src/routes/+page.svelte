@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { IngestionService, type CameraMountInfo } from '$lib/services/ingestionService';
   import { KeyVaultService } from '$lib/services/keyVaultService';
   import { AiSceneService, type AiSceneDecision } from '$lib/services/aiSceneService';
@@ -518,9 +518,24 @@
   }
 
   function selectPhoto(plate: PhotoPlate) {
-    // 記憶前一張相片的自訂調色與裁切狀態
+    // 記憶前一張相片的自訂調色與裁切狀態（僅在有實質調整且與原儲存不同時寫入）
     if (activePhoto && activePhoto.id !== plate.id) {
-      activePhoto.tuning = {
+      const currentPlate = photoPlates.find(p => p.id === activePhoto!.id);
+      
+      const asShotTemp = activePhoto.asShotTemp ?? 5500;
+      const asShotExp = activePhoto.asShotExposure ?? 0.0;
+      const asShotTint = activePhoto.asShotTint ?? 0.0;
+
+      const isDefault = 
+        Math.abs(exposure - asShotExp) < 0.001 &&
+        Math.abs(contrast - 0.0) < 0.001 &&
+        Math.abs(colorTemp - asShotTemp) < 1 &&
+        Math.abs(tint - asShotTint) < 0.001 &&
+        Math.abs(lutIntensity - 1.0) < 0.001 &&
+        Math.abs(clarity - 0.0) < 0.001 &&
+        Math.abs(sharpness - 0.0) < 0.001;
+
+      const targetTuning = isDefault ? undefined : {
         exposure,
         contrast,
         lutIntensity,
@@ -529,7 +544,19 @@
         clarity,
         sharpness
       };
-      activePhoto.crop = {
+
+      const isDefaultCrop = 
+        cropX === 0.0 && 
+        cropY === 0.0 && 
+        cropWidth === 1.0 && 
+        cropHeight === 1.0 && 
+        cropRotation === 0.0 &&
+        keystoneV === 0 &&
+        keystoneH === 0 &&
+        !flipH &&
+        !flipV;
+
+      const targetCrop = isDefaultCrop ? undefined : {
         x: cropX,
         y: cropY,
         width: cropWidth,
@@ -539,9 +566,23 @@
         keystoneH,
         aspectRatio: cropAspectRatio,
         flipH,
-        flipV
+        flipV,
+        rationale: aiCropRationale
       };
-      photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { ...p, tuning: activePhoto!.tuning, crop: activePhoto!.crop } : p);
+
+      const tuningChanged = JSON.stringify(currentPlate?.tuning) !== JSON.stringify(targetTuning);
+      const cropChanged = JSON.stringify(currentPlate?.crop) !== JSON.stringify(targetCrop);
+
+      if (tuningChanged) {
+        activePhoto.tuning = targetTuning;
+      }
+      if (cropChanged) {
+        activePhoto.crop = targetCrop;
+      }
+
+      if (tuningChanged || cropChanged) {
+        photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { ...p, tuning: activePhoto!.tuning, crop: activePhoto!.crop } : p);
+      }
     }
 
     activePhoto = plate;
@@ -793,10 +834,12 @@
     const plate = thumbnailRenderQueue.shift();
     if (plate && plate.thumbnail) {
       if (plate.appliedProfile === 'Profile_00_StandardNatural') {
-        plate.gradedThumbnail = undefined;
-        photoPlates = photoPlates.map(p => p.id === plate.id ? { ...p, gradedThumbnail: undefined } : p);
-        if (activePhoto && activePhoto.id === plate.id) {
-          activePhoto = { ...activePhoto, gradedThumbnail: undefined };
+        if (plate.gradedThumbnail !== undefined) {
+          plate.gradedThumbnail = undefined;
+          photoPlates = photoPlates.map(p => p.id === plate.id ? { ...p, gradedThumbnail: undefined } : p);
+        }
+        if (activePhoto && activePhoto.id === plate.id && activePhoto.gradedThumbnail !== undefined) {
+          activePhoto.gradedThumbnail = undefined;
         }
       } else {
         try {
@@ -834,7 +877,7 @@
           if (dataUrl && plate.gradedThumbnail !== dataUrl) {
             plate.gradedThumbnail = dataUrl;
             photoPlates = photoPlates.map(p => p.id === plate.id ? { ...p, gradedThumbnail: dataUrl } : p);
-            if (activePhoto && activePhoto.id === plate.id) {
+            if (activePhoto && activePhoto.id === plate.id && activePhoto.gradedThumbnail !== dataUrl) {
               activePhoto.gradedThumbnail = dataUrl;
             }
           }
@@ -872,14 +915,18 @@
   function syncActivePhotoTuning() {
     if (!activePhoto) return;
 
+    const asShotTemp = activePhoto.asShotTemp ?? 5500;
+    const asShotExp = activePhoto.asShotExposure ?? 0.0;
+    const asShotTint = activePhoto.asShotTint ?? 0.0;
+
     const isDefaultTuning = 
-      exposure === 0.0 &&
-      contrast === 0.0 &&
-      colorTemp === 5500 &&
-      tint === 0.0 &&
-      lutIntensity === 1.0 &&
-      clarity === 0.0 &&
-      sharpness === 0.0;
+      Math.abs(exposure - asShotExp) < 0.001 &&
+      Math.abs(contrast - 0.0) < 0.001 &&
+      Math.abs(colorTemp - asShotTemp) < 1 &&
+      Math.abs(tint - asShotTint) < 0.001 &&
+      Math.abs(lutIntensity - 1.0) < 0.001 &&
+      Math.abs(clarity - 0.0) < 0.001 &&
+      Math.abs(sharpness - 0.0) < 0.001;
 
     const targetTuning = isDefaultTuning ? undefined : {
       exposure,
@@ -894,29 +941,31 @@
     const currentPlate = photoPlates.find(p => p.id === activePhoto!.id);
     const tuningMatches = 
       (!currentPlate?.tuning && !targetTuning) ||
-      (currentPlate?.tuning && targetTuning &&
-        currentPlate.tuning.exposure === targetTuning.exposure &&
-        currentPlate.tuning.contrast === targetTuning.contrast &&
-        currentPlate.tuning.lutIntensity === targetTuning.lutIntensity &&
-        currentPlate.tuning.colorTemp === targetTuning.colorTemp &&
-        currentPlate.tuning.tint === targetTuning.tint &&
-        (currentPlate.tuning.clarity ?? 0) === (targetTuning.clarity ?? 0) &&
-        (currentPlate.tuning.sharpness ?? 0) === (targetTuning.sharpness ?? 0)
+      (!!currentPlate?.tuning && !!targetTuning &&
+        Math.abs(currentPlate.tuning.exposure - targetTuning.exposure) < 0.001 &&
+        Math.abs(currentPlate.tuning.contrast - targetTuning.contrast) < 0.001 &&
+        Math.abs(currentPlate.tuning.lutIntensity - targetTuning.lutIntensity) < 0.001 &&
+        Math.abs(currentPlate.tuning.colorTemp - targetTuning.colorTemp) < 1 &&
+        Math.abs(currentPlate.tuning.tint - targetTuning.tint) < 0.001 &&
+        Math.abs((currentPlate.tuning.clarity ?? 0) - (targetTuning.clarity ?? 0)) < 0.001 &&
+        Math.abs((currentPlate.tuning.sharpness ?? 0) - (targetTuning.sharpness ?? 0)) < 0.001
       );
 
     const profileMatches = currentPlate?.appliedProfile === activePhoto.appliedProfile;
     const cropMatches = JSON.stringify(currentPlate?.crop) === JSON.stringify(activePhoto.crop);
+    const aiDecisionMatches = JSON.stringify(currentPlate?.aiDecision) === JSON.stringify(activePhoto.aiDecision);
+    const sceneTagMatches = currentPlate?.sceneTag === activePhoto.sceneTag;
 
-    activePhoto.tuning = targetTuning;
-
-    // 若底片屬性完全一致，短路返回，絕不重複指派 photoPlates 觸發連鎖效應
-    if (tuningMatches && profileMatches && cropMatches) {
+    // 若底片屬性完全一致，短路返回，絕不重複指派 activePhoto 與 photoPlates 觸發連鎖效應
+    if (tuningMatches && profileMatches && cropMatches && aiDecisionMatches && sceneTagMatches) {
       return;
     }
 
+    activePhoto.tuning = targetTuning;
+
     photoPlates = photoPlates.map(p => p.id === activePhoto!.id ? { 
       ...p, 
-      tuning: activePhoto!.tuning, 
+      tuning: targetTuning, 
       crop: activePhoto!.crop,
       appliedProfile: activePhoto!.appliedProfile,
       aiDecision: activePhoto!.aiDecision,
@@ -1072,7 +1121,9 @@
     if (isWebglActive && sourceImgElement && (sourceImgElement.complete || sourceImgElement.naturalWidth > 0)) {
       ensureImageTexture();
       triggerWebglRender();
-      syncActivePhotoTuning();
+      untrack(() => {
+        syncActivePhotoTuning();
+      });
     }
   });
 
@@ -2735,7 +2786,7 @@
           </div>
           <div class="strip-frames-scroll">
             {#if activeQueue.length > 0}
-              {#each activeQueue as plate}
+              {#each activeQueue as plate (plate.id)}
                 <button 
                   type="button"
                   class="film-frame-card" 
