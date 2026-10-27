@@ -1864,7 +1864,7 @@
   <!-- TOP HEADER / TELEMETRY STATUS BAR -->
   <header class="top-nav hairline-b">
     <div class="brand-block">
-      <span class="material-symbols-outlined brand-icon">lens_blur</span>
+      <img src="/favicon.png" alt="大相無形 Logo" class="brand-icon-img" />
       <div class="brand-titles">
         <h1 class="brand-title font-headline">大相無形</h1>
         <span class="brand-sub font-mono">SLIPKNOTTING ON HEAVEN'S DOOR · 0.1.0</span>
@@ -3259,6 +3259,14 @@
   .brand-icon {
     color: var(--amber-highlight);
     font-size: 24px;
+  }
+  .brand-icon-img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+    user-select: none;
+    -webkit-user-drag: none;
   }
   .brand-titles {
     display: flex;

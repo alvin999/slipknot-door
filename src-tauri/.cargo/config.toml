@@ -1,0 +1,4 @@
+[http]
+# 因應 Windows 在某些防火牆或特定網路環境下的特殊需求，關閉 SSL 憑證撤銷檢查（避免 CRYPT_E_NO_REVOCATION_CHECK 0x80092012 錯誤）
+check-revoke = false
+
