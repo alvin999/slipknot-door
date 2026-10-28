@@ -21,14 +21,37 @@ export interface DiscoveryResult {
 
 export class ModelDiscoveryService {
   /**
-   * Fetch and dynamically evaluate models using API Key
+   * 取得本地持久化快取之動態端點模型（零 hardcode，重啟仍可即時載入）
+   */
+  public static getCachedModels(provider: 'gemini' | 'groq'): DiscoveredModel[] {
+    if (typeof localStorage === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(`slipknot_cached_models_${provider}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * 快取端點探測之動態模型清單
+   */
+  public static setCachedModels(provider: 'gemini' | 'groq', models: DiscoveredModel[]): void {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(`slipknot_cached_models_${provider}`, JSON.stringify(models));
+    } catch {}
+  }
+
+  /**
+   * Fetch and dynamically evaluate models using API Key (100% dynamic, zero hardcode)
    */
   public static async discoverModels(
     provider: 'gemini' | 'groq',
     apiKey: string
   ): Promise<DiscoveryResult> {
     if (!apiKey || apiKey.trim().length < 8) {
-      return { models: [], recommendedModelId: null };
+      return { models: this.getCachedModels(provider), recommendedModelId: null };
     }
 
     try {
@@ -36,7 +59,7 @@ export class ModelDiscoveryService {
         ? await this.fetchGeminiModels(apiKey.trim())
         : await this.fetchGroqModels(apiKey.trim());
 
-      // Filter and evaluate models without hardcoding names
+      // Filter and evaluate models dynamically without hardcoding names
       const evaluatedModels = this.evaluateAndFilterModels(provider, rawList);
 
       // Sort descending by calculated darkroom suitability score
@@ -48,14 +71,22 @@ export class ModelDiscoveryService {
         return {
           models: [],
           recommendedModelId: null,
-          error: `連線成功但未發現相容的視覺多模態模型（端點回傳 ${rawList.length} 個模型皆為純文字或非視覺模型）`
+          error: `連線成功但未發現相容的模型（端點回傳 ${rawList.length} 個模型）`
         };
       }
+
+      // 快取至本機，使往後完全由端點動態驅動，免除任何 hardcode
+      this.setCachedModels(provider, evaluatedModels);
 
       return { models: evaluatedModels, recommendedModelId };
     } catch (err: any) {
       console.warn(`Dynamic model discovery failed for ${provider}:`, err);
-      return { models: [], recommendedModelId: null, error: err?.message || '連線逾時或端點無回應' };
+      const cached = this.getCachedModels(provider);
+      return {
+        models: cached,
+        recommendedModelId: cached.length > 0 ? cached[0].id : null,
+        error: err?.message || '連線逾時或端點無回應'
+      };
     }
   }
 

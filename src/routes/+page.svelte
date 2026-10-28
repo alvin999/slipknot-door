@@ -471,6 +471,7 @@
   let cancelBatchRequested = $state<boolean>(false);
   let batchProgress = $state<{ current: number; total: number; countdown: number } | null>(null);
   let aiConfidence = $state<number>(0.0);
+  let aiDecisionIsFallback = $state<boolean | null>(null);
   let aiSuggestedScene = $state<string>('等待判讀');
   let aiSceneTitle = $state<string>('');
   let aiStyleInsight = $state<string>('');
@@ -626,6 +627,7 @@
     // 載入當前選中相片的專屬 AI 決策與場景 Label (若尚未分析則顯示初始狀態)
     if (plate.aiDecision) {
       aiConfidence = plate.aiDecision.confidence;
+      aiDecisionIsFallback = plate.aiDecision.isFallback;
       aiSuggestedScene = plate.aiDecision.isFallback
         ? `${plate.aiDecision.scene_type} (在地光學推估)`
         : `${plate.aiDecision.scene_type} (視覺即時判讀)`;
@@ -636,6 +638,7 @@
       aiVisionTags = plate.aiDecision.tags || [];
     } else {
       aiConfidence = 0.0;
+      aiDecisionIsFallback = null;
       aiSuggestedScene = '尚未分析';
       aiSceneTitle = plate.sceneTag && plate.sceneTag !== '本機相簿幀' ? plate.sceneTag : '';
       aiStyleInsight = '';
@@ -1367,7 +1370,8 @@
     await appendAiLog(`> [OPTICAL_SCAN] 掃描 ${photoToProcess.filename} 影格光學數據...`, 20);
     await appendAiLog(`> [EXIF] ISO ${photoToProcess.iso} · ${photoToProcess.aperture} · ${photoToProcess.shutter} · ${photoToProcess.focalLength}`, 20);
     if (hasKey) {
-      await appendAiLog(`> [STREAM] 傳輸 512px 縮圖至視覺多模態雲端引擎...`, 40);
+      const activeModelInfo = AiSceneService.getActiveModelInfo();
+      await appendAiLog(`> [STREAM] 傳輸 512px 縮圖至 ${activeModelInfo.provider === 'gemini' ? 'Google Gemini' : 'Groq Vision'} (${activeModelInfo.modelId})...`, 40);
     } else {
       await appendAiLog(`> [LOCAL_EVAL] 在地光學特徵評估中 (免連線降級)...`, 20);
     }
@@ -1388,6 +1392,7 @@
       // 若為焦點相片或單幀模式，同步頂部與面板 AI 決策狀態
       if (isCurrentActive || !isBatchAiRunning) {
         aiConfidence = decision.confidence;
+        aiDecisionIsFallback = decision.isFallback;
         aiSuggestedScene = decision.isFallback ? `${decision.scene_type} (在地光學推估)` : `${decision.scene_type} (視覺即時判讀)`;
         aiSceneTitle = decision.scene_title || decision.scene_type;
         aiStyleInsight = decision.style_insight || '';
@@ -1401,13 +1406,15 @@
         }
       }
 
+      const durationText = decision.inferenceDurationMs ? `${(decision.inferenceDurationMs / 1000).toFixed(1)}s` : null;
       if (decision.isFallback) {
         if (decision.fallbackReason) {
-          await appendAiLog(`> [CLOUD_NOTICE] 轉入在地推估原因：${decision.fallbackReason}`, 20);
+          await appendAiLog(`> [CLOUD_NOTICE] 轉入在地推估原因：${decision.fallbackReason}${durationText ? ` (耗時 ${durationText})` : ''}`, 20);
         }
         await appendAiLog(`> [LOCAL_FALLBACK] 在地光學推估：【${decision.scene_title || decision.scene_type}】(無雲端消耗)`, 20);
       } else {
-        await appendAiLog(`> [CLOUD_DETECTED] 雲端視覺識別：【${decision.scene_title || decision.scene_type}】(信心度 ${(decision.confidence * 100).toFixed(0)}%)`, 20);
+        const modelTag = decision.modelUsed ? ` [${decision.modelUsed}]` : '';
+        await appendAiLog(`> [CLOUD_DETECTED] 雲端視覺識別完成${modelTag}：【${decision.scene_title || decision.scene_type}】${durationText ? `(耗時 ${durationText} · ` : '('}信心度 ${(decision.confidence * 100).toFixed(0)}%)`, 20);
       }
       if (decision.tags && decision.tags.length > 0) {
         await appendAiLog(`> [VISION_TAGS] 視覺特徵：#${decision.tags.join(' #')}`, 20);
@@ -1779,7 +1786,8 @@
     await appendAiLog(`> [BATCH_START] 啟動 AI 批次顯影調色，共 ${targetList.length} 張相片...`, 20);
 
     if (hasOnlineKey) {
-      await appendAiLog(`> [CLOUD_AI] 已偵測到有效金鑰，啟動視覺多模態雲端推論`, 20);
+      const activeModelInfo = AiSceneService.getActiveModelInfo();
+      await appendAiLog(`> [CLOUD_AI] 已偵測到有效金鑰，啟動視覺多模態雲端推論 [${activeModelInfo.provider.toUpperCase()} · ${activeModelInfo.modelId}]`, 20);
       await appendAiLog(`> [RATE_LIMIT] 啟用雲端 API 速率保護 (間隔 4.2 秒防超限冷卻)`, 20);
     } else {
       await appendAiLog(`> [OFFLINE_NOTICE] ⚠️ 未配置雲端 API 金鑰，全面採用「本機光學降級演算法 (EXIF Fallback)」`, 20);
@@ -2300,7 +2308,14 @@
             {/if}
             <div class="ai-row">
               <span class="ai-label font-mono">信心指數</span>
-              <span class="ai-val font-mono amber">{(aiConfidence * 100).toFixed(0)}%</span>
+              <span class="ai-val font-mono amber">
+                {(aiConfidence * 100).toFixed(0)}%
+                {#if aiDecisionIsFallback !== null}
+                  <span class="confidence-tag font-mono {aiDecisionIsFallback ? 'local' : 'cloud'}">
+                    {aiDecisionIsFallback ? '本地光學推估' : '雲端 AI 判讀'}
+                  </span>
+                {/if}
+              </span>
             </div>
             <div class="ai-row">
               <span class="ai-label font-mono">色彩檔</span>
@@ -3740,6 +3755,24 @@
   }
   .ai-val.indigo {
     color: var(--primary-indigo);
+  }
+  .confidence-tag {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: var(--radius-xs);
+    margin-left: 6px;
+    font-weight: 500;
+    vertical-align: middle;
+  }
+  .confidence-tag.local {
+    background-color: rgba(212, 163, 115, 0.15);
+    color: var(--amber-highlight);
+    border: 1px solid rgba(212, 163, 115, 0.35);
+  }
+  .confidence-tag.cloud {
+    background-color: rgba(100, 180, 246, 0.15);
+    color: #64b4f6;
+    border: 1px solid rgba(100, 180, 246, 0.35);
   }
   .w-full {
     width: 100%;

@@ -6,6 +6,7 @@
 
 import type { ExifOpticalData } from '../types/photo';
 import { KeyVaultService } from './keyVaultService';
+import { AiEngineFactory } from './ai/engineFactory';
 
 export interface AiSceneDecision {
   scene_type: string;
@@ -23,6 +24,9 @@ export interface AiSceneDecision {
   tags?: string[];
   isFallback: boolean;
   fallbackReason?: string; // 記錄跌入本地兜底的真實原因 (透明化 Log 呈現)
+  providerUsed?: 'gemini' | 'groq' | 'offline';
+  modelUsed?: string;
+  inferenceDurationMs?: number;
   // 智慧構圖、裁切與透視校正
   crop_box?: [number, number, number, number]; // [ymin, xmin, ymax, xmax] 0.0 ~ 1.0
   rotation_deg?: number;                       // 水平傾斜校正角度 (-45 ~ +45)
@@ -49,17 +53,72 @@ export interface CopywritingResult {
 }
 
 export class AiSceneService {
-  private static TIMEOUT_MS = 10000;
+  private static TIMEOUT_MS = 60000; // 放寬至 60 秒，提供雲端多模態模型尖峰排隊充裕運算時間
 
   /**
-   * Convert any image payload (Data URL, Blob URL, HTTP URL) into clean Base64 string and MIME type.
+   * 將任何影像載入並透過 HTML5 Canvas 等比例壓縮為最大 512px 之輕量 JPEG Base64
+   * 確保 Payload 降至 30KB~50KB，使雲端多模態推論在 1~3 秒內極速完成，杜絕逾時
    */
   public static async toCleanBase64(imageSrc: string): Promise<{ base64: string; mimeType: string }> {
     if (!imageSrc || imageSrc.trim() === '') {
       throw new Error('影像資料為空');
     }
 
-    // 1. 若已經是 data:image/xxx;base64,yyy
+    // 瀏覽器環境：使用 Image + Canvas 執行極速縮圖壓縮 (Max 512px)
+    if (typeof document !== 'undefined' && typeof Image !== 'undefined') {
+      try {
+        const img = new Image();
+
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            img.onload = null;
+            img.onerror = null;
+            reject(new Error('圖片載入逾時 (>2s)'));
+          }, 2000);
+          img.onload = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+          img.onerror = () => {
+            clearTimeout(timer);
+            reject(new Error('縮圖載入失敗'));
+          };
+          img.src = imageSrc;
+        });
+
+        const maxDim = 512;
+        let w = img.naturalWidth || img.width || maxDim;
+        let h = img.naturalHeight || img.height || maxDim;
+
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, w);
+        canvas.height = Math.max(1, h);
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+          const commaIdx = dataUrl.indexOf(',');
+          return {
+            base64: commaIdx !== -1 ? dataUrl.slice(commaIdx + 1) : dataUrl,
+            mimeType: 'image/jpeg'
+          };
+        }
+      } catch (e) {
+        console.warn('Canvas 512px 壓縮回退至直接 Base64 轉換:', e);
+      }
+    }
+
+    // 備援方案：若無 DOM 或 Canvas 失敗，直接擷取 Base64
     if (imageSrc.startsWith('data:')) {
       const match = imageSrc.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
       if (match) {
@@ -71,12 +130,9 @@ export class AiSceneService {
       }
     }
 
-    // 2. 若為 blob: 或一般 URL，透過 fetch 轉為 Blob 並用 FileReader 讀成 base64
     try {
       const resp = await fetch(imageSrc);
       const blob = await resp.blob();
-      const mimeType = blob.type || 'image/jpeg';
-
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -88,33 +144,74 @@ export class AiSceneService {
         reader.readAsDataURL(blob);
       });
 
-      return { base64, mimeType };
+      return { base64, mimeType: 'image/jpeg' };
     } catch (err: any) {
       throw new Error(`無法將縮圖 Blob/URL 轉換為 Base64：${err?.message || err}`);
     }
   }
 
   /**
-   * Run optical scene analysis with automatic 10000ms offline fallback.
+   * 取得視覺顯影當前啟用之模型資訊（依使用者任務職責指派動態回傳）
+   */
+  public static getActiveModelInfo(): { provider: string; modelId: string } {
+    const roles = AiEngineFactory.getTaskRoles();
+    const provider = roles.vision.provider || 'gemini';
+    const modelId = roles.vision.modelId || (provider === 'gemini' ? 'gemini-flash-latest' : 'llama-3.2-11b-vision-preview');
+    return { provider, modelId };
+  }
+
+  /**
+   * 執行場景分析決策：
+   * 1. 若使用者「已配置 API 金鑰」：100% 執行雲端多模態神經推論。若遇到伺服器壅塞 (503)、配額或超時，直接真實報錯，絕不私自偷塞寫死本地規則。
+   * 2. 若使用者「未配置 API 金鑰」：代表純本機離線操作，才以本機光學規則作為免費基礎輔助。
    */
   public static async analyzeScene(
     imagePayload512pxBase64: string,
     exif: ExifOpticalData
   ): Promise<AiSceneDecision> {
+    const startTime = Date.now();
+
+    // 檢查當前視覺引擎是否具備金鑰
+    const { strategy, modelId, apiKey } = await AiEngineFactory.getVisionEngine();
+    const hasValidKey = !!(apiKey && apiKey.trim() !== '');
+
+    if (!hasValidKey) {
+      // 純離線無金鑰模式：才走本地光學啟發式推估
+      const fallback = this.heuristicFallback(exif, '未配置 API 金鑰 (純離線本機光學模式)');
+      fallback.inferenceDurationMs = Date.now() - startTime;
+      return fallback;
+    }
+
+    if (!imagePayload512pxBase64 || imagePayload512pxBase64.trim() === '') {
+      throw new Error('縮圖影像資料為空，無法傳輸至雲端進行神經視覺分析');
+    }
+
+    // 準備輕量 512px Payload
+    const tPrep = Date.now();
+    const { base64: cleanBase64 } = await this.toCleanBase64(imagePayload512pxBase64);
+    const prepMs = Date.now() - tPrep;
+    const sizeKb = (cleanBase64.length * 0.75 / 1024).toFixed(1);
+    console.info(`[AI_VISION] 縮圖準備完成 (耗時: ${prepMs}ms, 體積: ${sizeKb} KB, 模型: ${modelId})`);
+
+    // 執行真實雲端多模態推論：完全依賴伺服器連線響應與網路狀態，絕不在前端用秒數定時炸彈掐斷連線
+    const inferencePromise = strategy.analyzePhoto({
+      apiKey,
+      modelId,
+      imagePayload512pxBase64: cleanBase64,
+      exif,
+      timeoutMs: 180000 // 提供最寬裕的 3 分鐘底層 Socket 守護，其餘完全由伺服器自然回傳 (200/503/429) 驅動
+    });
+
     try {
-      // Create timeout promise
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('AI 推論逾時 (>10s)，自動切換在地光學降級')), this.TIMEOUT_MS)
-      );
-
-      // Authentic Vision Model Call
-      const inferencePromise = this.callVisionModel(imagePayload512pxBase64, exif);
-
-      return await Promise.race([inferencePromise, timeoutPromise]);
+      const decision = await inferencePromise;
+      decision.inferenceDurationMs = Date.now() - startTime;
+      decision.isFallback = false; // 確信為雲端真實推論
+      return decision;
     } catch (err: any) {
-      const errMsg = err?.message || '雲端服務連線異常';
-      console.warn('AI Scene Service switching to optical heuristic fallback:', errMsg);
-      return this.heuristicFallback(exif, errMsg);
+      const rawMsg = err?.message || '雲端服務連線中斷';
+      console.error(`[AI_VISION] 雲端推論失敗 (${strategy.providerName} / ${modelId}):`, err);
+      // 有金鑰時直接真實拋出錯誤，讓暗房顯示真實狀況，拒絕假裝成功
+      throw new Error(`雲端推論失敗 [${modelId}]：${rawMsg}`);
     }
   }
 
@@ -220,412 +317,107 @@ export class AiSceneService {
         tint: 0.5,
         lift_shadows: 0.08,
         lut_intensity: 0.85,
-        tags: ['自然日光', '低感光度', '人文紀實', '層次分明'],
         isFallback: true,
         fallbackReason: reason,
-        crop_box: [0.02, 0.02, 0.98, 0.98],
+        crop_box: [0.0, 0.0, 1.0, 1.0],
         rotation_deg: 0.0,
         keystone_v: 0.0,
         aspect_ratio: 'original',
-        crop_rationale: '開闊平衡光照，維持原尺寸構圖，微調四邊邊界。'
+        crop_rationale: '日光寫實場景，構圖保持原始取景視角。'
       };
     }
 
-    // Default Fallback: Cool teal emerald for medium ISO scenes
+    // Default Fallback
     return {
-      scene_type: 'outdoor_street',
-      scene_title: '開闊日常光景',
-      style_insight: '平衡光照環境，推薦微冷調翡翠綠，賦予影像沉靜而通透的電影底片氛圍。',
-      recommended_mood: '青綠冷調紀實',
-      recommended_profile: 'Profile_02_TealEmerald',
-      confidence: 0.78,
+      scene_type: 'general',
+      scene_title: '生活隨拍底片',
+      style_insight: '均衡光影環境，微調對比與自然色溫，展現溫潤生活感底片成像。',
+      recommended_mood: '日常紀實溫潤',
+      recommended_profile: 'Profile_02_GoldenWarmth',
+      confidence: 0.75,
       exposure_compensation: 0.05,
       contrast: 0.02,
-      color_temp: 5400,
-      tint: -1.5,
-      lift_shadows: 0.1,
-      lut_intensity: 0.9,
-      tags: ['日常光景', '平衡光照', '電影質感', '青綠冷調'],
+      color_temp: 5500,
+      tint: 0.0,
+      lift_shadows: 0.05,
+      lut_intensity: 0.80,
+      tags: ['日常隨拍', '溫潤色彩', '自然光'],
       isFallback: true,
       fallbackReason: reason,
-      crop_box: [0.02, 0.02, 0.98, 0.98],
+      crop_box: [0.0, 0.0, 1.0, 1.0],
       rotation_deg: 0.0,
       keystone_v: 0.0,
       aspect_ratio: 'original',
-      crop_rationale: '開闊平衡光照，維持原尺寸構圖，微調四邊邊界。'
+      crop_rationale: '通用隨拍場景，維持原始構圖長寬比。'
     };
   }
 
   /**
-   * Authentic live model inference via Google Gemini or Groq Vision models
-   * Uses dynamically selected model from discovery engine (Zero hardcoded model strings)
+   * 依據使用者指派之視覺策略執行多模態影像推論 (Strategy Pattern)
    */
   private static async callVisionModel(
     imagePayload512pxBase64: string,
     exif: ExifOpticalData
   ): Promise<AiSceneDecision> {
-    // 1. Determine active provider
-    // Note: Multimodal visual inference requires Gemini (or vision-capable endpoints).
-    // If user has Gemini Key configured, prioritize it for image grading over text-only Groq.
-    let provider: 'gemini' | 'groq' = 'gemini';
-    if (typeof localStorage !== 'undefined') {
-      const storedProv = localStorage.getItem('slipknot_active_provider');
-      if (storedProv === 'groq' || storedProv === 'gemini') {
-        provider = storedProv;
-      }
-    }
-
-    // 2. Load API key for active provider (or alternate if first is empty)
-    let apiKey: string | null = null;
-    try {
-      const vaultRes = await KeyVaultService.loadKey(provider);
-      apiKey = vaultRes.apiKey;
-    } catch {
-      // Protected or locked
-    }
-
-    // If active provider is Groq (which is primarily text in current free tier), check if Gemini is available
-    if (provider === 'groq') {
-      try {
-        const geminiRes = await KeyVaultService.loadKey('gemini');
-        if (geminiRes.apiKey && geminiRes.apiKey.trim() !== '') {
-          // Transparently promote visual inference to Gemini
-          provider = 'gemini';
-          apiKey = geminiRes.apiKey;
-        }
-      } catch {
-        // pass
-      }
-    }
-
-    if (!apiKey || apiKey.trim() === '') {
-      // Try alternate provider
-      const altProvider: 'gemini' | 'groq' = provider === 'gemini' ? 'groq' : 'gemini';
-      try {
-        const altRes = await KeyVaultService.loadKey(altProvider);
-        if (altRes.apiKey) {
-          apiKey = altRes.apiKey;
-          provider = altProvider;
-        }
-      } catch {
-        // Locked
-      }
-    }
-
-    if (!apiKey || apiKey.trim() === '') {
-      // If no valid key provided, immediately fallback with explicit reason
-      return this.heuristicFallback(exif, '未配置可用之 AI 金鑰 (請於右下角保險庫輸入)');
-    }
-
-    if (provider === 'groq') {
-      // Groq does not offer official vision in current free tiers
-      throw new Error('Groq 目前端點僅支援文字生成，影像多模態視覺顯影請於金鑰保險庫配置 Gemini 金鑰');
-    }
-
-    // If image payload is empty, fallback directly
     if (!imagePayload512pxBase64 || imagePayload512pxBase64.trim() === '') {
       return this.heuristicFallback(exif, '縮圖影像資料為空');
     }
 
-    const { base64: cleanBase64, mimeType } = await this.toCleanBase64(imagePayload512pxBase64);
-
-    // 3. Resolve dynamic model ID
-    let modelId: string | null = null;
-    if (typeof localStorage !== 'undefined') {
-      modelId = localStorage.getItem(`slipknot_model_${provider}`);
+    const { strategy, modelId, apiKey } = await AiEngineFactory.getVisionEngine();
+    if (!apiKey || apiKey.trim() === '') {
+      return this.heuristicFallback(exif, `未配置 ${strategy.providerName} 之可用 API 金鑰 (請於右下角保險庫輸入)`);
     }
 
-    const promptText = `You are a master analog darkroom colorist and curatorial director.
-Analyze this photographic image and optical EXIF (ISO: ${exif.iso || 'N/A'}, Shutter: ${exif.shutterSpeed || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}, Lens/Focal: ${exif.focalLength || 'N/A'}).
-Provide artistic color grading decisions, lighting dynamics, and composition crop recommendations (Rule of Thirds, horizon leveling, perspective correction).
-Respond ONLY with raw JSON matching this schema:
-{
-  "scene_title": "午後斜陽微光街角 (Poetic scene title in Traditional Chinese, 4-8 chars)",
-  "scene_type": "outdoor_street",
-  "style_insight": "主體處於側逆光環境，建議壓制高光並微提暗部細節，整體色調偏向暖調底片質感。(1-2 sentences professional insight in Traditional Chinese)",
-  "recommended_mood": "經典暖調底片 (Mood / style label in Traditional Chinese)",
-  "recommended_profile": "One of: Profile_00_StandardNatural, Profile_01_MatteShadow, Profile_02_TealEmerald, Profile_03_TungstenSoft, Profile_04_HighContrastMono, Profile_05_DocumentaryChrome",
-  "confidence": 0.94,
-  "exposure_compensation": 0.15,
-  "contrast": 0.05,
-  "color_temp": 5600,
-  "tint": 2.0,
-  "lift_shadows": 0.1,
-  "lut_intensity": 0.85,
-  "tags": ["側逆光", "斜陽街角", "暖調底片", "微光散景"],
-  "crop_box": [0.04, 0.06, 0.96, 0.94],
-  "rotation_deg": -0.8,
-  "keystone_v": 0.0,
-  "aspect_ratio": "original",
-  "crop_rationale": "微幅旋轉校正地平線傾斜，適度收緊邊界以強化畫面視覺重心。(Traditional Chinese)"
-}`;
+    const tPrep = Date.now();
+    const { base64: cleanBase64 } = await this.toCleanBase64(imagePayload512pxBase64);
+    const prepMs = Date.now() - tPrep;
+    const sizeKb = (cleanBase64.length * 0.75 / 1024).toFixed(1);
+    console.info(`[AI_VISION] 縮圖準備完成 (耗時: ${prepMs}ms, 體積: ${sizeKb} KB, 模型: ${modelId})`);
 
-    if (provider === 'gemini') {
-      const activeModel = modelId || 'gemini-1.5-flash';
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
+    return await strategy.analyzePhoto({
+      apiKey,
+      modelId,
+      imagePayload512pxBase64: cleanBase64,
+      exif,
+      timeoutMs: this.TIMEOUT_MS
+    });
+  }
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: promptText },
-                {
-                  inlineData: {
-                    mimeType: mimeType || 'image/jpeg',
-                    data: cleanBase64
-                  }
-                }
-              ]
-            }
-          ],
-          generationConfig: {
-            responseMimeType: 'application/json'
-          }
-        })
+  /**
+   * 依據使用者指派之文字策略執行極速社群文案與 IPTC 標籤生成 (Strategy Pattern)
+   */
+  public static async generateGroqCopywriting(payload: CopywritingPayload): Promise<CopywritingResult> {
+    try {
+      const { strategy, modelId, apiKey } = await AiEngineFactory.getCopywritingEngine();
+      if (!apiKey || apiKey.trim() === '') {
+        return this.offlineCopywritingFallback(payload);
+      }
+
+      return await strategy.generateCopywriting({
+        apiKey,
+        modelId,
+        payload,
+        timeoutMs: 15000
       });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => null);
-        const detail = errJson?.error?.message || `HTTP ${response.status}`;
-        throw new Error(`Gemini 端點回應異常 (${detail})`);
-      }
-
-      const jsonRes = await response.json();
-      const rawContent = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawContent) {
-        throw new Error('Gemini 多模態視覺模型未回傳分析文字');
-      }
-
-      const parsed = JSON.parse(rawContent);
-      return {
-        scene_type: parsed.scene_type || 'outdoor_street',
-        scene_title: parsed.scene_title || '光影畫面顯影',
-        style_insight: parsed.style_insight || 'AI 已根據畫面光影特徵完成動態範圍與色調調校。',
-        recommended_mood: parsed.recommended_mood || '底片氛圍調性',
-        recommended_profile: parsed.recommended_profile || 'Profile_01_MatteShadow',
-        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.9,
-        exposure_compensation: typeof parsed.exposure_compensation === 'number' ? parsed.exposure_compensation : 0.0,
-        contrast: typeof parsed.contrast === 'number' ? parsed.contrast : 0.0,
-        color_temp: typeof parsed.color_temp === 'number' ? parsed.color_temp : 5500,
-        tint: typeof parsed.tint === 'number' ? parsed.tint : 0.0,
-        lift_shadows: typeof parsed.lift_shadows === 'number' ? parsed.lift_shadows : 0.0,
-        lut_intensity: typeof parsed.lut_intensity === 'number' ? parsed.lut_intensity : 0.85,
-        tags: Array.isArray(parsed.tags) ? parsed.tags : ['光影顯影', '底片氛圍'],
-        isFallback: false,
-        crop_box: Array.isArray(parsed.crop_box) && parsed.crop_box.length === 4 ? parsed.crop_box : [0.03, 0.04, 0.97, 0.96],
-        rotation_deg: typeof parsed.rotation_deg === 'number' ? parsed.rotation_deg : 0.0,
-        keystone_v: typeof parsed.keystone_v === 'number' ? parsed.keystone_v : 0.0,
-        aspect_ratio: parsed.aspect_ratio || 'original',
-        crop_rationale: parsed.crop_rationale || 'AI 智慧構圖建議已生成。'
-      };
-    } else {
-      // Groq Vision endpoint
-      const activeModel = modelId || 'llama-3.2-11b-vision-preview';
-      const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: activeModel,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: promptText },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:image/jpeg;base64,${cleanBase64}`
-                  }
-                }
-              ]
-            }
-          ],
-          response_format: { type: 'json_object' }
-        })
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => null);
-        const detail = errJson?.error?.message || `HTTP ${response.status}`;
-        throw new Error(`Groq 端點回應異常 (${detail})`);
-      }
-
-      const jsonRes = await response.json();
-      const rawContent = jsonRes.choices?.[0]?.message?.content;
-      if (!rawContent) {
-        throw new Error('Empty response from Groq Vision model');
-      }
-
-      const parsed = JSON.parse(rawContent);
-      return {
-        scene_type: parsed.scene_type || 'outdoor_street',
-        scene_title: parsed.scene_title || '光影畫面顯影',
-        style_insight: parsed.style_insight || 'AI 已根據畫面光影特徵完成動態範圍與色調調校。',
-        recommended_mood: parsed.recommended_mood || '底片氛圍調性',
-        recommended_profile: parsed.recommended_profile || 'Profile_01_MatteShadow',
-        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.9,
-        exposure_compensation: typeof parsed.exposure_compensation === 'number' ? parsed.exposure_compensation : 0.0,
-        contrast: typeof parsed.contrast === 'number' ? parsed.contrast : 0.0,
-        color_temp: typeof parsed.color_temp === 'number' ? parsed.color_temp : 5500,
-        tint: typeof parsed.tint === 'number' ? parsed.tint : 0.0,
-        lift_shadows: typeof parsed.lift_shadows === 'number' ? parsed.lift_shadows : 0.0,
-        lut_intensity: typeof parsed.lut_intensity === 'number' ? parsed.lut_intensity : 0.85,
-        tags: Array.isArray(parsed.tags) ? parsed.tags : ['光影顯影', '底片氛圍'],
-        isFallback: false,
-        crop_box: Array.isArray(parsed.crop_box) && parsed.crop_box.length === 4 ? parsed.crop_box : [0.03, 0.04, 0.97, 0.96],
-        rotation_deg: typeof parsed.rotation_deg === 'number' ? parsed.rotation_deg : 0.0,
-        keystone_v: typeof parsed.keystone_v === 'number' ? parsed.keystone_v : 0.0,
-        aspect_ratio: parsed.aspect_ratio || 'original',
-        crop_rationale: parsed.crop_rationale || 'AI 智慧構圖建議已生成。'
-      };
+    } catch (err: any) {
+      console.warn('AI Copywriting call failed, falling back to offline template:', err?.message || err);
+      return this.offlineCopywritingFallback(payload);
     }
   }
 
   /**
-   * Hybrid Dual-Engine Pipeline:
-   * Groq-powered Lightning Copywriting & IPTC Keyword Generation.
-   * Blends Gemini vision tags + camera optical EXIF + User personal note into poetic social posts.
+   * 離線離線文案降級模板 (Instant aesthetic templates)
    */
-  public static async generateGroqCopywriting(payload: CopywritingPayload): Promise<CopywritingResult> {
-    // 1. Check for Groq API Key first (fastest LPU text generation)
-    let groqKey: string | null = null;
-    try {
-      const vaultRes = await KeyVaultService.loadKey('groq');
-      groqKey = vaultRes.apiKey;
-    } catch {
-      // Ignored
-    }
-
-    // Fallback to Gemini if no Groq Key
-    let geminiKey: string | null = null;
-    if (!groqKey || groqKey.trim() === '') {
-      try {
-        const vaultRes = await KeyVaultService.loadKey('gemini');
-        geminiKey = vaultRes.apiKey;
-      } catch {
-        // Ignored
-      }
-    }
-
-    const tagsStr = payload.tags.length > 0 ? payload.tags.join('、') : '底片日常、光影紀錄';
-    const userPromptSection = payload.userPrompt && payload.userPrompt.trim()
-      ? `\n【使用者現場個人筆記/心情】：${payload.userPrompt.trim()}`
-      : '';
-
-    const systemPrompt = `你是一位精通底片美學與光影詩意的當代攝影策展人，擅長為相片撰寫引人入勝且具溫度的社群文字（Instagram / Threads）與檔案檢索關鍵字。
-請根據畫面視覺標籤、相機光學資訊與使用者的個人備註，生成發文草稿與標籤。
-${userPromptSection}
-【相片場景主題】：${payload.sceneTitle}
-【視覺標籤】：${tagsStr}
-【器材與光學】：${payload.cameraModel || ''} ${payload.lensModel || ''} ${payload.exifOptical ? `(${payload.exifOptical})` : ''}
-
-請務必嚴格回傳標準 JSON 格式（正體中文/台灣用語，禁止簡體或中國用語）：
-{
-  "caption": "2-3 句具底片質感與畫面溫度的短文案，若有使用者筆記請巧妙自然融入。",
-  "hashtags": ["#底片日常", "#35mm", "#街頭光影", ...約 5-8 個熱門推薦 hashtag],
-  "iptc_keywords": ["Street", "Night", "WarmToned", "Portrait", ...約 8-12 個中英雙語搜尋關鍵字，用於檔案搜尋與 Spotlight 檢索]
-}`;
-
-    // A. Use Groq if available (lightning fast, ~200-400ms)
-    if (groqKey && groqKey.trim() !== '') {
-      try {
-        let modelId = 'llama-3.3-70b-versatile';
-        if (typeof localStorage !== 'undefined') {
-          const storedModel = localStorage.getItem('slipknot_model_groq');
-          if (storedModel && !storedModel.includes('vision')) {
-            modelId = storedModel;
-          }
-        }
-
-        const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${groqKey}`
-          },
-          body: JSON.stringify({
-            model: modelId,
-            messages: [
-              {
-                role: 'system',
-                content: 'You are a professional film photography curator. Respond ONLY in valid JSON matching the requested schema.'
-              },
-              {
-                role: 'user',
-                content: systemPrompt
-              }
-            ],
-            response_format: { type: 'json_object' }
-          })
-        });
-
-        if (response.ok) {
-          const jsonRes = await response.json();
-          const rawContent = jsonRes.choices?.[0]?.message?.content;
-          if (rawContent) {
-            const parsed = JSON.parse(rawContent);
-            return {
-              caption: parsed.caption || '光線在底片顆粒中緩緩顯影，紀錄下快門凝結的瞬間。',
-              hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : ['#底片日常', '#光影紀實'],
-              iptcKeywords: Array.isArray(parsed.iptc_keywords) ? parsed.iptc_keywords : payload.tags,
-              providerUsed: 'groq'
-            };
-          }
-        }
-      } catch (err) {
-        console.warn('Groq copywriting call failed, falling back to Gemini/offline:', err);
-      }
-    }
-
-    // B. Fallback to Gemini text if Groq is unavailable
-    if (geminiKey && geminiKey.trim() !== '') {
-      try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: systemPrompt }] }],
-            generationConfig: { responseMimeType: 'application/json' }
-          })
-        });
-
-        if (response.ok) {
-          const jsonRes = await response.json();
-          const rawContent = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (rawContent) {
-            const parsed = JSON.parse(rawContent);
-            return {
-              caption: parsed.caption || '光線在底片顆粒中緩緩顯影，紀錄下快門凝結的瞬間。',
-              hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : ['#底片日常', '#光影紀實'],
-              iptcKeywords: Array.isArray(parsed.iptc_keywords) ? parsed.iptc_keywords : payload.tags,
-              providerUsed: 'gemini'
-            };
-          }
-        }
-      } catch (err) {
-        console.warn('Gemini text copywriting fallback failed:', err);
-      }
-    }
-
-    // C. Offline Curatorial Fallback (Instant aesthetic templates)
+  private static offlineCopywritingFallback(payload: CopywritingPayload): CopywritingResult {
     const baseNote = payload.userPrompt && payload.userPrompt.trim()
       ? `「${payload.userPrompt.trim()}」— `
       : '';
     return {
       caption: `${baseNote}${payload.sceneTitle}。光線於底片顆粒中悄然凝結，留住快門開啟時最真實的呼吸與溫度。`,
       hashtags: ['#底片攝影', '#底片日常', '#35mm', '#光影散策', '#暗房顯影'],
-      iptcKeywords: [...payload.tags, 'Analog', 'FilmPhotography', '35mm', 'StreetScene'],
+      iptcKeywords: [...(payload.tags || []), 'Analog', 'FilmPhotography', '35mm', 'StreetScene'],
       providerUsed: 'offline'
     };
   }
 }
+

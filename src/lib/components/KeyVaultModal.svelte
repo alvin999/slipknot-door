@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { KeyVaultService, type KeyEncryptionMode } from '$lib/services/keyVaultService';
   import { ModelDiscoveryService, type DiscoveredModel } from '$lib/services/modelDiscoveryService';
+  import { AiEngineFactory } from '$lib/services/ai/engineFactory';
 
   interface Props {
     isOpen?: boolean;
@@ -63,6 +64,54 @@
   let unsavedActionType = $state<'close' | 'switch'>('close');
   let pendingProviderTarget = $state<'gemini' | 'groq' | null>(null);
 
+  // 當前選取 Provider 之完整模型清單（100% 端點動態探測與本機快取，零 Hardcode）
+  let currentModelList = $derived(
+    discoveredModels.length > 0
+      ? discoveredModels
+      : ModelDiscoveryService.getCachedModels(selectedProvider)
+  );
+
+  function getDynamicModelsForProvider(prov: string): DiscoveredModel[] {
+    const p = (prov === 'groq' ? 'groq' : 'gemini') as 'gemini' | 'groq';
+    if (selectedProvider === p && discoveredModels.length > 0) {
+      return discoveredModels;
+    }
+    return ModelDiscoveryService.getCachedModels(p);
+  }
+
+  // 任務職責指派狀態 (Task Roles: 影像視覺與文字文案分開指定)
+  let roleVisionProvider = $state<string>('gemini');
+  let roleVisionModel = $state<string>('');
+  let roleCopywritingProvider = $state<string>('groq');
+  let roleCopywritingModel = $state<string>('');
+
+  // 自動防空白保護：確保任務模型在當前可用動態清單內始終有效
+  $effect(() => {
+    const list = getDynamicModelsForProvider(roleVisionProvider);
+    if (list.length > 0 && (!roleVisionModel || !list.some(m => m.id === roleVisionModel))) {
+      roleVisionModel = list[0].id;
+    }
+  });
+
+  $effect(() => {
+    const list = getDynamicModelsForProvider(roleCopywritingProvider);
+    if (list.length > 0 && (!roleCopywritingModel || !list.some(m => m.id === roleCopywritingModel))) {
+      roleCopywritingModel = list[0].id;
+    }
+  });
+
+  // 當使用者在頂部切換選擇模型時，自動連動同步到任務指派
+  $effect(() => {
+    if (selectedModelId) {
+      if (roleVisionProvider === selectedProvider) {
+        roleVisionModel = selectedModelId;
+      }
+      if (roleCopywritingProvider === selectedProvider) {
+        roleCopywritingModel = selectedModelId;
+      }
+    }
+  });
+
   // Stored key status
   let vaultStatus = $state<{ exists: boolean; mode: KeyEncryptionMode | null; updatedAt: string | null }>({
     exists: false,
@@ -73,6 +122,7 @@
   onMount(async () => {
     refreshStatus();
     loadStoredModelSelection();
+    loadTaskRoles();
     await autoLoadModelsForSavedKey();
   });
 
@@ -80,11 +130,20 @@
     vaultStatus = KeyVaultService.getKeyStatus(selectedProvider);
   }
 
+  function loadTaskRoles() {
+    const roles = AiEngineFactory.getTaskRoles();
+    roleVisionProvider = roles.vision.provider || 'gemini';
+    roleVisionModel = roles.vision.modelId || '';
+
+    roleCopywritingProvider = roles.copywriting.provider || 'groq';
+    roleCopywritingModel = roles.copywriting.modelId || '';
+  }
+
   function loadStoredModelSelection() {
     if (typeof localStorage !== 'undefined') {
-      selectedModelId = localStorage.getItem(`slipknot_model_${selectedProvider}`) || null;
+      selectedModelId = localStorage.getItem(`slipknot_model_${selectedProvider}`) || '';
     } else {
-      selectedModelId = null;
+      selectedModelId = '';
     }
   }
 
@@ -174,7 +233,7 @@
 
       if (res.error) {
         if (isManualTest) {
-          statusMessage = { text: `連線失敗：${res.error}`, type: 'error' };
+          statusMessage = { text: `端點連線失敗：${res.error}`, type: 'error' };
         }
         discoveredModels = [];
       } else {
@@ -183,18 +242,55 @@
           if (!selectedModelId || !res.models.some(m => m.id === selectedModelId)) {
             selectedModelId = res.recommendedModelId;
           }
-          if (isManualTest) {
-            statusMessage = {
-              text: `連線成功！已動態載入 ${res.models.length} 個可用模型（建議首選：${res.recommendedModelId}）`,
-              type: 'success'
-            };
-          }
-        } else {
-          if (isManualTest) {
-            statusMessage = {
-              text: `連線成功，但該金鑰未匹配到可用的 ${meta.category === 'vision' ? '多模態視覺' : '文字'} 模型`,
-              type: 'error'
-            };
+        }
+
+        // 若為手動點擊「測試連線」，進一步執行端對端真實推論診斷（Session 診斷）
+        if (isManualTest) {
+          let targetModel = selectedModelId || (prov === 'gemini' ? 'gemini-1.5-flash-latest' : 'llama-3.3-70b-versatile');
+          if (targetModel === 'gemini-1.5-flash') targetModel = 'gemini-1.5-flash-latest';
+          let cleanTarget = targetModel.replace(/^models\//, '');
+          statusMessage = { text: `正在使用當前 Session 對 [${cleanTarget}] 進行推論回應測試...`, type: 'info' };
+          const t0 = Date.now();
+          if (prov === 'gemini') {
+            let testRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${cleanTarget}:generateContent?key=${key}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contents: [{ parts: [{ text: 'Ping: Reply OK' }] }] })
+            });
+            if (!testRes.ok && testRes.status === 404 && cleanTarget !== 'gemini-1.5-flash-latest') {
+              cleanTarget = 'gemini-1.5-flash-latest';
+              testRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${cleanTarget}:generateContent?key=${key}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: 'Ping: Reply OK' }] }] })
+              });
+            }
+            const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+            if (!testRes.ok) {
+              const errJson = await testRes.json().catch(() => null);
+              const detail = errJson?.error?.message || `HTTP ${testRes.status}`;
+              statusMessage = { text: `❌ Gemini 端點推論失敗 (${detail})`, type: 'error' };
+            } else {
+              statusMessage = { text: `🎉 Gemini 視覺引擎測試成功！(端點耗時: ${elapsed}s · 模型: ${cleanTarget})`, type: 'success' };
+            }
+          } else {
+            const testRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+              body: JSON.stringify({
+                model: targetModel,
+                messages: [{ role: 'user', content: 'hi' }],
+                max_tokens: 5
+              })
+            });
+            const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+            if (!testRes.ok) {
+              const errJson = await testRes.json().catch(() => null);
+              const detail = errJson?.error?.message || `HTTP ${testRes.status}`;
+              statusMessage = { text: `❌ Groq 文案端點失敗 (${detail})`, type: 'error' };
+            } else {
+              statusMessage = { text: `🎉 Groq 極速文案測試成功！(極速回應: ${elapsed}s · 模型: ${targetModel})`, type: 'success' };
+            }
           }
         }
       }
@@ -241,7 +337,13 @@
   async function handleSave() {
     let keyToSave = apiKeyInput.trim();
 
-    // If apiKeyInput is empty but already exists and user is just changing model selection
+    // 持久化儲存任務職責指派 (Task Roles)
+    AiEngineFactory.setTaskRoles({
+      vision: { provider: roleVisionProvider, modelId: roleVisionModel },
+      copywriting: { provider: roleCopywritingProvider, modelId: roleCopywritingModel }
+    });
+
+    // If apiKeyInput is empty but already exists and user is just changing model or role selection
     if (!keyToSave && vaultStatus.exists) {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('slipknot_active_provider', selectedProvider);
@@ -250,7 +352,7 @@
         }
       }
       statusMessage = {
-        text: `設定已更新${selectedModelId ? ` · 已綁定模型：${selectedModelId}` : ''}`,
+        text: `AI 任務職責與模型設定已更新成功 ✓`,
         type: 'success'
       };
       return;
@@ -276,7 +378,7 @@
       }
       refreshStatus();
       statusMessage = {
-        text: `金鑰已成功安全儲存（${getModeLabel(currentMode)}）${selectedModelId ? ` · 已綁定模型：${selectedModelId}` : ''}`,
+        text: `金鑰已成功安全儲存（${getModeLabel(currentMode)}）· 任務模型已生效 ✓`,
         type: 'success'
       };
       apiKeyInput = '';
@@ -457,7 +559,7 @@
           </div>
         </div>
 
-        <!-- Dynamic Model Discovery -->
+        <!-- Dynamic Model Configuration (下拉選單，照原本列出，免除手打) -->
         <div class="section-block">
           <div class="section-label font-mono">
             <span>{currentProviderMeta.categoryLabel}</span>
@@ -468,56 +570,99 @@
                   動態探測中...
                 </span>
               {:else}
-                <button type="button" class="text-toggle font-mono" onclick={handleTestConnection} title="重新連線探測可用模型">
+                <button type="button" class="text-toggle font-mono" onclick={handleTestConnection} title="向 API 查詢最新相容模型">
                   <span class="material-symbols-outlined" style="font-size: 12px; vertical-align: middle;">refresh</span>
-                  重新探測
+                  即時探測模型
                 </button>
               {/if}
             </div>
           </div>
 
-          {#if discoveredModels.length > 0}
-            <div class="model-select-wrapper hairline-all">
-              <select 
-                class="model-dropdown font-mono" 
-                bind:value={selectedModelId}
-              >
-                {#each discoveredModels as model}
-                  <option value={model.id}>
-                    {model.displayName || model.id} {model.recommendationTag ? `[${model.recommendationTag}]` : ''}
-                  </option>
-                {/each}
-              </select>
-            </div>
+          <div class="model-select-wrapper hairline-all">
+            <select 
+              class="model-dropdown font-mono" 
+              bind:value={selectedModelId}
+            >
+              {#each currentModelList as m}
+                <option value={m.id}>
+                  {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
+                </option>
+              {/each}
+            </select>
+          </div>
 
-            <!-- Active Selected Model Card -->
-            {#if selectedModelId}
-              {@const currentModel = discoveredModels.find(m => m.id === selectedModelId)}
-              {#if currentModel}
-                <div class="selected-model-pill hairline-all">
-                  <div class="pill-top">
-                    <span class="pill-name font-mono">{currentModel.displayName}</span>
-                    {#if currentModel.recommendationTag}
-                      <span class="recommend-tag font-mono">⚡ {currentModel.recommendationTag}</span>
-                    {/if}
-                  </div>
-                  {#if currentModel.description}
-                    <div class="pill-desc font-body">{currentModel.description}</div>
+          <!-- Active Selected Model Card -->
+          {#if selectedModelId}
+            {@const currentModel = currentModelList.find(m => m.id === selectedModelId)}
+            {#if currentModel}
+              <div class="selected-model-pill hairline-all">
+                <div class="pill-top">
+                  <span class="pill-name font-mono">{currentModel.displayName || currentModel.id}</span>
+                  {#if currentModel.recommendationTag}
+                    <span class="recommend-tag font-mono">⚡ {currentModel.recommendationTag}</span>
                   {/if}
                 </div>
-              {/if}
+                {#if (currentModel as any).description}
+                  <div class="pill-desc font-body">{(currentModel as any).description}</div>
+                {/if}
+              </div>
             {/if}
-          {:else if (apiKeyInput.length > 10 || vaultStatus.exists) && !isDiscoveringModels}
-            <div class="model-hint-box hairline-all font-mono">
-              <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">info</span>
-              <span>可點擊「重新探測」或下方「測試連線」即時連線端點載入模型。</span>
-            </div>
-          {:else}
-            <div class="model-hint-box hairline-all font-mono">
-              <span class="material-symbols-outlined" style="font-size: 14px; color: var(--parchment-dim);">troubleshoot</span>
-              <span>輸入 API Key 後將自動經由端點動態探測可用模型清單。</span>
-            </div>
           {/if}
+        </div>
+
+        <!-- Role Assignment (AI 任務模型指派 - 純下拉選單) -->
+        <div class="section-block role-assign-block hairline-all">
+          <div class="role-header font-mono">
+            <span class="material-symbols-outlined role-header-icon">tune</span>
+            <span class="role-header-title">AI 任務職責指派 (ROLE ASSIGNMENT)</span>
+          </div>
+          <p class="role-desc font-body">
+            分別指派負責「相片視覺顯影」與「社群文字文案」的引擎與模型，下拉選取、免除手打。
+          </p>
+
+          <div class="roles-grid">
+            <!-- 任務 1: 影像視覺顯影 -->
+            <div class="role-card hairline-all">
+              <div class="role-card-top font-mono">
+                <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">camera</span>
+                <span>影像視覺顯影 (Vision)</span>
+              </div>
+              <div class="role-fields">
+                <select class="role-select font-mono" bind:value={roleVisionProvider}>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="groq">Groq Vision</option>
+                </select>
+                <select class="role-select font-mono" bind:value={roleVisionModel}>
+                  {#each getDynamicModelsForProvider(roleVisionProvider) as m}
+                    <option value={m.id}>
+                      {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
+                    </option>
+                  {/each}
+                </select>
+              </div>
+            </div>
+
+            <!-- 任務 2: 文字社群文案 -->
+            <div class="role-card hairline-all">
+              <div class="role-card-top font-mono">
+                <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">edit_note</span>
+                <span>社群文案與 IPTC (Text)</span>
+              </div>
+              <div class="role-fields">
+                <select class="role-select font-mono" bind:value={roleCopywritingProvider}>
+                  <option value="groq">Groq (極速推薦)</option>
+                  <option value="gemini">Google Gemini</option>
+                </select>
+                <select class="role-select font-mono" bind:value={roleCopywritingModel}>
+                  {#each getDynamicModelsForProvider(roleCopywritingProvider) as m}
+                    <option value={m.id}>
+                      {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
+                    </option>
+                  {/each}
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Master Password Input (If Password Mode or Decrypting) -->
@@ -953,6 +1098,89 @@
     gap: 8px;
     font-size: 10px;
     color: var(--parchment-muted);
+  }
+
+  .model-hint-row {
+    margin-top: 4px;
+    font-size: 10px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .hint-count { color: #52b788; }
+  .hint-muted { color: var(--parchment-dim); }
+
+  .role-assign-block {
+    background: rgba(24, 25, 29, 0.4);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    margin-top: 6px;
+  }
+  .role-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+  .role-header-icon {
+    font-size: 15px;
+  }
+  .role-desc {
+    font-size: 11px;
+    color: var(--parchment-dim);
+    margin: 4px 0 8px 0;
+    line-height: 1.4;
+  }
+  .roles-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .role-card {
+    background: var(--canvas-base);
+    border-radius: var(--radius-xs);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  .role-card-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--parchment-bright);
+    font-weight: 600;
+  }
+  .role-fields {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .role-select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    background: var(--surface-elevated);
+    border: 1px solid var(--hairline-color);
+    color: var(--parchment-bright);
+    font-size: 11px;
+    padding: 6px 8px;
+    border-radius: var(--radius-xs);
+    outline: none;
+    cursor: pointer;
+  }
+  .role-select:focus {
+    border-color: var(--amber-highlight);
   }
 
   .status-banner {
