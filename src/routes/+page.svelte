@@ -4039,12 +4039,22 @@
   }
 
   .ai-main-btn {
-    background: linear-gradient(135deg, #3d5a80, #293241) !important;
-    border: 1px solid rgba(152, 195, 121, 0.4) !important;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+    background: linear-gradient(135deg, var(--amber-highlight), #d48b3b) !important;
+    color: #121214 !important;
+    font-weight: 600 !important;
+    border: 1px solid rgba(226, 157, 82, 0.9) !important;
+    box-shadow: 0 0 14px rgba(226, 157, 82, 0.3);
+    transition: all 0.2s ease;
   }
-  .ai-main-btn:hover {
-    border-color: #98c379 !important;
+  .ai-main-btn:hover:not(:disabled) {
+    filter: brightness(1.1);
+    box-shadow: 0 0 18px rgba(226, 157, 82, 0.45);
+  }
+  .ai-main-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(0.5);
+    box-shadow: none;
   }
   .batch-btn {
     font-size: 10px !important;
