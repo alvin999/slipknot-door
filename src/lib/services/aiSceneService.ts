@@ -35,6 +35,11 @@ export interface AiSceneDecision {
   crop_rationale?: string;                     // 裁切與構圖診斷說明
 }
 
+export interface AnalyzeSceneOptions {
+  signal?: AbortSignal;
+  onLog?: (msg: string) => Promise<void> | void;
+  maxRetries?: number; // 預設 2 次自動重試（共嘗試最多 3 次）
+}
 
 export interface CopywritingPayload {
   tags: string[];
@@ -156,18 +161,22 @@ export class AiSceneService {
   public static getActiveModelInfo(): { provider: string; modelId: string } {
     const roles = AiEngineFactory.getTaskRoles();
     const provider = roles.vision.provider || 'gemini';
-    const modelId = roles.vision.modelId || (provider === 'gemini' ? 'gemini-flash-latest' : 'llama-3.2-11b-vision-preview');
+    // 若為 Gemini 且未手動指定，優先採用最極速穩定且幾乎無 503 佇列的 flash-lite 模型
+    const defaultModel = provider === 'gemini' ? 'gemini-flash-lite-latest' : 'llama-3.2-11b-vision-preview';
+    const modelId = roles.vision.modelId || defaultModel;
     return { provider, modelId };
   }
 
   /**
    * 執行場景分析決策：
-   * 1. 若使用者「已配置 API 金鑰」：100% 執行雲端多模態神經推論。若遇到伺服器壅塞 (503)、配額或超時，直接真實報錯，絕不私自偷塞寫死本地規則。
-   * 2. 若使用者「未配置 API 金鑰」：代表純本機離線操作，才以本機光學規則作為免費基礎輔助。
+   * 1. 若使用者「已配置 API 金鑰」：100% 執行雲端多模態神經推論，具備「智慧自動重試（Auto-retry）」抗尖峰壅塞 (503/429)。
+   * 2. 支援隨時手動中斷（AbortSignal），中止時立即掐斷連線與等待。
+   * 3. 若使用者「未配置 API 金鑰」：才以本機光學規則作為免費基礎輔助。
    */
   public static async analyzeScene(
     imagePayload512pxBase64: string,
-    exif: ExifOpticalData
+    exif: ExifOpticalData,
+    options?: AnalyzeSceneOptions
   ): Promise<AiSceneDecision> {
     const startTime = Date.now();
 
@@ -193,26 +202,69 @@ export class AiSceneService {
     const sizeKb = (cleanBase64.length * 0.75 / 1024).toFixed(1);
     console.info(`[AI_VISION] 縮圖準備完成 (耗時: ${prepMs}ms, 體積: ${sizeKb} KB, 模型: ${modelId})`);
 
-    // 執行真實雲端多模態推論：完全依賴伺服器連線響應與網路狀態，絕不在前端用秒數定時炸彈掐斷連線
-    const inferencePromise = strategy.analyzePhoto({
-      apiKey,
-      modelId,
-      imagePayload512pxBase64: cleanBase64,
-      exif,
-      timeoutMs: 180000 // 提供最寬裕的 3 分鐘底層 Socket 守護，其餘完全由伺服器自然回傳 (200/503/429) 驅動
-    });
+    const maxRetries = options?.maxRetries ?? 2;
+    let attempt = 0;
 
-    try {
-      const decision = await inferencePromise;
-      decision.inferenceDurationMs = Date.now() - startTime;
-      decision.isFallback = false; // 確信為雲端真實推論
-      return decision;
-    } catch (err: any) {
-      const rawMsg = err?.message || '雲端服務連線中斷';
-      console.error(`[AI_VISION] 雲端推論失敗 (${strategy.providerName} / ${modelId}):`, err);
-      // 有金鑰時直接真實拋出錯誤，讓暗房顯示真實狀況，拒絕假裝成功
-      throw new Error(`雲端推論失敗 [${modelId}]：${rawMsg}`);
+    while (attempt <= maxRetries) {
+      if (options?.signal?.aborted) {
+        throw new Error('使用者已手動中止推論程序');
+      }
+
+      try {
+        const decision = await strategy.analyzePhoto({
+          apiKey,
+          modelId,
+          imagePayload512pxBase64: cleanBase64,
+          exif,
+          signal: options?.signal,
+          timeoutMs: 180000 // 提供寬裕的 Socket 守護
+        });
+
+        decision.inferenceDurationMs = Date.now() - startTime;
+        decision.isFallback = false; // 確信為雲端真實推論
+        return decision;
+      } catch (err: any) {
+        // 若為使用者主動中止，立即拋出，不進行任何重試
+        if (options?.signal?.aborted || err?.name === 'AbortError' || err?.message?.includes('手動中止')) {
+          throw new Error('使用者已手動中止批次顯影程序');
+        }
+
+        const rawMsg: string = err?.message || '雲端服務連線中斷';
+        // 判斷是否為暫時性伺服器尖峰壅塞 (503/UNAVAILABLE/high demand) 或配額冷卻 (429) 或短暫網路抖動
+        const isTransient = /503|429|UNAVAILABLE|high demand|rate limit|fetch failed|連線異常|超時/i.test(rawMsg);
+
+        if (isTransient && attempt < maxRetries) {
+          attempt++;
+          const delaySec = attempt === 1 ? 2.5 : 4.5;
+          const retryMsg = `> [RETRY] 雲端伺服器尖峰壅塞 (${rawMsg.includes('503') ? 'HTTP 503' : '暫時壅塞'})，等待 ${delaySec}s 自動重試 (${attempt}/${maxRetries})...`;
+          console.warn(`[AI_VISION] ${retryMsg} [${modelId}]`);
+          
+          if (options?.onLog) {
+            await options.onLog(retryMsg);
+          }
+
+          // 指數退避等待，支援 signal 隨時喚醒中斷
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => resolve(), delaySec * 1000);
+            if (options?.signal) {
+              const onAbort = () => {
+                clearTimeout(timer);
+                reject(new Error('使用者已手動中止批次顯影程序'));
+              };
+              options.signal.addEventListener('abort', onAbort, { once: true });
+            }
+          });
+
+          continue; // 進入下一輪重試
+        }
+
+        console.error(`[AI_VISION] 雲端推論失敗 (${strategy.providerName} / ${modelId}):`, err);
+        // 重試耗盡或非暫時性錯誤（例如 400 Bad Request、401 Invalid Key），如實拋出真實錯誤
+        throw new Error(`雲端推論失敗 [${modelId}]：${rawMsg}`);
+      }
     }
+
+    throw new Error(`雲端推論失敗 [${modelId}]：重試 ${maxRetries} 次後端點仍處於壅塞狀態`);
   }
 
   /**

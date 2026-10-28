@@ -13,6 +13,7 @@ export interface VisionInferenceOptions {
   imagePayload512pxBase64: string;
   exif: ExifOpticalData;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface TextInferenceOptions {
@@ -20,6 +21,7 @@ export interface TextInferenceOptions {
   modelId: string;
   payload: CopywritingPayload;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 /**

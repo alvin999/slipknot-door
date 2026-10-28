@@ -470,6 +470,7 @@
   let isAiAnalyzing = $state<boolean>(false);
   let isBatchAiRunning = $state<boolean>(false);
   let cancelBatchRequested = $state<boolean>(false);
+  let batchAbortController: AbortController | null = null;
   let batchProgress = $state<{ current: number; total: number; countdown: number } | null>(null);
   let aiConfidence = $state<number>(0.0);
   let aiDecisionIsFallback = $state<boolean | null>(null);
@@ -1387,6 +1388,12 @@
           shutterSpeed: photoToProcess.shutter,
           apertureValue: photoToProcess.aperture,
           focalLength: photoToProcess.focalLength
+        },
+        {
+          signal: batchAbortController?.signal,
+          onLog: async (msg: string) => {
+            await appendAiLog(msg, 15);
+          }
         }
       );
 
@@ -1560,6 +1567,10 @@
       await appendAiLog(`> [SUCCESS] 顯影調校完成 ✓`, 10);
       return true;
     } catch (err: any) {
+      if (cancelBatchRequested || err?.message?.includes('手動中止') || err?.name === 'AbortError') {
+        await appendAiLog(`> [BATCH_ABORT] 使用者已手動停止顯影程序。`, 10);
+        return false;
+      }
       console.error('AI Analysis failed:', err);
       await appendAiLog(`> [ERROR] 顯影推估異常：${err.message || '未知錯誤'}`, 20);
       return false;
@@ -1783,6 +1794,7 @@
 
     isBatchAiRunning = true;
     cancelBatchRequested = false;
+    batchAbortController = new AbortController();
     aiTerminalLogs = [];
     await appendAiLog(`> [BATCH_START] 啟動 AI 批次顯影調色，共 ${targetList.length} 張相片...`, 20);
 
@@ -1812,6 +1824,11 @@
 
       await runAiAnalysis(p);
 
+      if (cancelBatchRequested) {
+        await appendAiLog(`> [BATCH_ABORT] 使用者已手動中止批次顯影程序。`, 10);
+        break;
+      }
+
       // 只有在真正連接雲端在線 API（有有效金鑰）時，才需要 4.2 秒的速率保護等待
       // 若為純本地光學推估（無金鑰），直接跳過等待，避免浪費使用者時間與主機資源
       if (hasOnlineKey && i < targetList.length - 1 && !cancelBatchRequested) {
@@ -1831,6 +1848,7 @@
     isBatchAiRunning = false;
     batchProgress = null;
     cancelBatchRequested = false;
+    batchAbortController = null;
 
     // 批次完成後，若當前焦點底片有被處理，重繪畫布一次
     if (activePhoto && webglRenderer) {
@@ -1842,7 +1860,10 @@
 
   function cancelBatchAi() {
     cancelBatchRequested = true;
-    appendAiLog('> [BATCH_INTERRUPT] 正在中斷批次顯影程序...', 0);
+    if (batchAbortController) {
+      batchAbortController.abort();
+    }
+    appendAiLog('> [BATCH_INTERRUPT] 已收到停止指令，正在立即中止批次顯影...', 0);
   }
 
   // Export Pipeline State
@@ -2301,6 +2322,17 @@
                 <span class="term-dot amber"></span>
                 <span class="term-dot green"></span>
                 <span class="term-title">DARKROOM://NEURAL_DEVELOP</span>
+                {#if isBatchAiRunning}
+                  <button
+                    type="button"
+                    class="term-stop-btn font-mono"
+                    title="立即手動中止 AI 批次顯影"
+                    onclick={cancelBatchAi}
+                  >
+                    <span class="material-symbols-outlined" style="font-size: 11px;">stop_circle</span>
+                    <span>停止批次</span>
+                  </button>
+                {/if}
                 <button
                   type="button"
                   class="term-copy-btn font-mono"
@@ -3850,8 +3882,27 @@
     color: var(--parchment-dim);
     margin-left: 4px;
   }
-  .term-copy-btn {
+  .term-stop-btn {
     margin-left: auto;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    color: #fca5a5;
+    font-size: 8px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    transition: all 0.15s ease;
+  }
+  .term-stop-btn:hover {
+    color: #ffffff;
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.4);
+  }
+  .term-copy-btn {
+    margin-left: 4px;
     background: transparent;
     border: 1px solid rgba(226, 157, 82, 0.2);
     color: var(--parchment-dim);

@@ -81,9 +81,13 @@ Respond ONLY with raw JSON matching this schema:
       response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: requestBody
+        body: requestBody,
+        signal: options.signal
       });
     } catch (err: any) {
+      if (err?.name === 'AbortError' || options.signal?.aborted) {
+        throw new Error('推論連線已由使用者手動中止');
+      }
       throw new Error(`無法連線至 Gemini 伺服器 (${err?.message || '網路連線異常'})`);
     }
 

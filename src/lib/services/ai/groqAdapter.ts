@@ -54,29 +54,38 @@ Respond ONLY with raw JSON matching this schema:
   "tags": ["側逆光", "斜陽街角", "暖調底片", "微光散景"]
 }`;
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: activeModel,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: promptText },
-              {
-                type: 'image_url',
-                image_url: { url: `data:image/jpeg;base64,${cleanBase64}` }
-              }
-            ]
-          }
-        ],
-        response_format: { type: 'json_object' }
-      })
-    });
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: activeModel,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: promptText },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:image/jpeg;base64,${cleanBase64}` }
+                }
+              ]
+            }
+          ],
+          response_format: { type: 'json_object' }
+        }),
+        signal: options.signal
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || options.signal?.aborted) {
+        throw new Error('推論連線已由使用者手動中止');
+      }
+      throw new Error(`無法連線至 Groq 伺服器 (${err?.message || '網路連線異常'})`);
+    }
 
     if (!response.ok) {
       const errJson = await response.json().catch(() => null);

@@ -198,11 +198,12 @@ export class ModelDiscoveryService {
 
       if (provider === 'gemini') {
         if (/lite/i.test(combinedMeta)) {
-          score += 35;
-          recommendationTag = isLatest ? '⭐ 首選推薦 (latest · 輕量多模態)' : '⚡ 極低延遲 · 輕量多模態';
+          // 優先推薦 flash-lite 模型：暗房多模態評估品質與標準版相當，延遲極低且幾乎不受伺服器 503 尖峰佇列影響
+          score += 45;
+          recommendationTag = isLatest ? '⭐ 首選推薦 (latest · 極速穩定多模態)' : '⚡ 極速穩定 · 輕量多模態';
         } else if (/flash/i.test(combinedMeta)) {
           score += 40;
-          recommendationTag = isLatest ? '⭐ 首選推薦 (latest · 極速多模態)' : '⚡ 極速多模態';
+          recommendationTag = isLatest ? '🚀 官方最新 (latest · 極速多模態)' : '⚡ 極速多模態';
         } else if (/pro/i.test(combinedMeta)) {
           score += 15;
           recommendationTag = isLatest ? '🎯 官方最新 (latest · 高精細解析)' : '🎯 高精細解析';
