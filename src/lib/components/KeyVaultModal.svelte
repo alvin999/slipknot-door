@@ -79,38 +79,27 @@
     return ModelDiscoveryService.getCachedModels(p);
   }
 
-  // 任務職責指派狀態 (Task Roles: 影像視覺與文字文案分開指定)
+  // 任務職責指派狀態 (Task Roles: 只需指定負責服務，模型採用該服務已選定之模型)
   let roleVisionProvider = $state<string>('gemini');
-  let roleVisionModel = $state<string>('');
   let roleCopywritingProvider = $state<string>('groq');
-  let roleCopywritingModel = $state<string>('');
 
-  // 自動防空白保護：確保任務模型在當前可用動態清單內始終有效
-  $effect(() => {
-    const list = getDynamicModelsForProvider(roleVisionProvider);
-    if (list.length > 0 && (!roleVisionModel || !list.some(m => m.id === roleVisionModel))) {
-      roleVisionModel = list[0].id;
+  /**
+   * 取得指定 Provider 當前已選取或預設推薦之模型名稱
+   */
+  function getAssignedModelDisplay(prov: string): string {
+    const p = prov as 'gemini' | 'groq';
+    let modelId = '';
+    if (selectedProvider === p && selectedModelId) {
+      modelId = selectedModelId;
+    } else if (typeof localStorage !== 'undefined') {
+      modelId = localStorage.getItem(`slipknot_model_${p}`) || '';
     }
-  });
-
-  $effect(() => {
-    const list = getDynamicModelsForProvider(roleCopywritingProvider);
-    if (list.length > 0 && (!roleCopywritingModel || !list.some(m => m.id === roleCopywritingModel))) {
-      roleCopywritingModel = list[0].id;
+    if (!modelId) {
+      const cached = ModelDiscoveryService.getCachedModels(p);
+      modelId = cached[0]?.id || (p === 'gemini' ? 'gemini-flash-lite-latest' : 'llama-3.3-70b-versatile');
     }
-  });
-
-  // 當使用者在頂部切換選擇模型時，自動連動同步到任務指派
-  $effect(() => {
-    if (selectedModelId) {
-      if (roleVisionProvider === selectedProvider) {
-        roleVisionModel = selectedModelId;
-      }
-      if (roleCopywritingProvider === selectedProvider) {
-        roleCopywritingModel = selectedModelId;
-      }
-    }
-  });
+    return modelId;
+  }
 
   // Stored key status
   let vaultStatus = $state<{ exists: boolean; mode: KeyEncryptionMode | null; updatedAt: string | null }>({
@@ -133,10 +122,7 @@
   function loadTaskRoles() {
     const roles = AiEngineFactory.getTaskRoles();
     roleVisionProvider = roles.vision.provider || 'gemini';
-    roleVisionModel = roles.vision.modelId || '';
-
     roleCopywritingProvider = roles.copywriting.provider || 'groq';
-    roleCopywritingModel = roles.copywriting.modelId || '';
   }
 
   function loadStoredModelSelection() {
@@ -339,8 +325,8 @@
 
     // 持久化儲存任務職責指派 (Task Roles)
     AiEngineFactory.setTaskRoles({
-      vision: { provider: roleVisionProvider, modelId: roleVisionModel },
-      copywriting: { provider: roleCopywritingProvider, modelId: roleCopywritingModel }
+      vision: { provider: roleVisionProvider, modelId: getAssignedModelDisplay(roleVisionProvider) },
+      copywriting: { provider: roleCopywritingProvider, modelId: getAssignedModelDisplay(roleCopywritingProvider) }
     });
 
     // If apiKeyInput is empty but already exists and user is just changing model or role selection
@@ -610,14 +596,14 @@
           {/if}
         </div>
 
-        <!-- Role Assignment (AI 任務模型指派 - 純下拉選單) -->
+        <!-- Role Assignment (AI 任務職責指派 - 僅選服務，模型由上方直接套用) -->
         <div class="section-block role-assign-block hairline-all">
           <div class="role-header font-mono">
             <span class="material-symbols-outlined role-header-icon">tune</span>
             <span class="role-header-title">AI 任務職責指派 (ROLE ASSIGNMENT)</span>
           </div>
           <p class="role-desc font-body">
-            分別指派負責「相片視覺顯影」與「社群文字文案」的引擎與模型，下拉選取、免除手打。
+            分別指派負責「相片視覺顯影」與「社群文字文案」的引擎服務，模型自動採用上方該服務已選定之模型。
           </p>
 
           <div class="roles-grid">
@@ -632,13 +618,10 @@
                   <option value="gemini">Google Gemini</option>
                   <option value="groq">Groq Vision</option>
                 </select>
-                <select class="role-select font-mono" bind:value={roleVisionModel}>
-                  {#each getDynamicModelsForProvider(roleVisionProvider) as m}
-                    <option value={m.id}>
-                      {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
-                    </option>
-                  {/each}
-                </select>
+                <div class="role-model-badge font-mono" title="已於上方選取之模型">
+                  <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">verified</span>
+                  <span class="badge-text">{getAssignedModelDisplay(roleVisionProvider)}</span>
+                </div>
               </div>
             </div>
 
@@ -653,13 +636,10 @@
                   <option value="groq">Groq (極速推薦)</option>
                   <option value="gemini">Google Gemini</option>
                 </select>
-                <select class="role-select font-mono" bind:value={roleCopywritingModel}>
-                  {#each getDynamicModelsForProvider(roleCopywritingProvider) as m}
-                    <option value={m.id}>
-                      {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
-                    </option>
-                  {/each}
-                </select>
+                <div class="role-model-badge font-mono" title="已於上方選取之模型">
+                  <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">verified</span>
+                  <span class="badge-text">{getAssignedModelDisplay(roleCopywritingProvider)}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1181,6 +1161,23 @@
   }
   .role-select:focus {
     border-color: var(--amber-highlight);
+  }
+  .role-model-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(24, 25, 29, 0.6);
+    border: 1px dashed var(--hairline-color);
+    border-radius: var(--radius-xs);
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--parchment-dim);
+    overflow: hidden;
+  }
+  .role-model-badge .badge-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .status-banner {
