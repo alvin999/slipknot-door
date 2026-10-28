@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { ExportService } from '$lib/services/exportService';
+
   interface PhotoInfo {
     id: string;
     filename: string;
@@ -19,11 +21,15 @@
     onExport: (mode: 'modeA' | 'modeB') => Promise<void> | void;
   }
 
+  const initialDir = typeof localStorage !== 'undefined' && localStorage.getItem('slipknot_export_target_dir')
+    ? localStorage.getItem('slipknot_export_target_dir')!
+    : './Exports';
+
   let {
     isOpen = $bindable(false),
     photo = null,
     exportMode = 'modeA',
-    targetDir = '~/Pictures/Slipknot_Curatorial_Export',
+    targetDir = initialDir,
     onClose,
     onExport
   }: Props = $props();
@@ -31,10 +37,14 @@
   let selectedMode = $state<'modeA' | 'modeB'>('modeA');
   let isProcessing = $state<boolean>(false);
   let resultSuccess = $state<boolean>(false);
+  let resolvedTargetDir = $state<string>(targetDir);
 
-  // 同步外部傳入的 exportMode
+  // 同步外部傳入的 exportMode 與目標路徑解析
   $effect(() => {
     selectedMode = exportMode;
+    ExportService.resolveExportPath(targetDir).then((res) => {
+      resolvedTargetDir = res;
+    });
   });
 
   async function handleConfirmExport() {
@@ -152,7 +162,7 @@
           <div class="metadata-box hairline-all">
             <div class="meta-row">
               <span class="label">儲存目錄：</span>
-              <span class="val truncate" title={targetDir}>{targetDir}</span>
+              <span class="val truncate" title={resolvedTargetDir || targetDir}>{resolvedTargetDir || targetDir}</span>
             </div>
             <div class="meta-row">
               <span class="label">匯出檔名：</span>

@@ -1,8 +1,10 @@
 pub mod models;
 pub mod ingestion;
+pub mod export;
 
 use models::{CameraMountInfo, EmbeddedPreviewResult, RawPhotoItem};
 use ingestion::{RawExtractor, StorageDetector};
+use export::{save_exported_file, resolve_export_path};
 
 // Tauri Commands for Phase 2: Ingestion & Fast Preview
 
@@ -29,7 +31,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             detect_camera_mounts,
             scan_dcim_directory,
-            extract_embedded_jpeg
+            extract_embedded_jpeg,
+            save_exported_file,
+            resolve_export_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running slipknot-door application");

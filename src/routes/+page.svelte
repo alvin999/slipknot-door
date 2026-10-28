@@ -11,6 +11,7 @@
   import ExportView from '$lib/components/views/ExportView.svelte';
   import DevicesView from '$lib/components/views/DevicesView.svelte';
   import { WebglLutRenderer } from '$lib/services/webglLutRenderer';
+  import { ExportService } from '$lib/services/exportService';
   import type { CropGeometry, AiScopePreferences } from '$lib/types/photo';
 
   // Active module tabs
@@ -1857,17 +1858,29 @@
         const quality = mode === 'modeA' ? 0.95 : 1.0;
         const blob = await webglRenderer.exportBlob('image/jpeg', quality);
         if (blob) {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
+          const targetDir = typeof localStorage !== 'undefined' 
+            ? localStorage.getItem('slipknot_export_target_dir') || './Exports' 
+            : './Exports';
+          const autoDateSubdir = typeof localStorage !== 'undefined' 
+            ? localStorage.getItem('slipknot_export_date_subdir') !== 'false' 
+            : true;
+          const subDir = autoDateSubdir ? new Date().toISOString().slice(0, 10) : undefined;
           const baseName = activePhoto.filename.replace(/\.[^/.]+$/, '');
           const suffix = mode === 'modeA' ? '_preview' : '_graded';
-          a.href = url;
-          a.download = `${baseName}${suffix}.jpg`;
-          a.click();
-          URL.revokeObjectURL(url);
+          const filename = `${baseName}${suffix}.jpg`;
+
+          const saveResult = await ExportService.saveExportedPhoto({
+            targetDir,
+            subDir,
+            filename,
+            blob
+          });
+
+          exportNotice = saveResult.savedPath
+            ? `已即時匯出至 ${saveResult.savedPath}`
+            : `已即時匯出 ${activePhoto.filename} (${mode === 'modeA' ? '極速模式' : '滿血典藏'})`;
         }
       }
-      exportNotice = `已即時匯出 ${activePhoto.filename} (${mode === 'modeA' ? '極速模式' : '滿血典藏'})`;
     } catch {
       exportNotice = '即時匯出發生錯誤';
     } finally {
@@ -1875,7 +1888,10 @@
     }
   }
 
-  async function triggerExport(subset?: PhotoPlate[]) {
+  async function triggerExport(
+    subset?: PhotoPlate[], 
+    options?: { targetDir: string; autoDateSubdir: boolean; backupRawFiles: boolean }
+  ) {
     const listToExport = (subset && subset.length > 0)
       ? subset
       : (activeQueue.length > 0 ? activeQueue : (activePhoto ? [activePhoto] : []));
@@ -1886,9 +1902,18 @@
       return;
     }
 
+    const targetDir = options?.targetDir 
+      || (typeof localStorage !== 'undefined' ? localStorage.getItem('slipknot_export_target_dir') || './Exports' : './Exports');
+    const autoDateSubdir = options !== undefined
+      ? options.autoDateSubdir
+      : (typeof localStorage !== 'undefined' ? localStorage.getItem('slipknot_export_date_subdir') !== 'false' : true);
+    const subDir = autoDateSubdir ? new Date().toISOString().slice(0, 10) : undefined;
+
     isExporting = true;
     exportProgress = 5;
     exportNotice = `準備批次匯出 ${listToExport.length} 幀底片...`;
+
+    let lastSavedPath = '';
 
     try {
       for (let i = 0; i < listToExport.length; i++) {
@@ -1896,41 +1921,50 @@
         exportProgress = Math.round(((i + 0.5) / listToExport.length) * 100);
         exportNotice = `正在渲染第 ${i + 1}/${listToExport.length} 幀: ${p.filename}...`;
 
+        let blobToSave: Blob | null = null;
+        const baseName = p.filename.replace(/\.[^/.]+$/, '');
+        const filename = `${baseName}_graded.jpg`;
+
         // 若是當前底片，直接透過 webglRenderer 導出高畫質
         if (webglRenderer && activePhoto && p.id === activePhoto.id) {
-          const blob = await webglRenderer.exportBlob('image/jpeg', exportMode === 'modeA' ? 0.95 : 1.0);
-          if (blob) {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            const baseName = p.filename.replace(/\.[^/.]+$/, '');
-            a.href = url;
-            a.download = `${baseName}_graded.jpg`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }
+          blobToSave = await webglRenderer.exportBlob('image/jpeg', exportMode === 'modeA' ? 0.95 : 1.0);
         } else {
           // 其他照片使用 gradedThumbnail 或 thumbnail
           const targetSrc = p.gradedThumbnail || p.thumbnail;
           if (targetSrc) {
-            const a = document.createElement('a');
-            const baseName = p.filename.replace(/\.[^/.]+$/, '');
-            a.href = targetSrc;
-            a.download = `${baseName}_graded.jpg`;
-            a.click();
+            try {
+              const res = await fetch(targetSrc);
+              blobToSave = await res.blob();
+            } catch {
+              blobToSave = null;
+            }
           }
         }
-        await new Promise(r => setTimeout(r, 100));
+
+        if (blobToSave) {
+          const saveResult = await ExportService.saveExportedPhoto({
+            targetDir,
+            subDir,
+            filename,
+            blob: blobToSave,
+          });
+          if (saveResult.savedPath) {
+            lastSavedPath = saveResult.savedPath;
+          }
+        }
+
+        await new Promise(r => setTimeout(r, 60));
       }
 
       exportProgress = 100;
       exportNotice = exportMode === 'modeA' 
-        ? `已成功批次匯出 ${listToExport.length} 幀所見即所得調色 JPEG (極速完成)` 
-        : `已成功批次儲存 ${listToExport.length} 幀 16-bit 滿血無損 JPEG (典藏模式)`;
+        ? `已成功批次匯出 ${listToExport.length} 幀 (極速完成) 至 ${lastSavedPath || targetDir}` 
+        : `已成功批次儲存 ${listToExport.length} 幀 (典藏模式) 至 ${lastSavedPath || targetDir}`;
     } catch {
       exportNotice = '匯出發生錯誤';
     } finally {
       isExporting = false;
-      setTimeout(() => { exportNotice = ''; }, 3500);
+      setTimeout(() => { exportNotice = ''; }, 4000);
     }
   }
 </script>
@@ -2846,7 +2880,7 @@
           {aiVisionTags}
           {aiSceneTitle}
           onSetExportMode={(m: 'modeA' | 'modeB') => exportMode = m}
-          onTriggerExport={(subset) => triggerExport(subset as PhotoPlate[])}
+          onTriggerExport={(subset, options) => triggerExport(subset as PhotoPlate[], options)}
         />
       {:else if activeTab === 'devices'}
         <!-- MODULE 5: HARDWARE MOUNTS & STORAGE SETTINGS -->

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { AiSceneService } from '$lib/services/aiSceneService';
+  import { ExportService } from '$lib/services/exportService';
 
   export interface PhotoPlateItem {
     id: string;
@@ -17,6 +18,12 @@
 
   export type ExportScope = 'picked' | 'edited' | 'selected' | 'all';
 
+  export interface ExportPipelineOptions {
+    targetDir: string;
+    autoDateSubdir: boolean;
+    backupRawFiles: boolean;
+  }
+
   interface Props {
     photos: PhotoPlateItem[];
     activePhoto?: PhotoPlateItem | null;
@@ -27,7 +34,7 @@
     aiVisionTags?: string[];
     aiSceneTitle?: string;
     onSetExportMode: (m: 'modeA' | 'modeB') => void;
-    onTriggerExport: (subset?: PhotoPlateItem[]) => void;
+    onTriggerExport: (subset?: PhotoPlateItem[], options?: ExportPipelineOptions) => void;
   }
 
   let {
@@ -180,10 +187,15 @@
   // 今日日期字串 YYYY-MM-DD
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  // 動態即時計算路徑預覽
-  const previewPath = $derived(() => {
-    const cleanBase = targetDirectory.trim().replace(/\/+$/, '') || './Exports';
-    return autoDateSubdir ? `${cleanBase}/${todayStr}` : cleanBase;
+  // 動態即時計算路徑預覽（交由 Rust PathBuf 原生標準化解析，相容 Windows 反斜線）
+  let resolvedPreviewPath = $state<string>('');
+
+  $effect(() => {
+    const dir = targetDirectory;
+    const sub = autoDateSubdir ? todayStr : undefined;
+    ExportService.resolveExportPath(dir, sub).then((res) => {
+      resolvedPreviewPath = res;
+    });
   });
 
   // 匯出時呼叫 Groq 生成社群文案
@@ -258,7 +270,11 @@
     if (userSocialPrompt && !aiSocialCaption) {
       handleGenerateSocialCopy();
     }
-    onTriggerExport(finalExportPhotos);
+    onTriggerExport(finalExportPhotos, {
+      targetDir: targetDirectory,
+      autoDateSubdir,
+      backupRawFiles
+    });
   }
 </script>
 
@@ -647,7 +663,7 @@
           </div>
           <div class="preview-tree">
             <div class="tree-line">
-              <span class="tree-branch">📁 {previewPath()}/</span>
+              <span class="tree-branch">📁 {resolvedPreviewPath || targetDirectory}/</span>
             </div>
             <div class="tree-line indent">
               <span class="tree-leaf">├─ 🖼️ Final_JPG/</span>
