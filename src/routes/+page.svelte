@@ -755,7 +755,10 @@
         selectAdjacentPhoto(1);
       } else if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
-        showABComparison = !showABComparison;
+        // 方案 1：按住 Space 顯示原始本相（避免按鍵長按自動重複 repeat 重複觸發）
+        if (!e.repeat) {
+          showABComparison = true;
+        }
       } else if (e.key === 'Enter') {
         e.preventDefault();
         goToExport();
@@ -774,6 +777,23 @@
         e.preventDefault();
         goToRetouch();
       }
+    }
+  }
+
+  function handleRetouchKeyup(e: KeyboardEvent) {
+    // 放開 Space 鍵時瞬間恢復調色本態
+    if (e.key === ' ' || e.code === 'Space') {
+      if (showABComparison) {
+        e.preventDefault();
+        showABComparison = false;
+      }
+    }
+  }
+
+  function handleWindowBlur() {
+    // 視窗失去焦點時安全復原比對狀態，避免放開事件遺失而卡在原圖
+    if (showABComparison) {
+      showABComparison = false;
     }
   }
 
@@ -1990,7 +2010,11 @@
   }
 </script>
 
-<svelte:window onkeydown={handleRetouchKeydown} />
+<svelte:window 
+  onkeydown={handleRetouchKeydown} 
+  onkeyup={handleRetouchKeyup} 
+  onblur={handleWindowBlur} 
+/>
 
 <div class="workspace-container">
   <!-- 去識別化 3D 膠卷風格濾鏡著色矩陣定義 (De-identified Film Emulation Matrices) -->
@@ -2224,10 +2248,9 @@
         class="help-trigger-btn hairline-all font-mono" 
         onclick={() => isHelpOpen = true}
         title="系統操作與鍵盤快捷鍵指南 (按 ?)"
+        aria-label="系統操作與鍵盤快捷鍵指南"
       >
         <span class="material-symbols-outlined icon">help_outline</span>
-        <span class="help-btn-label">說明</span>
-        <kbd class="kbd-chip">?</kbd>
       </button>
     </div>
   </header>
@@ -2754,9 +2777,12 @@
                   onmousedown={() => showABComparison = true}
                   onmouseup={() => showABComparison = false}
                   onmouseleave={() => showABComparison = false}
+                  ontouchstart={() => showABComparison = true}
+                  ontouchend={() => showABComparison = false}
+                  ontouchcancel={() => showABComparison = false}
                 >
                   <span class="material-symbols-outlined" style="font-size: 15px;">compare</span>
-                  <span>{showABComparison ? '原始本相 (RAW)' : '按住 A/B 比對 (Space)'}</span>
+                  <span>{showABComparison ? '原始本相 (RAW)' : '按住比對原圖 (Space)'}</span>
                 </button>
               </div>
 
@@ -3555,9 +3581,10 @@
   .help-trigger-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    width: 32px;
     height: 32px;
-    padding: 0 10px;
+    padding: 0;
     background-color: var(--surface-panel);
     border: 1px solid var(--hairline-slate);
     border-radius: var(--radius-sm);
@@ -3572,12 +3599,8 @@
     background-color: var(--surface-overlay);
   }
   .help-trigger-btn .icon {
-    font-size: 16px;
+    font-size: 18px;
     color: var(--amber-highlight);
-  }
-  .help-trigger-btn .help-btn-label {
-    font-size: 11px;
-    letter-spacing: 0.05em;
   }
   .help-nav-btn {
     margin-top: 8px;

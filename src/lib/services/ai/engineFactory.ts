@@ -78,13 +78,13 @@ export class AiEngineFactory {
       const vp = localStorage.getItem(this.STORAGE_KEY_VISION_PROV);
       if (vp) visionProv = vp;
 
-      const vm = localStorage.getItem(this.STORAGE_KEY_VISION_MODEL);
+      const vm = localStorage.getItem(this.STORAGE_KEY_VISION_MODEL) || localStorage.getItem(`slipknot_model_${visionProv}`);
       if (vm) visionModel = vm;
 
       const cp = localStorage.getItem(this.STORAGE_KEY_TEXT_PROV);
       if (cp) copyProv = cp;
 
-      const cm = localStorage.getItem(this.STORAGE_KEY_TEXT_MODEL);
+      const cm = localStorage.getItem(this.STORAGE_KEY_TEXT_MODEL) || localStorage.getItem(`slipknot_model_${copyProv}`);
       if (cm) copyModel = cm;
     }
 
