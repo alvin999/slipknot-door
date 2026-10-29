@@ -74,14 +74,14 @@ vec3 blurAt(vec2 uv, vec2 texel, float radius) {
     return sum / 16.0;
 }
 
-// White balance temperature shift (Baseline 5500K) + Green-Magenta Tint (-100 ~ +100)
+// White balance temperature shift (Baseline 5500K: >5500K warms +R/-B, <5500K cools -R/+B) + Green-Magenta Tint (-100 ~ +100)
 vec3 applyWhiteBalance(vec3 c, float kelvin, float tintVal) {
     vec3 res = c;
     if (abs(kelvin - 5500.0) > 10.0) {
         float delta = (kelvin - 5500.0) / 3000.0;
         vec3 kFactor = delta < 0.0
-            ? vec3(1.0 - delta * 0.10, 1.0 - delta * 0.02, 1.0 + delta * 0.12)
-            : vec3(1.0 - delta * 0.08, 1.0 + delta * 0.01, 1.0 + delta * 0.14);
+            ? vec3(1.0 + delta * 0.10, 1.0 + delta * 0.02, 1.0 - delta * 0.12)
+            : vec3(1.0 + delta * 0.10, 1.0 + delta * 0.01, 1.0 - delta * 0.14);
         res *= kFactor;
     }
     if (abs(tintVal) > 0.5) {

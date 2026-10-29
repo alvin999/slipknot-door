@@ -18,6 +18,8 @@
   import DevicesView from "$lib/components/views/DevicesView.svelte";
   import { WebglLutRenderer } from "$lib/services/webglLutRenderer";
   import { ExportService } from "$lib/services/exportService";
+  import { STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
+  import type { StyleKeywordId } from "$lib/services/ai/types";
   import type { CropGeometry, AiScopePreferences } from "$lib/types/photo";
 
   // Active module tabs
@@ -95,6 +97,7 @@
     tuning?: {
       exposure: number;
       contrast: number;
+      shadows?: number;
       lutIntensity: number;
       colorTemp: number;
       tint: number;
@@ -414,6 +417,23 @@
     | "auto"
   >("auto"); // 每次載入預設為 AI 自動配對
   let previewHoverProfileId = $state<string | null>(null);
+
+  // 調色意境關鍵字與自訂 Prompt 狀態 (Vibe Keyword Chips & Custom Prompt)
+  let selectedStyleKeywords = $state<StyleKeywordId[]>([]);
+  let customStylePrompt = $state<string>("");
+
+  function toggleStyleKeyword(id: StyleKeywordId) {
+    if (selectedStyleKeywords.includes(id)) {
+      selectedStyleKeywords = selectedStyleKeywords.filter((k) => k !== id);
+    } else {
+      selectedStyleKeywords = [...selectedStyleKeywords, id];
+    }
+  }
+
+  function clearStyleKeywords() {
+    selectedStyleKeywords = [];
+    customStylePrompt = "";
+  }
 
   const styleGradingPresets: {
     key:
@@ -816,6 +836,7 @@
       const isDefault =
         Math.abs(exposure - asShotExp) < 0.001 &&
         Math.abs(contrast - 0.0) < 0.001 &&
+        Math.abs(shadows - 0.0) < 0.001 &&
         Math.abs(colorTemp - asShotTemp) < 1 &&
         Math.abs(tint - asShotTint) < 0.001 &&
         Math.abs(lutIntensity - 1.0) < 0.001 &&
@@ -827,6 +848,7 @@
         : {
             exposure,
             contrast,
+            shadows,
             lutIntensity,
             colorTemp,
             tint,
@@ -889,6 +911,7 @@
     if (plate.tuning) {
       exposure = plate.tuning.exposure;
       contrast = plate.tuning.contrast;
+      shadows = plate.tuning.shadows ?? 0;
       lutIntensity = plate.tuning.lutIntensity;
       colorTemp = plate.tuning.colorTemp;
       tint = plate.tuning.tint ?? 0;
@@ -897,6 +920,7 @@
     } else {
       exposure = plate.asShotExposure ?? 0.0;
       contrast = 0.0;
+      shadows = 0.0;
       lutIntensity = 1.0;
       colorTemp = plate.asShotTemp ?? 5500;
       tint = plate.asShotTint ?? 0.0;
@@ -1116,6 +1140,7 @@
     if (found) {
       exposure = found.evDefault;
       contrast = found.contrastDefault || 0.0;
+      shadows = found.shadowsDefault ?? 0.0;
       lutIntensity = found.lutIntensityDefault;
       clarity = found.clarityDefault ?? 0.0;
       sharpness = found.sharpnessDefault ?? 0.0;
@@ -1291,9 +1316,8 @@
               (found ? found.lutIntensityDefault : 1.0));
           const currentShadows = isCurrentActive
             ? shadows
-            : found
-              ? (found.shadowsDefault ?? 0.0)
-              : 0.0;
+            : (plate.tuning?.shadows ??
+              (found ? (found.shadowsDefault ?? 0.0) : 0.0));
           const currentClarity = isCurrentActive
             ? clarity
             : (plate.tuning?.clarity ??
@@ -1355,6 +1379,7 @@
     tint = activePhoto.asShotTint ?? 0.0;
     exposure = activePhoto.asShotExposure ?? 0.0;
     contrast = 0.0;
+    shadows = 0.0;
     lutIntensity = 1.0;
     clarity = 0.0;
     sharpness = 0.0;
@@ -1376,6 +1401,7 @@
     const isDefaultTuning =
       Math.abs(exposure - asShotExp) < 0.001 &&
       Math.abs(contrast - 0.0) < 0.001 &&
+      Math.abs(shadows - 0.0) < 0.001 &&
       Math.abs(colorTemp - asShotTemp) < 1 &&
       Math.abs(tint - asShotTint) < 0.001 &&
       Math.abs(lutIntensity - 1.0) < 0.001 &&
@@ -1387,6 +1413,7 @@
       : {
           exposure,
           contrast,
+          shadows,
           lutIntensity,
           colorTemp,
           tint,
@@ -1403,6 +1430,9 @@
           0.001 &&
         Math.abs(currentPlate.tuning.contrast - targetTuning.contrast) <
           0.001 &&
+        Math.abs(
+          (currentPlate.tuning.shadows ?? 0) - (targetTuning.shadows ?? 0),
+        ) < 0.001 &&
         Math.abs(currentPlate.tuning.lutIntensity - targetTuning.lutIntensity) <
           0.001 &&
         Math.abs(currentPlate.tuning.colorTemp - targetTuning.colorTemp) < 1 &&
@@ -1457,6 +1487,7 @@
   function resetTuningParams() {
     exposure = 0.0;
     contrast = 0.0;
+    shadows = 0.0;
     colorTemp = 5500;
     tint = 0.0;
     lutIntensity = 1.0;
@@ -1601,6 +1632,7 @@
     const _profile = activePhoto?.appliedProfile;
     const _exp = exposure;
     const _contrast = contrast;
+    const _shadows = shadows;
     const _temp = colorTemp;
     const _tint = tint;
     const _lut = lutIntensity;
@@ -1811,6 +1843,7 @@
     target: {
       exposure?: number;
       contrast?: number;
+      shadows?: number;
       lutIntensity?: number;
       colorTemp?: number;
       tint?: number;
@@ -1819,12 +1852,14 @@
   ) {
     const startExposure = exposure;
     const startContrast = contrast;
+    const startShadows = shadows;
     const startLutIntensity = lutIntensity;
     const startColorTemp = colorTemp;
     const startTint = tint;
 
     const targetExposure = target.exposure ?? startExposure;
     const targetContrast = target.contrast ?? startContrast;
+    const targetShadows = target.shadows ?? startShadows;
     const targetLutIntensity = target.lutIntensity ?? startLutIntensity;
     const targetColorTemp = target.colorTemp ?? startColorTemp;
     const targetTint = target.tint ?? startTint;
@@ -1842,6 +1877,9 @@
       );
       contrast = parseFloat(
         (startContrast + (targetContrast - startContrast) * ease).toFixed(2),
+      );
+      shadows = parseFloat(
+        (startShadows + (targetShadows - startShadows) * ease).toFixed(2),
       );
       lutIntensity = parseFloat(
         (
@@ -1863,6 +1901,7 @@
           activePhoto.tuning = {
             exposure,
             contrast,
+            shadows,
             lutIntensity,
             colorTemp,
             tint,
@@ -1949,6 +1988,18 @@
         `> [STREAM] 傳輸 512px 縮圖至 ${activeModelInfo.provider === "gemini" ? "Google Gemini" : "Groq Vision"} (${activeModelInfo.modelId})...`,
         40,
       );
+      if (selectedStyleKeywords.length > 0 || customStylePrompt.trim()) {
+        const kwLabels = selectedStyleKeywords
+          .map(
+            (id) =>
+              STYLE_KEYWORD_ENTRIES.find((k) => k.id === id)?.shortTag || id,
+          )
+          .concat(customStylePrompt.trim() ? [customStylePrompt.trim()] : []);
+        await appendAiLog(
+          `> [STYLE_PROMPT] 注入調色關鍵字：${kwLabels.join(" + ")}`,
+          20,
+        );
+      }
     } else {
       await appendAiLog(
         `> [LOCAL_EVAL] 在地光學特徵評估中 (免連線降級)...`,
@@ -1970,6 +2021,8 @@
         {
           signal: batchAbortController?.signal,
           stylePreset: activeStylePreset,
+          styleKeywords: selectedStyleKeywords,
+          customStylePrompt: customStylePrompt.trim() || undefined,
           onLog: async (msg: string) => {
             await appendAiLog(msg, 15);
           },
@@ -2065,6 +2118,10 @@
       const baseContrast = aiScope.tone
         ? (decision.contrast ?? 0.0)
         : (photoToProcess.tuning?.contrast ?? 0.0);
+      const baseShadows = aiScope.tone
+        ? (decision.lift_shadows ?? 0.0)
+        : (photoToProcess.tuning?.shadows ??
+          (foundProfile ? (foundProfile.shadowsDefault ?? 0.0) : 0.0));
       const baseTemp = aiScope.whiteBalance
         ? (decision.color_temp ?? 5500)
         : (photoToProcess.tuning?.colorTemp ??
@@ -2179,6 +2236,7 @@
       photoToProcess.tuning = {
         exposure: baseEv,
         contrast: baseContrast,
+        shadows: baseShadows,
         lutIntensity: baseLut,
         colorTemp: baseTemp,
         tint: baseTint,
@@ -2196,6 +2254,7 @@
           const targetAnim: {
             exposure?: number;
             contrast?: number;
+            shadows?: number;
             colorTemp?: number;
             tint?: number;
             lutIntensity?: number;
@@ -2203,6 +2262,7 @@
           if (aiScope.tone) {
             targetAnim.exposure = baseEv;
             targetAnim.contrast = baseContrast;
+            targetAnim.shadows = baseShadows;
           }
           if (aiScope.whiteBalance) {
             targetAnim.colorTemp = baseTemp;
@@ -2232,6 +2292,7 @@
           // 批次模式中直接更新全域狀態，絕不觸發高頻動畫或重繪風暴
           exposure = baseEv;
           contrast = baseContrast;
+          shadows = baseShadows;
           colorTemp = baseTemp;
           tint = baseTint;
           lutIntensity = baseLut;
@@ -3451,12 +3512,59 @@
                 </div>
               </div>
 
+              <!-- 調色意境關鍵字按鈕列 (Vibe Keywords Prompt Injection)：先點擊選取，再按下方 AI 顯影調色執行 -->
+              <div class="vibe-keywords-picker hairline-all font-mono">
+                <div class="vibe-keywords-header">
+                  <div class="vibe-header-left">
+                    <span
+                      class="material-symbols-outlined"
+                      style="font-size: 13px; color: var(--amber-highlight);"
+                      >flare</span
+                    >
+                    <span>調色意境關鍵字（點選加入 Prompt）</span>
+                  </div>
+                  {#if selectedStyleKeywords.length > 0 || customStylePrompt.trim()}
+                    <button
+                      type="button"
+                      class="vibe-clear-btn font-mono"
+                      onclick={clearStyleKeywords}
+                      title="清空已選取的調色關鍵字"
+                    >
+                      清空 ({selectedStyleKeywords.length +
+                        (customStylePrompt.trim() ? 1 : 0)})
+                    </button>
+                  {/if}
+                </div>
+
+                <div class="vibe-chips-grid">
+                  {#each STYLE_KEYWORD_ENTRIES as kw}
+                    <button
+                      type="button"
+                      class="vibe-keyword-chip font-mono"
+                      class:active={selectedStyleKeywords.includes(kw.id)}
+                      title={kw.tooltip}
+                      onclick={() => toggleStyleKeyword(kw.id)}
+                    >
+                      <span class="vibe-chip-dot"></span>
+                      <span>{kw.shortTag}</span>
+                    </button>
+                  {/each}
+                </div>
+
+                <input
+                  type="text"
+                  class="vibe-custom-input font-mono"
+                  placeholder="+ 自訂調色關鍵字 (例：偏暖、底片顆粒感)..."
+                  bind:value={customStylePrompt}
+                />
+              </div>
+
               <button
                 type="button"
                 class="archival-btn-primary w-full ai-main-btn"
                 onclick={() => runAiAnalysis()}
                 disabled={isAiAnalyzing || !activePhoto}
-                title="以選定風格執行 AI 調色（AI 自動配對 = 由 AI 自行判斷；依職責勾選套用裁切與校正）"
+                title="以選定風格與調色關鍵字執行 AI 調色（AI 自動配對 = 由 AI 自行判斷；依職責勾選套用裁切與校正）"
               >
                 <span
                   class="material-symbols-outlined"
@@ -4240,6 +4348,26 @@
                 max="0.8"
                 step="0.02"
                 bind:value={contrast}
+                class="darkroom-slider"
+              />
+            </div>
+
+            <!-- Slider 2.5: Shadow Lift (Matte Toe Lift) -->
+            <div class="control-row">
+              <div class="control-header font-mono">
+                <span>SHADOW LIFT (暗部啞光抬升)</span>
+                <span class="control-val"
+                  >{shadows > 0
+                    ? `+${Math.round(shadows * 100)}%`
+                    : `${Math.round(shadows * 100)}%`}</span
+                >
+              </div>
+              <input
+                type="range"
+                min="-0.5"
+                max="0.5"
+                step="0.02"
+                bind:value={shadows}
                 class="darkroom-slider"
               />
             </div>
@@ -5468,6 +5596,102 @@
   .style-card-badge {
     font-size: 8.5px;
     color: var(--parchment-dim);
+  }
+
+  /* 調色意境關鍵字按鈕列樣式 (Vibe Keywords Picker) */
+  .vibe-keywords-picker {
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: var(--radius-xs);
+  }
+  .vibe-keywords-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--parchment-dim);
+  }
+  .vibe-header-left {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .vibe-clear-btn {
+    background: transparent;
+    border: 1px solid rgba(226, 157, 82, 0.35);
+    color: var(--amber-highlight);
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.14s ease;
+  }
+  .vibe-clear-btn:hover {
+    background: rgba(226, 157, 82, 0.15);
+    border-color: var(--amber-highlight);
+  }
+  .vibe-chips-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .vibe-keyword-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    font-size: 9.5px;
+    color: var(--parchment-muted);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.14s ease;
+  }
+  .vibe-keyword-chip:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(226, 157, 82, 0.45);
+    color: var(--parchment-bright);
+  }
+  .vibe-keyword-chip.active {
+    background: rgba(226, 157, 82, 0.16);
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+  .vibe-chip-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    transition: background 0.14s ease;
+  }
+  .vibe-keyword-chip.active .vibe-chip-dot {
+    background: var(--amber-highlight);
+    box-shadow: 0 0 6px var(--amber-highlight);
+  }
+  .vibe-custom-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    padding: 4px 7px;
+    font-size: 9.5px;
+    color: var(--parchment-bright);
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .vibe-custom-input::placeholder {
+    color: var(--parchment-dim);
+    opacity: 0.7;
+  }
+  .vibe-custom-input:focus {
+    border-color: var(--amber-highlight);
+    background: rgba(0, 0, 0, 0.5);
   }
   .batch-actions-grid {
     display: grid;

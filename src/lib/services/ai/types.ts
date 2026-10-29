@@ -21,6 +21,15 @@ export type StylePresetKey =
   | 'platinum_acros'
   | 'auto';
 
+export type StyleKeywordId =
+  | 'film_like'
+  | 'lomo'
+  | 'airy_jp'
+  | 'cinematic'
+  | 'faded_vintage'
+  | 'neon_wkw'
+  | 'gritty_mono';
+
 export interface VisionInferenceOptions {
   apiKey: string;
   modelId: string;
@@ -29,6 +38,8 @@ export interface VisionInferenceOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
   stylePreset?: StylePresetKey;
+  styleKeywords?: StyleKeywordId[];
+  customStylePrompt?: string;
 }
 
 export interface TextInferenceOptions {

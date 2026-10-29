@@ -40,6 +40,8 @@ export interface AnalyzeSceneOptions {
   onLog?: (msg: string) => Promise<void> | void;
   maxRetries?: number; // 預設 2 次自動重試（共嘗試最多 3 次）
   stylePreset?: import('./ai/types').StylePresetKey;
+  styleKeywords?: import('./ai/types').StyleKeywordId[];
+  customStylePrompt?: string;
 }
 
 export interface CopywritingPayload {
@@ -216,6 +218,8 @@ export class AiSceneService {
           exif,
           signal: options?.signal,
           stylePreset: options?.stylePreset,
+          styleKeywords: options?.styleKeywords,
+          customStylePrompt: options?.customStylePrompt,
           timeoutMs: 180000 // 提供寬裕的 Socket 守護
         });
 

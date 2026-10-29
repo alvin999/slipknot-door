@@ -36,7 +36,11 @@ export class GroqAdapter implements IVisionStrategy, ITextStrategy {
 
     const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
 
-    const { instructionBlock, recommendedProfileSchemaHint } = buildStyleInstructionBlock(options.stylePreset);
+    const { instructionBlock, recommendedProfileSchemaHint } = buildStyleInstructionBlock(
+      options.stylePreset,
+      options.styleKeywords,
+      options.customStylePrompt
+    );
 
     const promptText = `You are a master analog darkroom colorist and curatorial director.
 Analyze this photographic image and optical EXIF (ISO: ${exif.iso || 'N/A'}, Shutter: ${exif.shutterSpeed || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}, Lens/Focal: ${exif.focalLength || 'N/A'}).
