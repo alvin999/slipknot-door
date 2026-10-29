@@ -482,23 +482,24 @@ export class WebglLutRenderer {
   private preloadBuiltinLuts() {
     if (!this.gl) return;
 
-    // 1. Profile_02_TealEmerald (Pure, Smooth 1:1 Teal Emerald 3D LUT)
-    this.registerLut('Profile_02_TealEmerald', this.generateTealEmeraldLut(), 33);
-
-    // 2. Profile_01_MatteShadow (Matte Black Pedestal Cine Look)
+    // 1. 本地即時數學兜底紋理 (確保離線或尚未載入完成時 0ms 正常著色)
     this.registerLut('Profile_01_MatteShadow', this.generateMatteShadowLut(), 33);
-
-    // 3. Profile_03_TungstenSoft (Warm Tungsten Portrait Look)
+    this.registerLut('Profile_02_TealEmerald', this.generateTealEmeraldLut(), 33);
     this.registerLut('Profile_03_TungstenSoft', this.generateTungstenSoftLut(), 33);
-
-    // 4. Profile_04_HighContrastMono (Classic Silver Gelatin Monochrome)
     this.registerLut('Profile_04_HighContrastMono', this.generateMonoSilverLut(), 33);
-
-    // 5. Profile_05_DocumentaryChrome (Documentary Hard Contrast, Muted Chroma Print Look)
     this.registerLut('Profile_05_DocumentaryChrome', this.generateDocumentaryChromeLut(), 33);
 
-    // 6. 自動非同步升級載入真實 Fujifilm Classic Chrome .cube 紋理 (若靜態資源目錄存在)
+    // 2. 自動非同步升級載入真實 3D .cube 紋理 (來自 cedeber/hald-clut 與原廠色彩科學還原)
+    this.loadCubeFileIfAvailable('Profile_01_MatteShadow', '/luts/fuji_eterna.cube');
+    this.loadCubeFileIfAvailable('Profile_02_TealEmerald', '/luts/teal_emerald.cube');
+    this.loadCubeFileIfAvailable('Profile_03_TungstenSoft', '/luts/kodak_portra_160.cube');
+    this.loadCubeFileIfAvailable('Profile_04_HighContrastMono', '/luts/kodak_trix_400.cube');
     this.loadCubeFileIfAvailable('Profile_05_DocumentaryChrome', '/luts/fuji_classic_chrome.cube');
+    this.loadCubeFileIfAvailable('Profile_06_ClassicNeg', '/luts/fuji_classic_neg.cube');
+    this.loadCubeFileIfAvailable('Profile_07_VelvetSlide', '/luts/fuji_velvia.cube');
+    this.loadCubeFileIfAvailable('Profile_08_WarmAstia', '/luts/fuji_astia.cube');
+    this.loadCubeFileIfAvailable('Profile_09_NostalgicNeg', '/luts/fuji_nostalgic_neg.cube');
+    this.loadCubeFileIfAvailable('Profile_10_PlatinumAcros', '/luts/fuji_acros.cube');
   }
 
   private async loadCubeFileIfAvailable(profileId: string, url: string) {

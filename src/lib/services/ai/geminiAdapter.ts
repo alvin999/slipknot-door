@@ -37,11 +37,16 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
       ? options.availableProfiles
       : [
           { id: 'Profile_00_StandardNatural', title: '原色自然直出', description: '保留光學原色，零風格扭曲' },
-          { id: 'Profile_01_MatteShadow', title: '啞光微膠卷', description: '黑階抬升、低飽和綠、電影感' },
+          { id: 'Profile_01_MatteShadow', title: '啞光微膠卷', description: '黑階抬升、低飽和沉穩綠、電影感' },
           { id: 'Profile_02_TealEmerald', title: '冷青翡翠', description: '暗部青藍、高光暖金雙色調' },
-          { id: 'Profile_03_TungstenSoft', title: '溫潤人像', description: '鎢絲燈暖調、柔和膚色' },
+          { id: 'Profile_03_TungstenSoft', title: '溫潤人像', description: '鎢絲燈暖調、柔和膚色滾降' },
           { id: 'Profile_04_HighContrastMono', title: '高反差黑白紀實', description: '幾何建築、強烈反差光影' },
-          { id: 'Profile_05_DocumentaryChrome', title: '典藏冷印紀實', description: '收斂飽和、暗部深邃冷調' }
+          { id: 'Profile_05_DocumentaryChrome', title: '典藏冷印紀實', description: '收斂飽和、暗部深邃冷調' },
+          { id: 'Profile_06_ClassicNeg', title: '經典人文彩色負片', description: '硬調反差、獨特墨綠陰影與紅潤膚色' },
+          { id: 'Profile_07_VelvetSlide', title: '絲絨濃彩反轉片', description: '超高彩度與鮮明對比、湛藍晴空與蒼翠林木' },
+          { id: 'Profile_08_WarmAstia', title: '柔順自然正片', description: '輕柔反差、潤澤膚色與柔順高光過渡' },
+          { id: 'Profile_09_NostalgicNeg', title: '懷舊琥珀暖調', description: '琥珀金黃高光、溫潤復古中灰調' },
+          { id: 'Profile_10_PlatinumAcros', title: '鉑金黑白微反差', description: '豐富絲滑中灰階調、深邃黑階與細膩銀鹽微反差' }
         ];
 
     const lutManifest = lutList.map(p => `- ${p.id}: ${p.title} (${p.description || '自訂風格檔'})`).join('\n');
@@ -51,20 +56,28 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
     let promptText: string;
 
     if (isStyleGrading) {
-      // 專屬 AI 風格調色：解除保守中庸束縛，指名經典相機色彩科學或自由輸入風格，動態生成專屬 3D LUT
+      // 專屬 AI 風格調色：指名經典相機色彩科學或自動配對，動態微調動態範圍與風格強度
       let targetDirective = '';
-      if (options.customStylePrompt && options.customStylePrompt.trim()) {
-        targetDirective = `Emulate the user's bespoke artistic style request: "${options.customStylePrompt.trim()}". Be creative, bold, and fully realize this artistic atmosphere on this photograph.`;
+      if (options.stylePreset === 'matte_shadow') {
+        targetDirective = `Recreate the 'MatteShadow' (FILM_LOOK_01) analog film look: lifted black pedestal, low-saturation muted sage greens, and soft cinematic high-contrast roll-off.`;
       } else if (options.stylePreset === 'film_like_fl') {
-        targetDirective = `Recreate the authentic aesthetic of Sony Creative Look 'FL' (Film-like). Lift shadows with a matte cyan-green pedestal, keep foliage greens muted/olive, enrich warm skin tones, and deliver a cinematic, low-fatigue analog look.`;
-      } else if (options.stylePreset === 'classic_chrome_cc') {
-        targetDirective = `Recreate the legendary Fujifilm Film Simulation 'Classic Chrome'. Produce hard, linear documentary contrast, distinct cyan sky shift, desaturated reds and rich olive-toned greens with gentle highlight roll-off.`;
-      } else if (options.stylePreset === 'monochrome_hc') {
-        targetDirective = `Recreate high-contrast classic monochrome silver gelatin aesthetic (reminiscent of legendary German rangefinder cameras). Deep obsidian shadows, rich micro-contrast, crisp luminance separation without crushed midtone textures.`;
-      } else if (options.stylePreset === 'matte_shadow') {
-        targetDirective = `Recreate the 'MatteShadow' analog film look: lifted black pedestal, low-saturation muted sage greens, and soft cinematic high-contrast roll-off.`;
+        targetDirective = `Recreate the authentic aesthetic of TealEmerald / Film-like FL (COLOR_GRADE_02). Lift shadows with a matte cyan-green pedestal, keep foliage greens muted/olive, enrich warm skin tones, and deliver a cinematic, low-fatigue analog look.`;
       } else if (options.stylePreset === 'tungsten_soft') {
-        targetDirective = `Recreate the 'TungstenSoft' warm portrait look: warm tungsten glow, subtle magenta tint protection for human skin tones, and creamy highlight roll-off.`;
+        targetDirective = `Recreate the 'TungstenSoft' (PORTRAIT_03) warm portrait look: warm tungsten glow, subtle magenta tint protection for human skin tones, and creamy highlight roll-off.`;
+      } else if (options.stylePreset === 'monochrome_hc') {
+        targetDirective = `Recreate high-contrast classic monochrome silver gelatin aesthetic (MONO_SILVER_04). Deep obsidian shadows, rich micro-contrast, crisp luminance separation without crushed midtone textures.`;
+      } else if (options.stylePreset === 'classic_chrome_cc') {
+        targetDirective = `Recreate the documentary aesthetic of 'DocumentaryChrome' (CHROME_DOC_05). Hard linear documentary contrast, distinct cyan sky shift, desaturated reds and rich olive-toned greens.`;
+      } else if (options.stylePreset === 'classic_neg') {
+        targetDirective = `Recreate classic analog color negative look (COLOR_NEG_06): hard tonal gradation, dark-green shadow cast, enriched skin tone saturation, and documentary punch.`;
+      } else if (options.stylePreset === 'velvet_slide') {
+        targetDirective = `Recreate legendary vivid color transparency slide film (VELVET_07): punchy vivid contrast, deep sapphire skies, rich emerald foliage, and hyper-dynamic landscapes.`;
+      } else if (options.stylePreset === 'warm_astia') {
+        targetDirective = `Recreate gentle portrait transparency film (SOFT_TONE_08): delicate soft contrast, luminous skin highlights, and natural pastel tonality.`;
+      } else if (options.stylePreset === 'nostalgic_neg') {
+        targetDirective = `Recreate 1970s warm nostalgic negative film (AMBER_NEG_09): amber highlight glow, rich warm midtone shadows, and gentle vintage atmosphere.`;
+      } else if (options.stylePreset === 'platinum_acros') {
+        targetDirective = `Recreate ultra-fine grain platinum black and white (ACROS_SILVER_10): silky smooth midtones, deep clean obsidian blacks, and high micro-contrast texture separation.`;
       } else {
         targetDirective = `Analyze the photo's subject, light angle, and mood, then select the best matching 3D LUT profile from:\n${lutManifest}\n(Prefer stylized LUTs Profile_01 to Profile_05 over Profile_00_StandardNatural) and tailor optical parameters to elevate this image.`;
       }

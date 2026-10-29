@@ -129,9 +129,14 @@ graph TD
 
 ## 3D LUT 色彩科學與開源致謝 / Acknowledgements
 
-本專案之膠片色彩科學與相機風格比對，部分 3D LUT 紋理與曲線參照自開源社群之精確相機還原設定檔：
+本專案之膠片色彩科學與相機風格比對，底層 3D LUT 紋理與曲線參照並轉換自開源攝影與膠卷模擬社群之精確設定檔：
 
-* **Fujifilm Camera Profiles (Classic Chrome 等)**：
+* **HaldCLUT Open Source Film Simulation Collection**：
+  * 專案來源：[cedeber/hald-clut](https://github.com/cedeber/hald-clut)（彙整 RawTherapee Film Simulation、Fuji XTrans III、PictureFX、Pixelmator 等底片預設）
+  * 授權條款：[GPL-3.0 License](https://github.com/cedeber/hald-clut/blob/master/LICENSE)
+  * 用途說明：本專案透過開源三線性插值演算法，將經典負片與黑白銀鹽 HaldCLUT（如 Kodak Portra 160、Kodak Tri-X 400、Fuji Acros、Teal & Orange 等）無損取樣轉換為標準 32×32×32 Adobe `.cube` 格式，供 WebGL 2.0 片段著色器進行硬體加速渲染。
+
+* **Fujifilm Camera Profiles (Classic Chrome、Velvia、Astia、Eterna、Classic Neg 等)**：
   * 專案來源：[abpy/FujifilmCameraProfiles](https://github.com/abpy/FujifilmCameraProfiles/tree/master)
   * 授權條款：[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
-  * 用途說明：用於本專案 WebGL 2.0 3D 紋理之真實原廠色彩曲線映射與解碼對齊。
+  * 用途說明：用於本專案 WebGL 2.0 3D 紋理之真實原廠色彩科學曲線映射與解碼對齊。

@@ -14,12 +14,16 @@ export interface AvailableProfileSummary {
 }
 
 export type StylePresetKey =
-  | 'film_like_fl'
-  | 'classic_chrome_cc'
-  | 'monochrome_hc'
   | 'matte_shadow'
+  | 'film_like_fl'
   | 'tungsten_soft'
-  | 'custom_prompt'
+  | 'monochrome_hc'
+  | 'classic_chrome_cc'
+  | 'classic_neg'
+  | 'velvet_slide'
+  | 'warm_astia'
+  | 'nostalgic_neg'
+  | 'platinum_acros'
   | 'auto';
 
 export interface VisionInferenceOptions {

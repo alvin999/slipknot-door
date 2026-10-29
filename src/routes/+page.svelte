@@ -400,29 +400,36 @@
 
   // AI 風格調色狀態 (Neural Bespoke Style Grading)
   let activeStylePreset = $state<
-    | "film_like_fl"
-    | "classic_chrome_cc"
-    | "monochrome_hc"
     | "matte_shadow"
+    | "film_like_fl"
     | "tungsten_soft"
-    | "custom_prompt"
+    | "monochrome_hc"
+    | "classic_chrome_cc"
+    | "classic_neg"
+    | "velvet_slide"
+    | "warm_astia"
+    | "nostalgic_neg"
+    | "platinum_acros"
     | "auto"
   >("classic_chrome_cc");
-  let customStylePromptText = $state<string>("");
+  let previewHoverProfileId = $state<string | null>(null);
   let isAiStyleGradingRunning = $state<boolean>(false);
   let pendingBatchMode = $state<"develop" | "style">("develop");
   let activeBatchMode = $state<"develop" | "style">("develop");
 
-  // 左側 Hover 選單可選之去識別化 3D LUT 清單
   const styleGradingPresets: {
     key:
-      | "auto"
-      | "classic_chrome_cc"
       | "matte_shadow"
       | "film_like_fl"
       | "tungsten_soft"
       | "monochrome_hc"
-      | "custom_prompt";
+      | "classic_chrome_cc"
+      | "classic_neg"
+      | "velvet_slide"
+      | "warm_astia"
+      | "nostalgic_neg"
+      | "platinum_acros"
+      | "auto";
     badge: string;
     shortLabel: string;
     title: string;
@@ -430,6 +437,42 @@
     accent: string;
     profileId?: string;
   }[] = [
+    {
+      key: "matte_shadow",
+      badge: "FILM_LOOK_01",
+      shortLabel: "MatteShadow",
+      title: "MatteShadow · 啞光微膠卷",
+      subtitle: "低黑階抬升 · 低飽和沉穩綠 (.cube)",
+      accent: "#6082b6",
+      profileId: "Profile_01_MatteShadow",
+    },
+    {
+      key: "film_like_fl",
+      badge: "COLOR_GRADE_02",
+      shortLabel: "TealEmerald",
+      title: "TealEmerald · 經典冷青",
+      subtitle: "陰影注入藍青色 · 高光溫潤暖金 (.cube)",
+      accent: "#3aa8a8",
+      profileId: "Profile_02_TealEmerald",
+    },
+    {
+      key: "tungsten_soft",
+      badge: "PORTRAIT_03",
+      shortLabel: "TungstenSoft",
+      title: "TungstenSoft · 溫潤人像",
+      subtitle: "鎢絲燈光感 · 柔和膚色滾降 (.cube)",
+      accent: "#d4a373",
+      profileId: "Profile_03_TungstenSoft",
+    },
+    {
+      key: "monochrome_hc",
+      badge: "MONO_SILVER_04",
+      shortLabel: "HighContrastMono",
+      title: "HighContrastMono · 高反差單色",
+      subtitle: "經典銀鹽紀實 · 紅橙濾鏡高反差 (.cube)",
+      accent: "#e8e4dc",
+      profileId: "Profile_04_HighContrastMono",
+    },
     {
       key: "classic_chrome_cc",
       badge: "CHROME_DOC_05",
@@ -440,56 +483,57 @@
       profileId: "Profile_05_DocumentaryChrome",
     },
     {
-      key: "matte_shadow",
-      badge: "FILM_LOOK_01",
-      shortLabel: "MatteShadow",
-      title: "MatteShadow · 啞光微膠卷",
-      subtitle: "低黑階抬升 · 低飽和沉穩綠",
-      accent: "#6082b6",
-      profileId: "Profile_01_MatteShadow",
+      key: "classic_neg",
+      badge: "COLOR_NEG_06",
+      shortLabel: "ClassicNeg",
+      title: "ClassicNeg · 經典人文彩色負片",
+      subtitle: "硬調對比 · 獨特綠色陰影與暖調膚色 (.cube)",
+      accent: "#c25953",
+      profileId: "Profile_06_ClassicNeg",
     },
     {
-      key: "film_like_fl",
-      badge: "COLOR_GRADE_02",
-      shortLabel: "TealEmerald",
-      title: "TealEmerald · 經典冷青",
-      subtitle: "陰影注入藍青色 · 高光溫潤暖金",
-      accent: "#3aa8a8",
-      profileId: "Profile_02_TealEmerald",
+      key: "velvet_slide",
+      badge: "VELVET_07",
+      shortLabel: "VelvetSlide",
+      title: "VelvetSlide · 絲絨濃彩反轉片",
+      subtitle: "超高彩度反差 · 湛藍晴空與翠綠大地 (.cube)",
+      accent: "#e05638",
+      profileId: "Profile_07_VelvetSlide",
     },
     {
-      key: "tungsten_soft",
-      badge: "PORTRAIT_03",
-      shortLabel: "TungstenSoft",
-      title: "TungstenSoft · 溫潤人像",
-      subtitle: "鎢絲燈光感 · 高光柔順過渡",
+      key: "warm_astia",
+      badge: "SOFT_TONE_08",
+      shortLabel: "SoftAstia",
+      title: "SoftAstia · 柔順自然正片",
+      subtitle: "柔和反差階調 · 肖像與時尚純淨粉潤 (.cube)",
+      accent: "#e5989b",
+      profileId: "Profile_08_WarmAstia",
+    },
+    {
+      key: "nostalgic_neg",
+      badge: "AMBER_NEG_09",
+      shortLabel: "NostalgicNeg",
+      title: "NostalgicNeg · 懷舊琥珀暖調",
+      subtitle: "琥珀色高光 · 柔和中灰陰影 · 70年代電影感 (.cube)",
       accent: "#d4a373",
-      profileId: "Profile_03_TungstenSoft",
+      profileId: "Profile_09_NostalgicNeg",
     },
     {
-      key: "monochrome_hc",
-      badge: "MONO_SILVER_04",
-      shortLabel: "HighContrastMono",
-      title: "HighContrastMono · 高反差單色",
-      subtitle: "紅橙濾鏡感 · 經典銀鹽紀實",
-      accent: "#e8e4dc",
-      profileId: "Profile_04_HighContrastMono",
+      key: "platinum_acros",
+      badge: "ACROS_SILVER_10",
+      shortLabel: "PlatinumAcros",
+      title: "PlatinumAcros · 鉑金黑白微反差",
+      subtitle: "極致平滑黑白漸層 · 深邃黑階與豐富中間調 (.cube)",
+      accent: "#b0b3b8",
+      profileId: "Profile_10_PlatinumAcros",
     },
     {
       key: "auto",
       badge: "AUTO_MATCH",
       shortLabel: "AI 自動配對",
       title: "AI 智慧配對 · 自動推薦 LUT",
-      subtitle: "由 AI 依場景光影自動選配最佳風格檔",
+      subtitle: "由 AI 依場景光影從 10 款典藏中自動選配最佳風格檔",
       accent: "#e29d52",
-    },
-    {
-      key: "custom_prompt",
-      badge: "BESPOKE",
-      shortLabel: "自訂風格",
-      title: "自訂文字風格 · 動態合成 LUT",
-      subtitle: "手動輸入風格描述合成 33×33×33 紋理",
-      accent: "#c084fc",
     },
   ];
 
@@ -602,6 +646,96 @@
       clarityDefault: 0.1,
       sharpnessDefault: 0.15,
       recommendedScene: "人文紀實 / 街拍報導 / 展演幕後",
+    },
+    {
+      id: "Profile_06_ClassicNeg",
+      title: "ClassicNeg · 經典人文彩色負片",
+      tone: "硬調反差 · 獨特墨綠陰影與紅潤膚色 · 街拍隨身日常",
+      badge: "COLOR_NEG_06",
+      accent: "#c25953",
+      evDefault: 0.0,
+      contrastDefault: 0.22,
+      highlightsDefault: -0.1,
+      shadowsDefault: -0.08,
+      fadeDefault: 0.02,
+      cyanSkyDefault: 0.2,
+      foliageDefault: -0.15,
+      lutIntensityDefault: 0.95,
+      clarityDefault: 0.05,
+      sharpnessDefault: 0.1,
+      recommendedScene: "街頭人文 / 日常記事 / 雜誌專題",
+    },
+    {
+      id: "Profile_07_VelvetSlide",
+      title: "VelvetSlide · 絲絨濃彩反轉片",
+      tone: "超高彩度與鮮明對比 · 湛藍晴空與蒼翠林木 · 視覺震撼",
+      badge: "VELVET_07",
+      accent: "#e05638",
+      evDefault: -0.05,
+      contrastDefault: 0.25,
+      highlightsDefault: -0.15,
+      shadowsDefault: -0.1,
+      fadeDefault: 0.0,
+      cyanSkyDefault: 0.1,
+      foliageDefault: 0.5,
+      lutIntensityDefault: 1.0,
+      clarityDefault: 0.15,
+      sharpnessDefault: 0.2,
+      recommendedScene: "山川風景 / 大自然 / 晴空戶外",
+    },
+    {
+      id: "Profile_08_WarmAstia",
+      title: "SoftAstia · 柔順自然正片",
+      tone: "輕柔反差 · 潤澤膚色與柔順高光過渡 · 典雅人像",
+      badge: "SOFT_TONE_08",
+      accent: "#e5989b",
+      evDefault: 0.08,
+      contrastDefault: -0.05,
+      highlightsDefault: -0.1,
+      shadowsDefault: 0.1,
+      fadeDefault: 0.02,
+      cyanSkyDefault: 0.15,
+      foliageDefault: 0.1,
+      lutIntensityDefault: 0.85,
+      clarityDefault: -0.1,
+      sharpnessDefault: 0.05,
+      recommendedScene: "戶外人像 / 時尚婚紗 / 柔美光影",
+    },
+    {
+      id: "Profile_09_NostalgicNeg",
+      title: "NostalgicNeg · 懷舊琥珀暖調",
+      tone: "琥珀金黃高光 · 溫潤復古中灰調 · 70年代經典電影",
+      badge: "AMBER_NEG_09",
+      accent: "#d4a373",
+      evDefault: 0.05,
+      contrastDefault: 0.12,
+      highlightsDefault: -0.15,
+      shadowsDefault: 0.05,
+      fadeDefault: 0.05,
+      cyanSkyDefault: -0.1,
+      foliageDefault: 0.2,
+      lutIntensityDefault: 0.9,
+      clarityDefault: -0.05,
+      sharpnessDefault: 0.1,
+      recommendedScene: "午後夕陽 / 復古生活 / 溫暖記憶",
+    },
+    {
+      id: "Profile_10_PlatinumAcros",
+      title: "PlatinumAcros · 鉑金黑白微反差",
+      tone: "豐富絲滑中灰階調 · 深邃黑階與高微反差 · 細膩質感",
+      badge: "ACROS_SILVER_10",
+      accent: "#b0b3b8",
+      evDefault: 0.0,
+      contrastDefault: 0.2,
+      highlightsDefault: -0.05,
+      shadowsDefault: -0.05,
+      fadeDefault: 0.0,
+      cyanSkyDefault: 0.0,
+      foliageDefault: 0.0,
+      lutIntensityDefault: 1.0,
+      clarityDefault: 0.2,
+      sharpnessDefault: 0.2,
+      recommendedScene: "建築線條 / 肖像特寫 / 光影幾何",
     },
   ];
 
@@ -1329,9 +1463,11 @@
       return;
     }
 
-    const currentPid = activePhoto
-      ? activePhoto.appliedProfile
-      : "Profile_00_StandardNatural";
+    const currentPid = previewHoverProfileId
+      ? previewHoverProfileId
+      : activePhoto
+        ? activePhoto.appliedProfile
+        : "Profile_00_StandardNatural";
     const isBypass = currentPid === "Profile_00_StandardNatural";
 
     webglRenderer.setProfile(currentPid);
@@ -2264,23 +2400,25 @@
     }
 
     const presetLabels: Record<string, string> = {
-      classic_chrome_cc: "DocumentaryChrome · 典藏冷印紀實",
       matte_shadow: "MatteShadow · 啞光微膠卷",
       film_like_fl: "TealEmerald · 經典冷青",
       tungsten_soft: "TungstenSoft · 溫潤人像",
       monochrome_hc: "HighContrastMono · 高反差單色",
-      custom_prompt: customStylePromptText.trim()
-        ? `自訂：「${customStylePromptText.trim()}」`
-        : "自訂風格",
+      classic_chrome_cc: "DocumentaryChrome · 典藏冷印紀實",
       auto: "AI 自動配對 LUT",
     };
 
     const presetToProfileMap: Record<string, string> = {
-      classic_chrome_cc: "Profile_05_DocumentaryChrome",
       matte_shadow: "Profile_01_MatteShadow",
       film_like_fl: "Profile_02_TealEmerald",
       tungsten_soft: "Profile_03_TungstenSoft",
       monochrome_hc: "Profile_04_HighContrastMono",
+      classic_chrome_cc: "Profile_05_DocumentaryChrome",
+      classic_neg: "Profile_06_ClassicNeg",
+      velvet_slide: "Profile_07_VelvetSlide",
+      warm_astia: "Profile_08_WarmAstia",
+      nostalgic_neg: "Profile_09_NostalgicNeg",
+      platinum_acros: "Profile_10_PlatinumAcros",
     };
 
     const targetLabel = presetLabels[activeStylePreset] || "經典風格";
@@ -2305,9 +2443,7 @@
             focalLength: photoToProcess.focalLength,
           },
           activeStylePreset,
-          activeStylePreset === "custom_prompt"
-            ? customStylePromptText
-            : undefined,
+          undefined,
           {
             availableProfiles: profiles.map((p) => ({
               id: p.id,
@@ -2373,7 +2509,6 @@
       let finalProfileId = photoToProcess.appliedProfile;
 
       if (
-        activeStylePreset !== "custom_prompt" &&
         matchedProfileId &&
         matchedProfileId !== "custom"
       ) {
@@ -2518,7 +2653,7 @@
     triggerNow = true,
   ) {
     activeStylePreset = presetKey;
-    if (triggerNow && presetKey !== "custom_prompt" && activePhoto) {
+    if (triggerNow && activePhoto) {
       runAiStyleGrading();
     }
   }
@@ -3663,7 +3798,22 @@
                         type="button"
                         class="lut-popover-item"
                         class:active={activeStylePreset === preset.key}
-                        onclick={() => selectAndTriggerStylePreset(preset.key)}
+                        onclick={() => {
+                          previewHoverProfileId = null;
+                          selectAndTriggerStylePreset(preset.key);
+                        }}
+                        onmouseenter={() => {
+                          if (preset.profileId) {
+                            previewHoverProfileId = preset.profileId;
+                            triggerWebglRender();
+                          }
+                        }}
+                        onmouseleave={() => {
+                          if (previewHoverProfileId) {
+                            previewHoverProfileId = null;
+                            triggerWebglRender();
+                          }
+                        }}
                       >
                         <div class="lut-item-top">
                           <span class="lut-item-dot" style:background={preset.accent}></span>
@@ -3674,28 +3824,6 @@
                       </button>
                     {/each}
                   </div>
-
-                  {#if activeStylePreset === "custom_prompt"}
-                    <div class="lut-custom-prompt-row hairline-t">
-                      <input
-                        type="text"
-                        class="sg-custom-input font-mono"
-                        placeholder="輸入風格描述 (如：王家衛青綠、冷調紀實)..."
-                        bind:value={customStylePromptText}
-                        onkeydown={(e) => {
-                          if (e.key === "Enter") runAiStyleGrading();
-                        }}
-                      />
-                      <button
-                        type="button"
-                        class="sg-trigger-btn font-mono"
-                        onclick={() => runAiStyleGrading()}
-                        disabled={isAiAnalyzing || !activePhoto}
-                      >
-                        <span>執行合成</span>
-                      </button>
-                    </div>
-                  {/if}
 
                   {#if photoPlates.length > 1}
                     <div class="lut-popover-footer hairline-t">
@@ -3816,6 +3944,7 @@
 
           {#if activePhoto}
             <!-- CANVAS CONTAINER (SINGLE / SPLIT / SIDE-BY-SIDE 共享同一 WebGL 畫布與頂部標籤) -->
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <div
               class="plate-canvas-wrapper hairline-all"
               class:is-side-by-side={diffMode === "sideBySide"}
@@ -4018,6 +4147,7 @@
 
                 {#if isCropMode}
                   <div class="crop-overlay-stage">
+                    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                     <div
                       class="crop-box-element"
                       style:left={`${cropX * 100}%`}
@@ -4909,6 +5039,8 @@
       onclick={() => (isKeyPromptModalOpen = false)}
       role="presentation"
     >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <div
         class="key-prompt-modal hairline-all"
         onclick={(e) => e.stopPropagation()}
@@ -5054,11 +5186,7 @@
     align-items: center;
     gap: 10px;
   }
-  .brand-icon {
-    color: var(--amber-highlight);
-    font-size: 24px;
-  }
-  .brand-icon-img {
+.brand-icon-img {
     width: 24px;
     height: 24px;
     object-fit: contain;
@@ -5826,15 +5954,7 @@
     padding-left: 13px;
   }
 
-  .lut-custom-prompt-row {
-    padding: 6px 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    background: rgba(0, 0, 0, 0.35);
-  }
-
-  .lut-popover-footer {
+.lut-popover-footer {
     padding: 6px 8px;
     background: rgba(212, 140, 52, 0.06);
   }
@@ -6001,56 +6121,7 @@
     margin-bottom: 8px;
   }
 
-  /* AI 風格調色自訂輸入框與按鈕樣式 */
-  .sg-custom-input {
-    width: 100%;
-    box-sizing: border-box;
-    background: rgba(0, 0, 0, 0.45);
-    border: 1px solid rgba(212, 140, 52, 0.35);
-    border-radius: 4px;
-    color: var(--parchment-bright);
-    font-size: 11px;
-    padding: 6px 9px;
-    outline: none;
-    transition: border-color 0.15s ease;
-  }
-  .sg-custom-input:focus {
-    border-color: var(--amber-highlight);
-    box-shadow: 0 0 6px rgba(212, 140, 52, 0.25);
-  }
-  .sg-trigger-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    background: linear-gradient(
-      135deg,
-      rgba(212, 140, 52, 0.22) 0%,
-      rgba(212, 140, 52, 0.08) 100%
-    );
-    border: 1px solid var(--amber-highlight);
-    color: var(--amber-highlight);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 6px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .sg-trigger-btn:hover:not(:disabled) {
-    background: linear-gradient(
-      135deg,
-      rgba(212, 140, 52, 0.35) 0%,
-      rgba(212, 140, 52, 0.15) 100%
-    );
-    box-shadow: 0 0 10px rgba(212, 140, 52, 0.3);
-  }
-  .sg-trigger-btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-
-  .reset-tuning-btn {
+.reset-tuning-btn {
     background: transparent;
     border: 1px solid var(--border-hairline);
     color: var(--parchment-dim);
