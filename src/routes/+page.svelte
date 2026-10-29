@@ -400,8 +400,9 @@
 
   // AI 風格調色狀態 (Neural Bespoke Style Grading)
   let activeStylePreset = $state<
+    | "standard"
     | "matte_shadow"
-    | "film_like_fl"
+    | "reala_tone"
     | "tungsten_soft"
     | "monochrome_hc"
     | "classic_chrome_cc"
@@ -411,16 +412,14 @@
     | "nostalgic_neg"
     | "platinum_acros"
     | "auto"
-  >("classic_chrome_cc");
+  >("auto"); // 每次載入預設為 AI 自動配對
   let previewHoverProfileId = $state<string | null>(null);
-  let isAiStyleGradingRunning = $state<boolean>(false);
-  let pendingBatchMode = $state<"develop" | "style">("develop");
-  let activeBatchMode = $state<"develop" | "style">("develop");
 
   const styleGradingPresets: {
     key:
+      | "standard"
       | "matte_shadow"
-      | "film_like_fl"
+      | "reala_tone"
       | "tungsten_soft"
       | "monochrome_hc"
       | "classic_chrome_cc"
@@ -438,6 +437,23 @@
     profileId?: string;
   }[] = [
     {
+      key: "auto",
+      badge: "AUTO_MATCH",
+      shortLabel: "AI 自動配對",
+      title: "AI 智慧配對 · 自動推薦 LUT",
+      subtitle: "由 AI 依場景光影從 10 款典藏中自動選配最佳風格檔",
+      accent: "#e29d52",
+    },
+    {
+      key: "standard",
+      badge: "NATURAL_00",
+      shortLabel: "Standard",
+      title: "Standard · 原色自然直出",
+      subtitle: "零風格偏調 · 純淨光學原色 · 保留真實寬容度",
+      accent: "#8e929b",
+      profileId: "Profile_00_StandardNatural",
+    },
+    {
       key: "matte_shadow",
       badge: "FILM_LOOK_01",
       shortLabel: "MatteShadow",
@@ -447,13 +463,13 @@
       profileId: "Profile_01_MatteShadow",
     },
     {
-      key: "film_like_fl",
-      badge: "COLOR_GRADE_02",
-      shortLabel: "TealEmerald",
-      title: "TealEmerald · 經典冷青",
-      subtitle: "陰影注入藍青色 · 高光溫潤暖金 (.cube)",
-      accent: "#3aa8a8",
-      profileId: "Profile_02_TealEmerald",
+      key: "reala_tone",
+      badge: "REAL_NEG_02",
+      shortLabel: "RealaTone",
+      title: "RealaTone · 寫實微負片",
+      subtitle: "現代寫實負片 · 高光與陰影沉穩、膚色真實 (.cube)",
+      accent: "#3b8c7c",
+      profileId: "Profile_02_RealaTone",
     },
     {
       key: "tungsten_soft",
@@ -527,14 +543,6 @@
       accent: "#b0b3b8",
       profileId: "Profile_10_PlatinumAcros",
     },
-    {
-      key: "auto",
-      badge: "AUTO_MATCH",
-      shortLabel: "AI 自動配對",
-      title: "AI 智慧配對 · 自動推薦 LUT",
-      subtitle: "由 AI 依場景光影從 10 款典藏中自動選配最佳風格檔",
-      accent: "#e29d52",
-    },
   ];
 
   // De-identified 3D LUT Profiles
@@ -576,22 +584,22 @@
       recommendedScene: "街拍 / 夜間微光",
     },
     {
-      id: "Profile_02_TealEmerald",
-      title: "TealEmerald · 經典冷青",
-      tone: "陰影注入藍青色 · 高光溫潤偏暖金 · 膚色隔離保護",
-      badge: "COLOR_GRADE_02",
-      accent: "#3aa8a8",
+      id: "Profile_02_RealaTone",
+      title: "RealaTone · 寫實微負片",
+      tone: "現代寫實負片 · 高光與陰影反差沉穩 · 膚色真實耐看",
+      badge: "REAL_NEG_02",
+      accent: "#3b8c7c",
       evDefault: 0.0,
-      contrastDefault: 0.15,
-      highlightsDefault: -0.2,
-      shadowsDefault: -0.05,
-      fadeDefault: 0.04,
-      cyanSkyDefault: 0.85,
-      foliageDefault: 0.7,
-      lutIntensityDefault: 1.0,
-      clarityDefault: -0.15,
-      sharpnessDefault: 0.05,
-      recommendedScene: "晴空戶外 / 日系街拍 / 紀實人文",
+      contrastDefault: 0.0,
+      highlightsDefault: 0.0,
+      shadowsDefault: 0.0,
+      fadeDefault: 0.0,
+      cyanSkyDefault: 0.0,
+      foliageDefault: 0.0,
+      lutIntensityDefault: 0.9,
+      clarityDefault: 0.0,
+      sharpnessDefault: 0.0,
+      recommendedScene: "全題材通用 / 街拍人文 / 自然膚色",
     },
     {
       id: "Profile_03_TungstenSoft",
@@ -749,7 +757,6 @@
     total: number;
     countdown: number;
   } | null>(null);
-  let aiCustomLookName = $state<string>(""); // AI 自創神經調色配方名稱
   let aiDecisionIsFallback = $state<boolean | null>(null);
   let aiSuggestedScene = $state<string>("等待判讀");
   let aiSceneTitle = $state<string>("");
@@ -925,7 +932,6 @@
       aiRecommendedMood = plate.aiDecision.recommended_mood || "";
       aiRecommendedProfile =
         plate.aiDecision.recommended_profile || plate.appliedProfile;
-      aiCustomLookName = plate.aiDecision.neural_matrix?.custom_look_name || "";
       aiCropRationale = plate.aiDecision.crop_rationale || "";
       aiVisionTags = plate.aiDecision.tags || [];
     } else {
@@ -937,7 +943,6 @@
       aiRecommendedMood = "";
       aiRecommendedProfile =
         plate.appliedProfile || "Profile_00_StandardNatural";
-      aiCustomLookName = "";
       aiCropRationale = "";
       aiVisionTags = [];
     }
@@ -1150,6 +1155,82 @@
       processThumbnailQueue();
     }
   }
+
+  // 風格卡片小預覽：以當前相片縮圖套用各風格 LUT 後的結果（獨立小型渲染器，避免干擾縮圖佇列）
+  let stylePreviewThumbs = $state<Record<string, string>>({});
+  let stylePreviewCanvas: HTMLCanvasElement | null = null;
+  let stylePreviewRenderer: WebglLutRenderer | null = null;
+  let stylePreviewToken = 0;
+  let lastStylePreviewSource = "";
+
+  async function generateStylePreviews(thumbnail: string) {
+    const token = ++stylePreviewToken;
+    if (typeof document === "undefined" || !thumbnail) return;
+    if (!stylePreviewRenderer) {
+      stylePreviewCanvas = document.createElement("canvas");
+      stylePreviewCanvas.width = 160;
+      stylePreviewCanvas.height = 107;
+      const r = new WebglLutRenderer();
+      if (!r.initialize(stylePreviewCanvas)) return;
+      stylePreviewRenderer = r;
+    }
+    try {
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = (e) => reject(e);
+        img.src = thumbnail;
+      });
+      const next: Record<string, string> = {};
+      for (const preset of styleGradingPresets) {
+        if (token !== stylePreviewToken) return; // 已切換相片，放棄過期結果
+        if (!preset.profileId) continue;
+        if (preset.profileId === "Profile_00_StandardNatural") {
+          next[preset.key] = thumbnail;
+          continue;
+        }
+        const prof = profiles.find((p) => p.id === preset.profileId);
+        stylePreviewRenderer.setImageSource(img);
+        stylePreviewRenderer.setProfile(preset.profileId);
+        stylePreviewRenderer.render(
+          {
+            exposure: prof?.evDefault ?? 0,
+            contrast: prof?.contrastDefault ?? 0,
+            colorTemp: 5500,
+            tint: 0,
+            shadowLift: prof?.shadowsDefault ?? 0,
+            lutIntensity: prof?.lutIntensityDefault ?? 1,
+            bypassLut: false,
+            clarity: 0,
+            sharpness: 0,
+          },
+          160,
+          107,
+        );
+        const url = stylePreviewRenderer.exportDataUrl("image/jpeg", 0.7);
+        if (url) next[preset.key] = url;
+        // 讓出主執行緒，避免卡住 UI
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      if (token === stylePreviewToken) stylePreviewThumbs = next;
+    } catch (err) {
+      console.warn("[StylePreview] 風格預覽生成失敗:", err);
+    }
+  }
+
+  $effect(() => {
+    const thumb = activePhoto?.thumbnail;
+    if (thumb) {
+      if (thumb !== lastStylePreviewSource) {
+        lastStylePreviewSource = thumb;
+        generateStylePreviews(thumb);
+      }
+    } else {
+      lastStylePreviewSource = "";
+      stylePreviewToken++;
+      stylePreviewThumbs = {};
+    }
+  });
 
   async function processThumbnailQueue() {
     if (thumbnailRenderQueue.length === 0) {
@@ -1383,7 +1464,6 @@
     sharpness = 0.0;
     resetCropState();
 
-    aiCustomLookName = "";
     aiCropRationale = "";
     aiSuggestedScene = "尚未分析";
     aiSceneTitle = "";
@@ -1888,17 +1968,24 @@
           focalLength: photoToProcess.focalLength,
         },
         {
-          availableProfiles: profiles.map((p) => ({
-            id: p.id,
-            title: p.title,
-            description: p.tone,
-          })),
           signal: batchAbortController?.signal,
+          stylePreset: activeStylePreset,
           onLog: async (msg: string) => {
             await appendAiLog(msg, 15);
           },
         },
       );
+
+      // 使用者指定風格（非自動配對）時，強制套用對應 3D LUT，並確保足夠的 LUT 強度
+      const forcedProfileId =
+        activeStylePreset !== "auto"
+          ? styleGradingPresets.find((sp) => sp.key === activeStylePreset)
+              ?.profileId
+          : undefined;
+      if (forcedProfileId) {
+        decision.recommended_profile = forcedProfileId;
+      }
+      const applyLut = aiScope.lutProfile || !!forcedProfileId;
 
       // 若為焦點相片或單幀模式，同步頂部與面板 AI 決策狀態
       if (isCurrentActive || !isBatchAiRunning) {
@@ -1910,7 +1997,6 @@
         aiStyleInsight = decision.style_insight || "";
         aiRecommendedMood = decision.recommended_mood || "";
         aiRecommendedProfile = decision.recommended_profile;
-        aiCustomLookName = decision.neural_matrix?.custom_look_name || "";
         aiCropRationale = decision.crop_rationale || "";
         aiVisionTags = decision.tags || [];
 
@@ -1966,7 +2052,7 @@
       const foundProfile = profiles.find(
         (pr) => pr.id === decision.recommended_profile,
       );
-      const targetProfile = aiScope.lutProfile
+      const targetProfile = applyLut
         ? decision.recommended_profile
         : photoToProcess.appliedProfile;
 
@@ -1987,16 +2073,16 @@
       const baseTint = aiScope.whiteBalance
         ? (decision.tint ?? 0.0)
         : (photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0);
-      const baseLut = aiScope.lutProfile
+      const baseLut = applyLut
         ? decision.lut_intensity
         : (photoToProcess.tuning?.lutIntensity ??
           (foundProfile ? foundProfile.lutIntensityDefault : 1.0));
-      const baseClarity =
-        photoToProcess.tuning?.clarity ??
-        (foundProfile ? (foundProfile.clarityDefault ?? 0.0) : 0.0);
-      const baseSharpness =
-        photoToProcess.tuning?.sharpness ??
-        (foundProfile ? (foundProfile.sharpnessDefault ?? 0.0) : 0.0);
+      const baseClarity = aiScope.tone
+        ? (decision.clarity ?? 0.0)
+        : (photoToProcess.tuning?.clarity ?? 0.0);
+      const baseSharpness = aiScope.tone
+        ? (decision.sharpness ?? 0.0)
+        : (photoToProcess.tuning?.sharpness ?? 0.0);
 
       if (aiScope.tone) {
         await appendAiLog(
@@ -2010,7 +2096,7 @@
           15,
         );
       }
-      if (aiScope.lutProfile) {
+      if (applyLut) {
         await appendAiLog(
           `> [AI_LUT] 套用底片風格：${decision.recommended_profile}`,
           15,
@@ -2019,7 +2105,16 @@
 
       // 構圖與智慧裁切計算
       let targetCrop = photoToProcess.crop;
-      if (aiScope.crop && decision.crop_box) {
+      // AI 回傳整幅畫面 (或缺漏時的預設值) 代表構圖已佳、無需裁切，不可誤報為「已套用」
+      const isFullFrameCrop = (b: number[]) =>
+        b[0] <= 0.01 && b[1] <= 0.01 && b[2] >= 0.99 && b[3] >= 0.99;
+      if (aiScope.crop && (!decision.crop_box || isFullFrameCrop(decision.crop_box))) {
+        await appendAiLog(
+          `> [AI_CROP] AI 判斷構圖已佳，未進行裁切（保留原始構圖）`,
+          15,
+        );
+      }
+      if (aiScope.crop && decision.crop_box && !isFullFrameCrop(decision.crop_box)) {
         targetCrop = {
           x: decision.crop_box[1],
           y: decision.crop_box[0],
@@ -2113,9 +2208,11 @@
             targetAnim.colorTemp = baseTemp;
             targetAnim.tint = baseTint;
           }
-          if (aiScope.lutProfile) {
+          if (applyLut) {
             targetAnim.lutIntensity = baseLut;
           }
+          clarity = baseClarity;
+          sharpness = baseSharpness;
           if (Object.keys(targetAnim).length > 0) {
             animateAdjustmentValues(targetAnim, 650);
           }
@@ -2205,11 +2302,6 @@
           focalLength: activePhoto.focalLength,
         },
         {
-          availableProfiles: profiles.map((p) => ({
-            id: p.id,
-            title: p.title,
-            description: p.tone,
-          })),
         },
       );
       if (decision.crop_box) {
@@ -2373,291 +2465,6 @@
     }
   }
 
-  // 專屬 AI 風格調色：模擬經典相機色彩科學或自訂文字風格，動態生成專屬 3D LUT
-  // 支援單幀互動模式與高速批次風格調色模式
-  async function runAiStyleGrading(targetPhoto?: PhotoPlate): Promise<boolean> {
-    const photoToProcess = targetPhoto || activePhoto;
-    if (!photoToProcess) {
-      exportNotice = "請先載入相片以進行 AI 風格調色";
-      setTimeout(() => {
-        exportNotice = "";
-      }, 2500);
-      return false;
-    }
-    if (!isBatchAiRunning && (isAiAnalyzing || isAiStyleGradingRunning)) {
-      return false;
-    }
-
-    const isCurrentActive = activePhoto && activePhoto.id === photoToProcess.id;
-    if (!isBatchAiRunning && !isCurrentActive) {
-      selectPhoto(photoToProcess);
-    }
-
-    isAiStyleGradingRunning = true;
-    isAiAnalyzing = true;
-    if (!isBatchAiRunning) {
-      aiTerminalLogs = [];
-    }
-
-    const presetLabels: Record<string, string> = {
-      matte_shadow: "MatteShadow · 啞光微膠卷",
-      film_like_fl: "TealEmerald · 經典冷青",
-      tungsten_soft: "TungstenSoft · 溫潤人像",
-      monochrome_hc: "HighContrastMono · 高反差單色",
-      classic_chrome_cc: "DocumentaryChrome · 典藏冷印紀實",
-      auto: "AI 自動配對 LUT",
-    };
-
-    const presetToProfileMap: Record<string, string> = {
-      matte_shadow: "Profile_01_MatteShadow",
-      film_like_fl: "Profile_02_TealEmerald",
-      tungsten_soft: "Profile_03_TungstenSoft",
-      monochrome_hc: "Profile_04_HighContrastMono",
-      classic_chrome_cc: "Profile_05_DocumentaryChrome",
-      classic_neg: "Profile_06_ClassicNeg",
-      velvet_slide: "Profile_07_VelvetSlide",
-      warm_astia: "Profile_08_WarmAstia",
-      nostalgic_neg: "Profile_09_NostalgicNeg",
-      platinum_acros: "Profile_10_PlatinumAcros",
-    };
-
-    const targetLabel = presetLabels[activeStylePreset] || "經典風格";
-    await appendAiLog(
-      `> [AI_STYLE_GRADING] 啟動風格調色 (${photoToProcess.filename})：【${targetLabel}】...`,
-      20,
-    );
-
-    try {
-      const hasKey = hasActiveApiKey();
-      let decision: import("$lib/services/aiSceneService").AiSceneDecision;
-
-      if (hasKey) {
-        decision = await AiSceneService.analyzeStyleGrading(
-          photoToProcess.thumbnail,
-          {
-            cameraModel: photoToProcess.camera,
-            lensModel: photoToProcess.lens,
-            iso: photoToProcess.iso,
-            shutterSpeed: photoToProcess.shutter,
-            apertureValue: photoToProcess.aperture,
-            focalLength: photoToProcess.focalLength,
-          },
-          activeStylePreset,
-          undefined,
-          {
-            availableProfiles: profiles.map((p) => ({
-              id: p.id,
-              title: p.title,
-              description: p.tone,
-            })),
-            signal: batchAbortController?.signal,
-            onLog: async (msg: string) => {
-              await appendAiLog(msg, 15);
-            },
-          },
-        );
-      } else {
-        // 本機光學風格推算（無雲端金鑰時依據目標 LUT 與 EXIF 進行精準配對）
-        const fallbackProfileId =
-          presetToProfileMap[activeStylePreset] ||
-          (photoToProcess.iso >= 1600
-            ? "Profile_01_MatteShadow"
-            : "Profile_05_DocumentaryChrome");
-        const profDef =
-          profiles.find((p) => p.id === fallbackProfileId) || profiles[5];
-        decision = {
-          scene_type: "documentary",
-          scene_title: profDef.title.split(" · ")[1] || profDef.title,
-          style_insight: `已依據本機光學特徵套用【${profDef.title}】3D LUT 與階調曲線。`,
-          recommended_mood: profDef.recommendedScene,
-          recommended_profile: fallbackProfileId,
-          exposure_compensation: profDef.evDefault ?? 0.0,
-          contrast: profDef.contrastDefault ?? 0.15,
-          color_temp: photoToProcess.asShotTemp ?? 5500,
-          tint: photoToProcess.asShotTint ?? 0.0,
-          lift_shadows: profDef.shadowsDefault ?? -0.05,
-          lut_intensity: profDef.lutIntensityDefault ?? 0.9,
-          neural_matrix: {
-            custom_look_name: profDef.title,
-            shadow_tint: [0.0, 0.0, 0.0],
-            highlight_tint: [0.0, 0.0, 0.0],
-            curve_mode: "punchy_s",
-            black_lift: profDef.fadeDefault ?? 0.0,
-            cyan_sky_shift: profDef.cyanSkyDefault ?? 0.3,
-            desaturate_greens: 0.2,
-            warm_highlights: 0.1,
-            clarity: profDef.clarityDefault ?? 0.1,
-            sharpness: profDef.sharpnessDefault ?? 0.15,
-          },
-          isFallback: true,
-        };
-      }
-
-      // 依風格預設或 AI 推薦精準配對風格庫
-      let matchedProfileId =
-        presetToProfileMap[activeStylePreset] || decision.recommended_profile;
-
-      if (
-        activeStylePreset === "auto" &&
-        (!matchedProfileId ||
-          matchedProfileId === "custom" ||
-          matchedProfileId === "Profile_00_StandardNatural")
-      ) {
-        matchedProfileId = "Profile_05_DocumentaryChrome";
-      }
-
-      let finalProfileId = photoToProcess.appliedProfile;
-
-      if (
-        matchedProfileId &&
-        matchedProfileId !== "custom"
-      ) {
-        finalProfileId = matchedProfileId;
-        const pObj = profiles.find((p) => p.id === matchedProfileId);
-        await appendAiLog(
-          `> [LUT_MATCH] 已精準配對風格庫：【${pObj?.title || matchedProfileId}】✓`,
-          15,
-        );
-      } else if (decision.neural_matrix && webglRenderer) {
-        // 自訂文字風格時，動態生成專屬 33x33x33 紋理
-        const bespokeId = `Profile_Bespoke_${Date.now()}`;
-        webglRenderer.registerAndApplyBespokeLut(
-          decision.neural_matrix,
-          bespokeId,
-        );
-        if (offscreenRenderer) {
-          offscreenRenderer.registerAndApplyBespokeLut(
-            decision.neural_matrix,
-            bespokeId,
-          );
-        }
-        finalProfileId = bespokeId;
-        aiCustomLookName =
-          decision.neural_matrix.custom_look_name || targetLabel;
-        await appendAiLog(
-          `> [BESPOKE_LUT] 專屬 33×33×33 色彩紋理合成完畢：【${aiCustomLookName}】✓`,
-          15,
-        );
-      }
-
-      const matchedProfObj = profiles.find((p) => p.id === finalProfileId);
-      const targetEv =
-        decision.exposure_compensation ?? matchedProfObj?.evDefault ?? 0.0;
-      const targetContrast =
-        decision.contrast ?? matchedProfObj?.contrastDefault ?? 0.1;
-      const targetLutIntensity =
-        decision.lut_intensity ?? matchedProfObj?.lutIntensityDefault ?? 0.9;
-      const targetTemp =
-        decision.color_temp ?? photoToProcess.asShotTemp ?? 5500;
-      const targetTint = decision.tint ?? photoToProcess.asShotTint ?? 0.0;
-      const targetClarity =
-        typeof decision.neural_matrix?.clarity === "number"
-          ? decision.neural_matrix.clarity
-          : (matchedProfObj?.clarityDefault ?? 0.0);
-      const targetSharpness =
-        typeof decision.neural_matrix?.sharpness === "number"
-          ? decision.neural_matrix.sharpness
-          : (matchedProfObj?.sharpnessDefault ?? 0.0);
-      const targetShadows =
-        typeof decision.lift_shadows === "number"
-          ? decision.lift_shadows
-          : (matchedProfObj?.shadowsDefault ?? 0.0);
-
-      // 寫入相片實體
-      photoToProcess.appliedProfile = finalProfileId;
-      photoToProcess.aiDecision = decision;
-      photoToProcess.sceneTag = decision.scene_title || decision.scene_type;
-      photoToProcess.tuning = {
-        exposure: targetEv,
-        contrast: targetContrast,
-        lutIntensity: targetLutIntensity,
-        colorTemp: targetTemp,
-        tint: targetTint,
-        clarity: targetClarity,
-        sharpness: targetSharpness,
-      };
-
-      if (isCurrentActive) {
-        aiDecisionIsFallback = decision.isFallback;
-        aiSceneTitle = decision.scene_title || decision.scene_type;
-        aiStyleInsight = decision.style_insight || "";
-        aiRecommendedMood = decision.recommended_mood || "";
-        aiRecommendedProfile = finalProfileId;
-
-        if (!isBatchAiRunning) {
-          if (!finalProfileId.startsWith("Profile_Bespoke_")) {
-            applyProfile(finalProfileId);
-          }
-          animateAdjustmentValues(
-            {
-              exposure: targetEv,
-              contrast: targetContrast,
-              lutIntensity: targetLutIntensity,
-              colorTemp: targetTemp,
-              tint: targetTint,
-            },
-            500,
-          );
-          clarity = targetClarity;
-          sharpness = targetSharpness;
-          shadows = targetShadows;
-          triggerWebglRender();
-        } else {
-          exposure = targetEv;
-          contrast = targetContrast;
-          lutIntensity = targetLutIntensity;
-          colorTemp = targetTemp;
-          tint = targetTint;
-          clarity = targetClarity;
-          sharpness = targetSharpness;
-          shadows = targetShadows;
-        }
-      }
-
-      photoPlates = photoPlates.map((p) =>
-        p.id === photoToProcess.id ? { ...photoToProcess } : p,
-      );
-      if (activePhoto && activePhoto.id === photoToProcess.id) {
-        activePhoto = { ...photoToProcess };
-      }
-      enqueueThumbnailRender(photoToProcess);
-
-      if (decision.style_insight) {
-        await appendAiLog(`> [STYLE_INSIGHT] ${decision.style_insight}`, 15);
-      }
-      await appendAiLog(
-        `> [SUCCESS] ${targetLabel} 風格已套用 (LUT 強度: ${(targetLutIntensity * 100).toFixed(0)}%) ✓`,
-        10,
-      );
-      return true;
-    } catch (err: any) {
-      if (
-        cancelBatchRequested ||
-        err?.message?.includes("手動中止") ||
-        err?.name === "AbortError"
-      ) {
-        await appendAiLog(`> [BATCH_ABORT] 使用者已手動停止風格調色程序。`, 10);
-        return false;
-      }
-      await appendAiLog(`> [ERROR] AI 風格調色失敗：${err.message}`, 20);
-      return false;
-    } finally {
-      isAiStyleGradingRunning = false;
-      isAiAnalyzing = false;
-    }
-  }
-
-  // 從左側 Hover 選單點選目標 LUT 並觸發單張調色
-  function selectAndTriggerStylePreset(
-    presetKey: typeof activeStylePreset,
-    triggerNow = true,
-  ) {
-    activeStylePreset = presetKey;
-    if (triggerNow && activePhoto) {
-      runAiStyleGrading();
-    }
-  }
-
   // 觸發 Groq 極速社群文案與 IPTC 標籤生成
   async function triggerGroqCopywriting() {
     if (!activePhoto) return;
@@ -2710,40 +2517,16 @@
       return;
     }
 
-    pendingBatchMode = "develop";
     if (!hasActiveApiKey()) {
       isKeyPromptModalOpen = true;
     } else {
       runBatchAiAnalysis();
-    }
-  }
-
-  // 啟動 AI 批次風格調色（針對勾選或全簿相片循序套用所選 3D LUT 與 AI 光影調校）
-  function requestBatchAiStyleGrading() {
-    const targetList = flaggedPhotos.length > 0 ? flaggedPhotos : photoPlates;
-    if (targetList.length === 0) {
-      exportNotice = "目前相簿無相片可供 AI 批次風格調色";
-      setTimeout(() => {
-        exportNotice = "";
-      }, 2500);
-      return;
-    }
-
-    pendingBatchMode = "style";
-    if (!hasActiveApiKey()) {
-      isKeyPromptModalOpen = true;
-    } else {
-      runBatchAiStyleGrading();
     }
   }
 
   function confirmOfflineBatch() {
     isKeyPromptModalOpen = false;
-    if (pendingBatchMode === "style") {
-      runBatchAiStyleGrading();
-    } else {
-      runBatchAiAnalysis();
-    }
+    runBatchAiAnalysis();
   }
 
   function openVaultFromPrompt() {
@@ -2765,7 +2548,6 @@
 
     const hasOnlineKey = hasActiveApiKey();
 
-    activeBatchMode = "develop";
     isBatchAiRunning = true;
     cancelBatchRequested = false;
     batchAbortController = new AbortController();
@@ -2853,113 +2635,6 @@
     batchAbortController = null;
 
     // 批次完成後，若當前焦點底片有被處理，重繪畫布一次
-    if (activePhoto && webglRenderer) {
-      requestAnimationFrame(() => {
-        triggerWebglRender();
-      });
-    }
-  }
-
-  // AI 批次風格調色（針對已勾選或全簿相片套用所選 3D LUT 與 AI 光影調校）
-  async function runBatchAiStyleGrading() {
-    const targetList =
-      flaggedPhotos.length > 0 ? [...flaggedPhotos] : [...photoPlates];
-    if (targetList.length === 0) {
-      exportNotice = "目前相簿無相片可供 AI 批次風格調色";
-      setTimeout(() => {
-        exportNotice = "";
-      }, 2500);
-      return;
-    }
-
-    const hasOnlineKey = hasActiveApiKey();
-    const currentPresetObj = styleGradingPresets.find(
-      (p) => p.key === activeStylePreset,
-    );
-    const presetTitle = currentPresetObj?.title || "經典風格";
-
-    activeBatchMode = "style";
-    isBatchAiRunning = true;
-    cancelBatchRequested = false;
-    batchAbortController = new AbortController();
-    aiTerminalLogs = [];
-    await appendAiLog(
-      `> [BATCH_STYLE_START] 啟動 AI 批次風格調色【${presetTitle}】，共 ${targetList.length} 張相片...`,
-      20,
-    );
-
-    if (hasOnlineKey) {
-      const activeModelInfo = AiSceneService.getActiveModelInfo();
-      await appendAiLog(
-        `> [CLOUD_AI] 啟動視覺多模態風格推論 [${activeModelInfo.provider.toUpperCase()} · ${activeModelInfo.modelId}]`,
-        20,
-      );
-      await appendAiLog(
-        `> [RATE_LIMIT] 啟用雲端 API 速率保護 (間隔 4.2 秒防超限冷卻)`,
-        20,
-      );
-    } else {
-      await appendAiLog(
-        `> [OFFLINE_NOTICE] 未配置雲端金鑰，採用「本機光學 LUT 配對演算法」極速套用`,
-        20,
-      );
-    }
-
-    for (let i = 0; i < targetList.length; i++) {
-      if (cancelBatchRequested) {
-        await appendAiLog(
-          `> [BATCH_ABORT] 使用者已手動中止批次風格調色程序。`,
-          10,
-        );
-        break;
-      }
-
-      const p = targetList[i];
-      batchProgress = {
-        current: i + 1,
-        total: targetList.length,
-        countdown: 0,
-      };
-      await appendAiLog(`----------------------------------------`, 10);
-      await appendAiLog(
-        `> [BATCH_STYLE ${i + 1}/${targetList.length}] 正在風格調色：${p.filename}`,
-        20,
-      );
-
-      await new Promise((r) => setTimeout(r, 16));
-
-      await runAiStyleGrading(p);
-
-      if (cancelBatchRequested) {
-        await appendAiLog(
-          `> [BATCH_ABORT] 使用者已手動中止批次風格調色程序。`,
-          10,
-        );
-        break;
-      }
-
-      if (hasOnlineKey && i < targetList.length - 1 && !cancelBatchRequested) {
-        for (let cd = 4; cd > 0; cd--) {
-          if (cancelBatchRequested) break;
-          batchProgress.countdown = cd;
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-        if (batchProgress) batchProgress.countdown = 0;
-      }
-    }
-
-    if (!cancelBatchRequested) {
-      await appendAiLog(
-        `> [BATCH_COMPLETE] 全部 ${targetList.length} 張相片批次風格調色完成！🎉`,
-        10,
-      );
-    }
-
-    isBatchAiRunning = false;
-    batchProgress = null;
-    cancelBatchRequested = false;
-    batchAbortController = null;
-
     if (activePhoto && webglRenderer) {
       requestAnimationFrame(() => {
         triggerWebglRender();
@@ -3577,14 +3252,6 @@
                 >
               </div>
             {/if}
-            {#if aiCustomLookName}
-              <div class="ai-row">
-                <span class="ai-label font-mono">自創配方</span>
-                <span class="ai-val font-mono amber truncate"
-                  >✨ {aiCustomLookName}</span
-                >
-              </div>
-            {/if}
             <div class="ai-row">
               <span class="ai-label font-mono">色彩檔</span>
               <span class="ai-val font-mono indigo"
@@ -3722,131 +3389,83 @@
                   >cancel</span
                 >
                 <span
-                  >中止 AI 批次{activeBatchMode === "style"
-                    ? "風格調色"
-                    : "顯影"} ({batchProgress?.current ||
+                  >中止 AI 批次顯影 ({batchProgress?.current ||
                     1}/{batchProgress?.total || 1})</span
                 >
               </button>
             {:else}
+              <!-- AI 風格調色：先選風格（卡片列，Hover 即時預覽），再按下執行 -->
+              <div class="style-card-picker hairline-all font-mono">
+                <div class="style-card-picker-header">
+                  <span
+                    class="material-symbols-outlined"
+                    style="font-size: 13px; color: var(--amber-highlight);"
+                    >palette</span
+                  >
+                  <span>選擇風格（Hover 即時預覽）</span>
+                </div>
+                <div class="style-card-row custom-scroll">
+                  {#each styleGradingPresets as preset}
+                    <button
+                      type="button"
+                      class="style-card"
+                      class:active={activeStylePreset === preset.key}
+                      title={preset.subtitle}
+                      onclick={() => {
+                        previewHoverProfileId = null;
+                        activeStylePreset = preset.key;
+                      }}
+                      onmouseenter={() => {
+                        if (preset.profileId) {
+                          previewHoverProfileId = preset.profileId;
+                          triggerWebglRender();
+                        }
+                      }}
+                      onmouseleave={() => {
+                        if (previewHoverProfileId) {
+                          previewHoverProfileId = null;
+                          triggerWebglRender();
+                        }
+                      }}
+                    >
+                      <span
+                        class="style-card-swatch"
+                        style:background={stylePreviewThumbs[preset.key]
+                          ? `center / cover no-repeat url(${stylePreviewThumbs[preset.key]})`
+                          : preset.key === "auto"
+                            ? "linear-gradient(135deg, #e29d52, #6082b6 55%, #3aa8a8)"
+                            : preset.accent}
+                      >
+                        {#if preset.key === "auto"}<span
+                            class="material-symbols-outlined"
+                            style="font-size: 28px; color: #fff;"
+                            >auto_awesome</span
+                          >{/if}
+                      </span>
+                      <span class="style-card-title font-headline"
+                        >{preset.shortLabel || preset.title}</span
+                      >
+                      <span class="style-card-badge">{preset.badge}</span>
+                    </button>
+                  {/each}
+                </div>
+              </div>
+
               <button
                 type="button"
                 class="archival-btn-primary w-full ai-main-btn"
                 onclick={() => runAiAnalysis()}
                 disabled={isAiAnalyzing || !activePhoto}
+                title="以選定風格執行 AI 調色（AI 自動配對 = 由 AI 自行判斷；依職責勾選套用裁切與校正）"
               >
                 <span
                   class="material-symbols-outlined"
                   style="font-size: 16px;"
                 >
-                  {isAiAnalyzing && !isAiStyleGradingRunning
-                    ? "progress_activity"
-                    : "psychology"}
+                  {isAiAnalyzing ? "progress_activity" : "psychology"}
                 </span>
-                <span
-                  >{isAiAnalyzing && !isAiStyleGradingRunning
-                    ? "正在顯影調校..."
-                    : "AI 顯影調色"}</span
-                >
+                <span>{isAiAnalyzing ? "正在顯影調校..." : "AI 顯影調色"}</span>
               </button>
-
-              <!-- AI 風格調色主要按鈕（Hover 展開可選 3D LUT 風格庫） -->
-              <div class="ai-style-hover-wrapper">
-                <button
-                  type="button"
-                  class="archival-btn-secondary w-full ai-style-main-btn font-mono"
-                  onclick={() => runAiStyleGrading()}
-                  disabled={isAiAnalyzing || !activePhoto}
-                  title="滑鼠移入可選擇 3D LUT 風格檔，點擊立即套用 AI 風格調色"
-                >
-                  <span
-                    class="material-symbols-outlined"
-                    style="font-size: 16px; color: var(--amber-highlight);"
-                  >
-                    {isAiStyleGradingRunning ? "progress_activity" : "palette"}
-                  </span>
-                  <span class="ai-style-btn-text truncate">
-                    {isAiStyleGradingRunning
-                      ? "正在配對風格庫..."
-                      : `AI 風格調色 · ${styleGradingPresets.find((p) => p.key === activeStylePreset)?.shortLabel || "DocumentaryChrome"}`}
-                  </span>
-                  <span
-                    class="material-symbols-outlined ai-style-caret"
-                    style="font-size: 14px;"
-                  >
-                    expand_less
-                  </span>
-                </button>
-
-                <!-- Hover 彈出之 3D LUT 風格選單 -->
-                <div class="ai-style-lut-popover hairline-all font-mono">
-                  <div class="lut-popover-header hairline-b">
-                    <span class="lut-popover-title">
-                      <span
-                        class="material-symbols-outlined"
-                        style="font-size: 13px; color: var(--amber-highlight);"
-                        >auto_fix_high</span
-                      >
-                      <span>HOVER 選擇 3D LUT 風格</span>
-                    </span>
-                    <span class="lut-popover-sub">點選即套用</span>
-                  </div>
-
-                  <div class="lut-popover-list custom-scroll">
-                    {#each styleGradingPresets as preset}
-                      <button
-                        type="button"
-                        class="lut-popover-item"
-                        class:active={activeStylePreset === preset.key}
-                        onclick={() => {
-                          previewHoverProfileId = null;
-                          selectAndTriggerStylePreset(preset.key);
-                        }}
-                        onmouseenter={() => {
-                          if (preset.profileId) {
-                            previewHoverProfileId = preset.profileId;
-                            triggerWebglRender();
-                          }
-                        }}
-                        onmouseleave={() => {
-                          if (previewHoverProfileId) {
-                            previewHoverProfileId = null;
-                            triggerWebglRender();
-                          }
-                        }}
-                      >
-                        <div class="lut-item-top">
-                          <span class="lut-item-dot" style:background={preset.accent}></span>
-                          <span class="lut-item-title font-headline">{preset.title}</span>
-                          <span class="lut-item-badge">{preset.badge}</span>
-                        </div>
-                        <div class="lut-item-sub font-body">{preset.subtitle}</div>
-                      </button>
-                    {/each}
-                  </div>
-
-                  {#if photoPlates.length > 1}
-                    <div class="lut-popover-footer hairline-t">
-                      <button
-                        type="button"
-                        class="lut-batch-quick-btn font-mono"
-                        onclick={requestBatchAiStyleGrading}
-                        disabled={isAiAnalyzing}
-                      >
-                        <span
-                          class="material-symbols-outlined"
-                          style="font-size: 14px;">bolt</span
-                        >
-                        <span
-                          >批次套用此風格 ({flaggedPhotos.length > 0
-                            ? `${flaggedPhotos.length} 張勾選`
-                            : `全簿 ${photoPlates.length} 張`})</span
-                        >
-                      </button>
-                    </div>
-                  {/if}
-                </div>
-              </div>
 
               {#if photoPlates.length > 1}
                 <div class="batch-actions-grid">
@@ -3855,33 +3474,14 @@
                     class="archival-btn-secondary w-full batch-btn font-mono"
                     onclick={requestBatchAiAnalysis}
                     disabled={isAiAnalyzing}
-                    title="針對所有已標記（或全部）相片循序進行 AI 批次顯影調色"
+                    title="以目前選定的風格，對所有已標記（或全部）相片循序進行 AI 批次調色"
                   >
                     <span
                       class="material-symbols-outlined"
                       style="font-size: 14px;">auto_mode</span
                     >
                     <span
-                      >AI 批次顯影 ({flaggedPhotos.length > 0
-                        ? `${flaggedPhotos.length} 張`
-                        : `全簿 ${photoPlates.length} 張`})</span
-                    >
-                  </button>
-
-                  <button
-                    type="button"
-                    class="archival-btn-secondary w-full batch-btn batch-style-btn font-mono"
-                    onclick={requestBatchAiStyleGrading}
-                    disabled={isAiAnalyzing}
-                    title="針對所有已標記（或全部）相片循序進行 AI 批次風格調色"
-                  >
-                    <span
-                      class="material-symbols-outlined"
-                      style="font-size: 14px; color: var(--amber-highlight);"
-                      >style</span
-                    >
-                    <span
-                      >AI 批次風格 ({flaggedPhotos.length > 0
+                      >AI 批次調色 ({flaggedPhotos.length > 0
                         ? `${flaggedPhotos.length} 張`
                         : `全簿 ${photoPlates.length} 張`})</span
                     >
@@ -4724,11 +4324,15 @@
             <div class="control-row">
               <div class="control-header font-mono">
                 <span>SHARPNESS (銳利度)</span>
-                <span class="control-val">{Math.round(sharpness * 100)}%</span>
+                <span class="control-val"
+                  >{sharpness > 0
+                    ? `+${Math.round(sharpness * 100)}%`
+                    : `${Math.round(sharpness * 100)}%`}</span
+                >
               </div>
               <input
                 type="range"
-                min="0.0"
+                min="-1.0"
                 max="1.0"
                 step="0.05"
                 bind:value={sharpness}
@@ -4897,7 +4501,25 @@
                   type="button"
                   class="profile-card hairline-all"
                   class:active={activePhoto?.appliedProfile === prof.id}
-                  onclick={() => applyProfile(prof.id)}
+                  onclick={() => {
+                    previewHoverProfileId = null;
+                    applyProfile(prof.id);
+                    // 同步風格選擇器：若此 LUT 對應某個風格預設，一併更新 activeStylePreset
+                    const linkedPreset = styleGradingPresets.find(
+                      (p) => p.profileId === prof.id,
+                    );
+                    if (linkedPreset) activeStylePreset = linkedPreset.key;
+                  }}
+                  onmouseenter={() => {
+                    previewHoverProfileId = prof.id;
+                    triggerWebglRender();
+                  }}
+                  onmouseleave={() => {
+                    if (previewHoverProfileId) {
+                      previewHoverProfileId = null;
+                      triggerWebglRender();
+                    }
+                  }}
                 >
                   <div class="prof-card-top">
                     <span class="prof-title font-headline">{prof.title}</span>
@@ -5440,6 +5062,9 @@
     flex-direction: column;
     padding: 14px 10px;
     flex-shrink: 0;
+    /* 內容（AI 面板展開後）超出視窗高度時可捲動，避免底部按鈕被裁掉 */
+    min-height: 0;
+    overflow-y: auto;
   }
 
   .sidebar-heading {
@@ -5778,214 +5403,75 @@
     box-shadow: none;
   }
 
-  .ai-style-hover-wrapper {
-    position: relative;
-    width: 100%;
-  }
-
-  .ai-style-main-btn {
-    background: linear-gradient(
-      135deg,
-      rgba(212, 140, 52, 0.18) 0%,
-      rgba(26, 28, 35, 0.85) 100%
-    ) !important;
-    border: 1px solid var(--amber-highlight) !important;
-    color: var(--amber-highlight) !important;
-    font-weight: 600 !important;
-    font-size: 11px !important;
-    padding: 7px 10px !important;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    box-shadow: 0 0 10px rgba(212, 140, 52, 0.15);
-    transition: all 0.2s ease;
-  }
-  .ai-style-btn-text {
-    flex: 1;
-    text-align: left;
-  }
-  .ai-style-caret {
-    opacity: 0.75;
-    transition: transform 0.2s ease;
-  }
-  .ai-style-hover-wrapper:hover .ai-style-caret,
-  .ai-style-hover-wrapper:focus-within .ai-style-caret {
-    transform: rotate(180deg);
-    opacity: 1;
-  }
-  .ai-style-main-btn:hover:not(:disabled) {
-    background: linear-gradient(
-      135deg,
-      rgba(212, 140, 52, 0.3) 0%,
-      rgba(26, 28, 35, 0.95) 100%
-    ) !important;
-    box-shadow: 0 0 15px rgba(212, 140, 52, 0.35);
-  }
-  .ai-style-main-btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-    box-shadow: none;
-  }
-
-  /* 左側 Hover 彈出之 3D LUT 選擇選單 */
-  .ai-style-lut-popover {
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 0;
-    width: 280px;
-    background: rgba(14, 15, 19, 0.97);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(226, 157, 82, 0.45);
-    border-radius: var(--radius-sm);
-    box-shadow:
-      0 14px 38px rgba(0, 0, 0, 0.85),
-      0 0 16px rgba(212, 140, 52, 0.2);
-    z-index: 120;
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(6px);
-    pointer-events: none;
-    transition:
-      opacity 0.18s ease,
-      transform 0.18s ease,
-      visibility 0.18s ease;
-    display: flex;
-    flex-direction: column;
-  }
-  /* 透明懸浮橋接區，防止滑鼠移向彈出選單時斷開 Hover */
-  .ai-style-lut-popover::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: -10px;
-    height: 10px;
-  }
-  .ai-style-hover-wrapper:hover .ai-style-lut-popover,
-  .ai-style-hover-wrapper:focus-within .ai-style-lut-popover {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-    pointer-events: auto;
-  }
-
-  .lut-popover-header {
-    padding: 7px 10px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: rgba(255, 255, 255, 0.03);
-  }
-  .lut-popover-title {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--parchment-bright);
-    letter-spacing: 0.04em;
-  }
-  .lut-popover-sub {
-    font-size: 9px;
-    color: var(--amber-highlight);
-  }
-
-  .lut-popover-list {
-    max-height: 250px;
-    overflow-y: auto;
+  .style-card-picker {
     padding: 6px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.02);
   }
-  .lut-popover-item {
-    width: 100%;
+  .style-card-picker-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: var(--parchment-dim);
+  }
+  .style-card-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+  .style-card {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 5px;
     text-align: left;
     background: rgba(255, 255, 255, 0.025);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 4px;
-    padding: 6px 8px;
     cursor: pointer;
     transition: all 0.14s ease;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
   }
-  .lut-popover-item:hover {
+  .style-card:hover {
     background: rgba(255, 255, 255, 0.07);
     border-color: rgba(226, 157, 82, 0.4);
   }
-  .lut-popover-item.active {
+  .style-card.active {
     background: rgba(212, 140, 52, 0.16);
     border-color: var(--amber-highlight);
   }
-  .lut-item-top {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .lut-item-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .lut-item-title {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--parchment-bright);
-    flex: 1;
-  }
-  .lut-popover-item.active .lut-item-title {
-    color: var(--amber-highlight);
-  }
-  .lut-item-badge {
-    font-size: 8.5px;
-    color: var(--parchment-dim);
-    padding: 1px 4px;
-    background: rgba(0, 0, 0, 0.4);
+  .style-card-swatch {
+    display: block;
+    height: 80px;
     border-radius: 3px;
-  }
-  .lut-item-sub {
-    font-size: 9.5px;
-    color: var(--parchment-muted);
-    padding-left: 13px;
-  }
-
-.lut-popover-footer {
-    padding: 6px 8px;
-    background: rgba(212, 140, 52, 0.06);
-  }
-  .lut-batch-quick-btn {
-    width: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 5px;
-    padding: 5px 8px;
-    font-size: 10px;
+  }
+  .style-card-title {
+    font-size: 10.5px;
     font-weight: 600;
+    color: var(--parchment-bright);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .style-card.active .style-card-title {
     color: var(--amber-highlight);
-    background: rgba(212, 140, 52, 0.14);
-    border: 1px solid rgba(212, 140, 52, 0.45);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.15s ease;
   }
-  .lut-batch-quick-btn:hover:not(:disabled) {
-    background: rgba(212, 140, 52, 0.28);
-    border-color: var(--amber-highlight);
+  .style-card-badge {
+    font-size: 8.5px;
+    color: var(--parchment-dim);
   }
-  .lut-batch-quick-btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-
   .batch-actions-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 5px;
     width: 100%;
   }
@@ -5994,15 +5480,6 @@
     font-size: 9.5px !important;
     padding: 5px 6px !important;
   }
-  .batch-style-btn {
-    border-color: rgba(226, 157, 82, 0.4) !important;
-    color: var(--parchment-bright) !important;
-  }
-  .batch-style-btn:hover:not(:disabled) {
-    border-color: var(--amber-highlight) !important;
-    color: var(--amber-highlight) !important;
-  }
-
   .vault-trigger-btn {
     background: transparent;
     border: 1px solid var(--hairline-slate);

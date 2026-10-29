@@ -51,13 +51,13 @@ export const BUILTIN_PROFILES: LutProfile[] = [
     }
   },
   {
-    id: 'Profile_02_TealEmerald',
-    code: 'COLOR_GRADE_02',
-    title: '冷青翡翠',
-    englishTitle: 'Teal Emerald',
-    toneDescription: '陰影注入藍青色、高光溫潤偏暖金、膚色隔離保護',
-    technicalCharacteristics: 'Subtle split tone + cool shadows + preserved skin luminance',
-    cubeFilePath: '/luts/profile_02_teal_emerald.cube',
+    id: 'Profile_02_RealaTone',
+    code: 'REAL_NEG_02',
+    title: '寫實微負片',
+    englishTitle: 'Reala Tone Negative',
+    toneDescription: '現代寫實負片、高光與陰影反差沉穩、膚色真實耐看',
+    technicalCharacteristics: 'Controlled highlight/shadow gradation + calm contrast + faithful skin tones',
+    cubeFilePath: '/luts/fuji_reala_ace.cube',
     lutSize: 33,
     defaultTuning: {
       exposure: -0.1,

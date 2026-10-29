@@ -13,7 +13,7 @@
 | 序號与代號 (Badge) | 系統 Profile ID | UI 去識別化名稱 | 對應 `.cube` 檔名 | 真實色彩科學 / 底片原型 | 上游開源專案與原始路徑 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`FILM_LOOK_01`** | `Profile_01_MatteShadow` | **MatteShadow · 啞光微膠卷** | `fuji_eterna.cube` | **Fujifilm Eterna** (電影負片模擬) | [`abpy/FujifilmCameraProfiles`](https://github.com/abpy/FujifilmCameraProfiles)<br>`cube lut/eterna_sRGB.cube` |
-| **`COLOR_GRADE_02`** | `Profile_02_TealEmerald` | **TealEmerald · 經典冷青** | `teal_emerald.cube` | **Sony Creative Look `FL`** 風格自訂曲線<br>*(高光純淨不泛黃、青碧色天空、草木去黃沉穩、暗部冷青抬升)* | 專案內建光學公式烘焙（參見 [`webglLutRenderer.ts`](../../src/lib/services/webglLutRenderer.ts) 之 `generateTealEmeraldLut` 邏輯） |
+| **`REAL_NEG_02`** | `Profile_02_RealaTone` | **RealaTone · 寫實微負片** | `fuji_reala_ace.cube` | **Fujifilm Reala Ace** (現代寫實負片模擬) | [`abpy/FujifilmCameraProfiles`](https://github.com/abpy/FujifilmCameraProfiles)<br>`cube lut/reala ace_sRGB.cube` |
 | **`PORTRAIT_03`** | `Profile_03_TungstenSoft` | **TungstenSoft · 溫潤人像** | `kodak_portra_160.cube` | **Kodak Portra 160** (專業人像彩色負片) | [`cedeber/hald-clut`](https://github.com/cedeber/hald-clut)<br>`HaldCLUT/Film Simulation/Color/Kodak/Kodak Portra 160 2.png` |
 | **`MONO_SILVER_04`** | `Profile_04_HighContrastMono` | **HighContrastMono · 高反差單色** | `kodak_trix_400.cube` | **Kodak Tri-X 400** (經典紀實高反差黑白負片) | [`cedeber/hald-clut`](https://github.com/cedeber/hald-clut)<br>`HaldCLUT/Film Simulation/Black and White/Kodak/Kodak TRI-X 400 2.png` |
 | **`CHROME_DOC_05`** | `Profile_05_DocumentaryChrome` | **DocumentaryChrome · 典藏冷印紀實** | `fuji_classic_chrome.cube` | **Fujifilm Classic Chrome** (經典紀實正片感) | [`abpy/FujifilmCameraProfiles`](https://github.com/abpy/FujifilmCameraProfiles)<br>`cube lut/classic chrome_sRGB.cube` |
@@ -31,8 +31,8 @@
 
 | 檔名 (`static/luts/`) | 真實色彩科學 / 底片原型 | 色彩特性說明 | 上游來源 |
 | :--- | :--- | :--- | :--- |
+| `teal_emerald.cube` | **Sony Creative Look `FL` 自訂曲線** | 專案內建光學公式烘焙（高光純淨不泛黃、青碧色天空、草木沉穩、暗部冷青抬升） | 內建 `generateTealEmeraldLut` 烘焙 |
 | `fuji_provia.cube` | **Fujifilm Provia (Standard)** | 標準反轉片，色彩自然均衡、微反差通透 | `abpy/FujifilmCameraProfiles` (`cube lut/provia_sRGB.cube`) |
-| `fuji_reala_ace.cube` | **Fujifilm Reala Ace** | 現代寫實負片，高光與陰影反差沉穩、膚色還原極為真實 | `abpy/FujifilmCameraProfiles` (`cube lut/reala ace_sRGB.cube`) |
 | `fuji_bleach_bypass.cube` | **Fujifilm Bleach Bypass (Eterna 跳漂)** | 銀留殘留處理感，極高反差、超低彩度、冷峻金屬硬派感 | `abpy/FujifilmCameraProfiles` (`cube lut/bleach bypass_sRGB.cube`) |
 
 ---

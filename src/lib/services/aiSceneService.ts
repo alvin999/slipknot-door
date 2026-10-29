@@ -6,21 +6,6 @@
 
 import type { ExifOpticalData } from '../types/photo';
 import { AiEngineFactory } from './ai/engineFactory';
-import type { AvailableProfileSummary } from './ai/types';
-
-export interface NeuralColorMatrix {
-  custom_look_name?: string;                 // AI 自創專屬風格命名 (例如：「雨夜墨韻霓虹」、「高反差消光銀鹽」)
-  shadow_tint?: [number, number, number];    // 暗部注入微量色彩 (RGB 向量, 0.0 ~ 1.0)
-  highlight_tint?: [number, number, number]; // 高光注入微量色彩 (RGB 向量, 0.0 ~ 1.0)
-  curve_mode?: 'linear' | 'punchy_s' | 'fade_black' | 'soft_highlight'; // S 曲線/黑階形態
-  clarity?: number;                          // -1.0 ~ +1.0 中頻微對比增益
-  sharpness?: number;                        // 0.0 ~ 1.0 細節清晰度
-  // 專屬動態 3D LUT (33x33x33) 合成參數
-  black_lift?: number;                       // 0.0 ~ 0.5 (暗部黑階抬升，如 FL 啞光感)
-  cyan_sky_shift?: number;                   // 0.0 ~ 1.0 (藍天轉向青色轉移量)
-  desaturate_greens?: number;                // 0.0 ~ 1.0 (草木綠收斂沉穩)
-  warm_highlights?: number;                  // 0.0 ~ 1.0 (高光暖琥珀比重)
-}
 
 export interface AiSceneDecision {
   scene_type: string;
@@ -34,7 +19,8 @@ export interface AiSceneDecision {
   tint?: number;
   lift_shadows: number;
   lut_intensity: number;
-  neural_matrix?: NeuralColorMatrix;
+  clarity?: number;
+  sharpness?: number;
   tags?: string[];
   isFallback: boolean;
   fallbackReason?: string; // 記錄跌入本地兜底的真實原因 (透明化 Log 呈現)
@@ -53,10 +39,7 @@ export interface AnalyzeSceneOptions {
   signal?: AbortSignal;
   onLog?: (msg: string) => Promise<void> | void;
   maxRetries?: number; // 預設 2 次自動重試（共嘗試最多 3 次）
-  availableProfiles?: AvailableProfileSummary[]; // 動態提供之可擴充 LUT 摘要清單
-  analysisMode?: 'auto_develop' | 'style_grading'; // 區分「標準顯影」與「風格調色」
   stylePreset?: import('./ai/types').StylePresetKey;
-  customStylePrompt?: string; // 手動自訂風格文字
 }
 
 export interface CopywritingPayload {
@@ -231,11 +214,8 @@ export class AiSceneService {
           modelId,
           imagePayload512pxBase64: cleanBase64,
           exif,
-          availableProfiles: options?.availableProfiles,
           signal: options?.signal,
-          analysisMode: options?.analysisMode,
           stylePreset: options?.stylePreset,
-          customStylePrompt: options?.customStylePrompt,
           timeoutMs: 180000 // 提供寬裕的 Socket 守護
         });
 
@@ -296,25 +276,6 @@ export class AiSceneService {
       modelId,
       payload,
       timeoutMs: 15000
-    });
-  }
-
-  /**
-   * 專屬 AI 風格調色：
-   * 仿照經典相機色彩科學或自訂文字風格，為當前影像量身客製 3D LUT 調色矩陣。
-   */
-  public static async analyzeStyleGrading(
-    imagePayload512pxBase64: string,
-    exif: ExifOpticalData,
-    stylePreset: import('./ai/types').StylePresetKey = 'film_like_fl',
-    customStylePrompt?: string,
-    options?: Omit<AnalyzeSceneOptions, 'analysisMode' | 'stylePreset' | 'customStylePrompt'>
-  ): Promise<AiSceneDecision> {
-    return this.analyzeScene(imagePayload512pxBase64, exif, {
-      ...options,
-      analysisMode: 'style_grading',
-      stylePreset,
-      customStylePrompt
     });
   }
 }

@@ -13,7 +13,7 @@ export interface TuningParameters {
   shadowLift?: number;  // -0.5 ~ +0.5 Non-linear shadow lift (Toe lift)
   bypassLut: boolean;   // true for pure natural straight-out-of-camera
   clarity?: number;     // -1.0 ~ +1.0, mid-tone local contrast (large radius)
-  sharpness?: number;   // 0.0 ~ 1.0, fine detail unsharp mask (small radius)
+  sharpness?: number;   // -1.0 ~ +1.0, fine detail unsharp mask (negative softens, positive sharpens)
 }
 
 const VS_SOURCE = `#version 300 es
@@ -134,14 +134,23 @@ void main() {
 
     // 5. Clarity (large radius, mid-tone weighted) + Sharpness (small radius)
     //    Neighborhood based, so it cannot live inside a 3D LUT.
-    if (abs(u_clarity) > 0.001 || u_sharpness > 0.001) {
-        vec2 texel = 1.0 / vec2(textureSize(u_image, 0));
+    if (abs(u_clarity) > 0.001 || abs(u_sharpness) > 0.001) {
+        vec2 texSize = vec2(textureSize(u_image, 0));
+        vec2 texel = 1.0 / texSize;
+        float resScale = max(1.0, max(texSize.x, texSize.y) / 1000.0);
+        vec3 blurredFine = blurAt(v_uv, texel, 1.5 * resScale);
         float l = lumaOf(src.rgb);
-        float detailFine = l - lumaOf(blurAt(v_uv, texel, 1.0));
-        float detailCoarse = l - lumaOf(blurAt(v_uv, texel, 6.0));
+        float detailFine = l - lumaOf(blurredFine);
+        float detailCoarse = l - lumaOf(blurAt(v_uv, texel, 8.0 * resScale));
         float x = lumaOf(color) * 2.0 - 1.0;
         float midMask = 1.0 - x * x; // protect deep shadows / highlights
-        color += vec3(detailFine * u_sharpness * 1.5 + detailCoarse * u_clarity * midMask);
+        if (u_sharpness >= 0.0) {
+            color += vec3(detailFine * u_sharpness * 2.4);
+        } else {
+            vec3 softColor = color + (blurredFine - src.rgb);
+            color = mix(color, softColor, clamp(-u_sharpness, 0.0, 1.0));
+        }
+        color += vec3(detailCoarse * u_clarity * 1.25 * midMask);
     }
 
     fragColor = vec4(clamp(color, 0.0, 1.0), src.a);
@@ -326,109 +335,6 @@ export class WebglLutRenderer {
   public setProfile(profileId: string) {
     this.activeLutId = profileId;
   }
-
-  /**
-   * 依據 AI 產生的 NeuralColorMatrix 色彩向量，在記憶體極速 (<5ms) 動態合成全新 33x33x33 3D LUT
-   */
-  public generateBespokeLut(matrix: import('../services/aiSceneService').NeuralColorMatrix): Float32Array {
-    const size = 33;
-    const data = new Float32Array(size * size * size * 4);
-    const ss = WebglLutRenderer.smoothstep;
-    let index = 0;
-
-    const shadowTint = matrix.shadow_tint || [0.0, 0.0, 0.0];
-    const highlightTint = matrix.highlight_tint || [0.0, 0.0, 0.0];
-    const blackLift = Math.max(0.0, Math.min(0.4, matrix.black_lift ?? 0.0));
-    const cyanSkyShift = Math.max(0.0, Math.min(1.0, matrix.cyan_sky_shift ?? 0.0));
-    const desatGreens = Math.max(0.0, Math.min(1.0, matrix.desaturate_greens ?? 0.0));
-    const warmHl = Math.max(0.0, Math.min(1.0, matrix.warm_highlights ?? 0.0));
-    const curveMode = matrix.curve_mode || 'punchy_s';
-
-    for (let b = 0; b < size; b++) {
-      for (let g = 0; g < size; g++) {
-        for (let r = 0; r < size; r++) {
-          let red = r / (size - 1);
-          let green = g / (size - 1);
-          let blue = b / (size - 1);
-
-          const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-
-          // 1. S 曲線或黑階形態
-          if (curveMode === 'punchy_s') {
-            const sCurve = (v: number) => v < 0.5
-              ? Math.pow(v * 2.0, 1.08) * 0.5
-              : 1.0 - Math.pow((1.0 - v) * 2.0, 1.08) * 0.5;
-            red = sCurve(red);
-            green = sCurve(green);
-            blue = sCurve(blue);
-          } else if (curveMode === 'fade_black') {
-            const fadeCurve = (v: number) => 0.04 + v * 0.94;
-            red = fadeCurve(red);
-            green = fadeCurve(green);
-            blue = fadeCurve(blue);
-          } else if (curveMode === 'soft_highlight') {
-            const softHl = (v: number) => v > 0.7 ? 0.7 + (v - 0.7) * 0.8 : v;
-            red = softHl(red);
-            green = softHl(green);
-            blue = softHl(blue);
-          }
-
-          // 2. 黑階抬升 (Black Lift / Matte Pedestal) 與陰影色彩注入
-          const darkMask = Math.pow(Math.max(0.0, 1.0 - luma), 1.6);
-          const hlMask = Math.pow(Math.max(0.0, luma), 1.6);
-
-          // 注入 AI 暗部向量 (例如青綠 [0.03, 0.08, 0.10])
-          red += (shadowTint[0] * 0.15 + blackLift * 0.15) * darkMask;
-          green += (shadowTint[1] * 0.15 + blackLift * 0.15) * darkMask;
-          blue += (shadowTint[2] * 0.15 + blackLift * 0.15) * darkMask;
-
-          // 注入 AI 高光向量 (例如暖琥珀 [0.10, 0.07, 0.02])
-          red += (highlightTint[0] * 0.15 + warmHl * 0.04) * hlMask;
-          green += (highlightTint[1] * 0.15 + warmHl * 0.02) * hlMask;
-          blue += (highlightTint[2] * 0.15 - warmHl * 0.02) * hlMask;
-
-          // 3. 青空色相扭轉 (Cyan Sky Shift: 藍轉青藍，富士與索尼膠卷之靈魂)
-          if (cyanSkyShift > 0.01) {
-            const skyMask = ss(0.0, 0.15, blue - red) * ss(0.15, 0.35, blue);
-            const blueDelta = Math.min(0.4, Math.max(0.0, blue - red));
-            green += skyMask * blueDelta * (0.20 * cyanSkyShift);
-            red -= skyMask * blueDelta * (0.08 * cyanSkyShift);
-          }
-
-          // 4. 草木綠收斂沉穩 (Desaturate neon greens to olive)
-          if (desatGreens > 0.01) {
-            const foliageMask = ss(0.0, 0.03, green - red) * ss(0.03, 0.10, green - blue);
-            const foliageDelta = Math.max(0.0, green - blue);
-            blue += foliageMask * foliageDelta * (0.15 * desatGreens);
-            green -= foliageMask * foliageDelta * (0.06 * desatGreens);
-            red -= foliageMask * foliageDelta * (0.06 * desatGreens);
-          }
-
-          // 5. 膚色保護 (平滑過渡避免人臉變綠或過紅)
-          const skinMask = ss(0.0, 0.03, red - green) * ss(0.0, 0.03, green - blue) * ss(0.08, 0.20, red - blue);
-          red += skinMask * 0.015;
-          blue -= skinMask * 0.015;
-
-          data[index++] = Math.min(1.0, Math.max(0.0, red));
-          data[index++] = Math.min(1.0, Math.max(0.0, green));
-          data[index++] = Math.min(1.0, Math.max(0.0, blue));
-          data[index++] = 1.0;
-        }
-      }
-    }
-    return data;
-  }
-
-  /**
-   * 註冊並即時套用由 AI 動態合成的專屬 3D LUT
-   */
-  public registerAndApplyBespokeLut(matrix: import('../services/aiSceneService').NeuralColorMatrix, profileId: string = 'Profile_AI_Bespoke'): void {
-    if (!this.gl) return;
-    const data = this.generateBespokeLut(matrix);
-    this.registerLut(profileId, data, 33);
-    this.setProfile(profileId);
-  }
-
   /**
    * Parse standard .cube 3D LUT (Adobe / DaVinci Resolve)
    */
@@ -484,14 +390,14 @@ export class WebglLutRenderer {
 
     // 1. 本地即時數學兜底紋理 (確保離線或尚未載入完成時 0ms 正常著色)
     this.registerLut('Profile_01_MatteShadow', this.generateMatteShadowLut(), 33);
-    this.registerLut('Profile_02_TealEmerald', this.generateTealEmeraldLut(), 33);
+    this.registerLut('Profile_02_RealaTone', this.generateTealEmeraldLut(), 33);
     this.registerLut('Profile_03_TungstenSoft', this.generateTungstenSoftLut(), 33);
     this.registerLut('Profile_04_HighContrastMono', this.generateMonoSilverLut(), 33);
     this.registerLut('Profile_05_DocumentaryChrome', this.generateDocumentaryChromeLut(), 33);
 
     // 2. 自動非同步升級載入真實 3D .cube 紋理 (來自 cedeber/hald-clut 與原廠色彩科學還原)
     this.loadCubeFileIfAvailable('Profile_01_MatteShadow', '/luts/fuji_eterna.cube');
-    this.loadCubeFileIfAvailable('Profile_02_TealEmerald', '/luts/teal_emerald.cube');
+    this.loadCubeFileIfAvailable('Profile_02_RealaTone', '/luts/fuji_reala_ace.cube');
     this.loadCubeFileIfAvailable('Profile_03_TungstenSoft', '/luts/kodak_portra_160.cube');
     this.loadCubeFileIfAvailable('Profile_04_HighContrastMono', '/luts/kodak_trix_400.cube');
     this.loadCubeFileIfAvailable('Profile_05_DocumentaryChrome', '/luts/fuji_classic_chrome.cube');
