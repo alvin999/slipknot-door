@@ -49,44 +49,199 @@ export interface EmbeddedPreviewResult {
  * Generic TIFF/Exif metadata parser for raw camera binary headers.
  * Zero vendor hardcodes. Standard JEITA CP-3461 / TIFF 6.0 implementation.
  */
-function parseTiffMetadataFromBytes(bytes: Uint8Array): { make: string; model: string } {
-  if (bytes.length < 16) return { make: '', model: '' };
+function parseTiffExifFromBytes(bytes: Uint8Array): {
+  camera_model: string;
+  lens_model: string;
+  iso: number;
+  shutter_speed: string;
+  aperture: string;
+  focal_length: string;
+  date_time: string;
+  exposure_bias?: number;
+  exposure_program?: string;
+  metering_mode?: string;
+  color_space?: string;
+  color_temp?: number;
+  tint?: number;
+  flash?: string;
+} {
+  const result = {
+    camera_model: '',
+    lens_model: '標準光學鏡頭',
+    iso: 100,
+    shutter_speed: '--',
+    aperture: '--',
+    focal_length: '--',
+    date_time: '--',
+    exposure_bias: 0.0,
+    exposure_program: '標準自動',
+    metering_mode: '多重測光',
+    color_space: 'sRGB',
+    color_temp: 5500,
+    tint: 0,
+    flash: '未擊發'
+  };
+
+  if (bytes.length < 16) return result;
   const isLe = bytes[0] === 0x49 && bytes[1] === 0x49; // 'II'
   const isBe = bytes[0] === 0x4D && bytes[1] === 0x4D; // 'MM'
-  if (!isLe && !isBe) return { make: '', model: '' };
+  if (!isLe && !isBe) return result;
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const readU16 = (o: number) => view.getUint16(o, isLe);
-  const readU32 = (o: number) => view.getUint32(o, isLe);
+  const readU16 = (o: number) => (o + 2 <= bytes.length ? view.getUint16(o, isLe) : undefined);
+  const readU32 = (o: number) => (o + 4 <= bytes.length ? view.getUint32(o, isLe) : undefined);
+  const readI32 = (o: number) => (o + 4 <= bytes.length ? view.getInt32(o, isLe) : undefined);
 
-  let ifdOffset = readU32(4);
+  const readString = (offset: number, count: number): string | undefined => {
+    if (offset < bytes.length) {
+      const actualEnd = Math.min(offset + count, bytes.length);
+      const slice = bytes.subarray(offset, actualEnd);
+      let len = 0;
+      while (len < slice.length && slice[len] !== 0) len++;
+      if (len > 0) {
+        return new TextDecoder('latin1').decode(slice.subarray(0, len)).trim();
+      }
+    }
+    return undefined;
+  };
+
+  const ifd0Offset = readU32(4);
+  if (!ifd0Offset || ifd0Offset >= bytes.length - 2) return result;
+
   let make = '';
   let model = '';
+  let exifSubIfdOffset: number | undefined;
 
-  if (ifdOffset > 0 && ifdOffset < bytes.length - 2) {
-    const numEntries = readU16(ifdOffset);
-    let entryOffset = ifdOffset + 2;
+  // 1. IFD0 Entries
+  const numEntries = readU16(ifd0Offset) || 0;
+  let entryOffset = ifd0Offset + 2;
 
-    for (let i = 0; i < numEntries && entryOffset + 12 <= bytes.length; i++) {
-      const tag = readU16(entryOffset);
-      const type = readU16(entryOffset + 2);
-      const count = readU32(entryOffset + 4);
-      const valOffset = entryOffset + 8;
+  for (let i = 0; i < numEntries && entryOffset + 12 <= bytes.length; i++) {
+    const tag = readU16(entryOffset);
+    const count = readU32(entryOffset + 4) || 0;
+    const valOffset = entryOffset + 8;
 
-      if (type === 2) { // ASCII string tag
-        const actualOffset = count > 4 ? readU32(valOffset) : valOffset;
-        if (actualOffset + count <= bytes.length) {
-          const strBytes = bytes.subarray(actualOffset, actualOffset + count);
-          const str = new TextDecoder('latin1').decode(strBytes).replace(/\0/g, '').trim();
-          if (tag === 0x010F) make = str;
-          if (tag === 0x0110) model = str;
+    if (tag === 0x010F) { // Make
+      const strOffset = count <= 4 ? valOffset : (readU32(valOffset) || 0);
+      make = readString(strOffset, count) || '';
+    } else if (tag === 0x0110) { // Model
+      const strOffset = count <= 4 ? valOffset : (readU32(valOffset) || 0);
+      model = readString(strOffset, count) || '';
+    } else if (tag === 0x0132) { // DateTime
+      const strOffset = count <= 4 ? valOffset : (readU32(valOffset) || 0);
+      result.date_time = readString(strOffset, count) || result.date_time;
+    } else if (tag === 0x8769) { // ExifIFD pointer
+      exifSubIfdOffset = readU32(valOffset);
+    }
+    entryOffset += 12;
+  }
+
+  if (model) {
+    result.camera_model = make && !model.toLowerCase().includes(make.toLowerCase())
+      ? `${make} ${model}`
+      : model;
+  }
+
+  // 2. Exif SubIFD Entries
+  if (exifSubIfdOffset && exifSubIfdOffset < bytes.length - 2) {
+    const subNumEntries = readU16(exifSubIfdOffset) || 0;
+    let subEntryOffset = exifSubIfdOffset + 2;
+
+    for (let i = 0; i < subNumEntries && subEntryOffset + 12 <= bytes.length; i++) {
+      const tag = readU16(subEntryOffset);
+      const count = readU32(subEntryOffset + 4) || 0;
+      const valOffset = subEntryOffset + 8;
+      const valU32 = readU32(valOffset) || 0;
+
+      if (tag === 0x8827) { // ISO Speed
+        result.iso = count === 1 ? (readU16(valOffset) || 100) : (readU16(valU32) || 100);
+      } else if (tag === 0x829A) { // ExposureTime (Rational: num/den)
+        const num = readU32(valU32) || 0;
+        const den = readU32(valU32 + 4) || 1;
+        if (num > 0 && den > 0) {
+          if (num < den) {
+            const speed = Math.round(den / num);
+            result.shutter_speed = speed > 1 ? `1/${speed}s` : '1s';
+          } else {
+            const sec = num / den;
+            result.shutter_speed = Math.abs(sec - Math.round(sec)) < 0.05 ? `${Math.round(sec)}s` : `${sec.toFixed(1)}s`;
+          }
         }
+      } else if (tag === 0x829D) { // FNumber (Rational: num/den)
+        const num = readU32(valU32) || 0;
+        const den = readU32(valU32 + 4) || 1;
+        if (den > 0 && num > 0) {
+          const f = num / den;
+          result.aperture = Math.abs(f - Math.round(f)) < 0.05 ? `f/${Math.round(f)}` : `f/${f.toFixed(1)}`;
+        }
+      } else if (tag === 0x920A) { // FocalLength (Rational: num/den)
+        const num = readU32(valU32) || 0;
+        const den = readU32(valU32 + 4) || 1;
+        if (den > 0 && num > 0) {
+          result.focal_length = `${Math.round(num / den)}mm`;
+        }
+      } else if (tag === 0xA434) { // LensModel
+        const strOffset = count <= 4 ? valOffset : valU32;
+        const lens = readString(strOffset, count);
+        if (lens) result.lens_model = lens;
+      } else if (tag === 0xA432) { // LensSpecification
+        if (result.lens_model === '標準光學鏡頭' || !result.lens_model) {
+          const minFNum = readU32(valU32) || 0;
+          const minFDen = readU32(valU32 + 4) || 1;
+          const maxFNum = readU32(valU32 + 8) || 0;
+          const maxFDen = readU32(valU32 + 12) || 1;
+          const minFnNum = readU32(valU32 + 16) || 0;
+          const minFnDen = readU32(valU32 + 20) || 1;
+          if (minFDen > 0 && maxFDen > 0 && minFNum > 0) {
+            const minF = Math.round(minFNum / minFDen);
+            const maxF = Math.round(maxFNum / maxFDen);
+            const fn = minFnDen > 0 && minFnNum > 0 ? (minFnNum / minFnDen).toFixed(1) : '';
+            result.lens_model = minF === maxF
+              ? (fn ? `${minF}mm f/${fn}` : `${minF}mm`)
+              : (fn ? `${minF}-${maxF}mm f/${fn}` : `${minF}-${maxF}mm`);
+          }
+        }
+      } else if (tag === 0x9204) { // ExposureBias (SRational)
+        const num = readI32(valU32) || 0;
+        const den = readI32(valU32 + 4) || 1;
+        if (den !== 0) {
+          result.exposure_bias = num / den;
+        }
+      } else if (tag === 0x8822) { // ExposureProgram
+        const prog = readU16(valOffset) || 0;
+        const map: Record<number, string> = {
+          1: '手動曝光 (M)', 2: '程式自動 (P)', 3: '光圈先決 (A)', 4: '快門先決 (S)',
+          5: '景深優先 (創意)', 6: '動作模式 (高速)', 7: '人像優先', 8: '風景模式'
+        };
+        result.exposure_program = map[prog] || '標準自動';
+      } else if (tag === 0x9207) { // MeteringMode
+        const mode = readU16(valOffset) || 0;
+        const map: Record<number, string> = {
+          1: '平均測光', 2: '中央重點測光', 3: '點測光', 4: '多點測光', 5: '多分割矩陣測光', 6: '局部測光'
+        };
+        result.metering_mode = map[mode] || '多重測光';
+      } else if (tag === 0x9208) { // LightSource (White balance / temp)
+        const ls = readU16(valOffset) || 0;
+        const kelvinMap: Record<number, number> = {
+          1: 5500, 2: 4200, 3: 3200, 4: 5400, 9: 5200, 10: 6000, 11: 7000,
+          12: 6500, 13: 5000, 14: 4200, 15: 3000, 17: 2856, 20: 5500, 21: 6500, 22: 7500, 23: 5000
+        };
+        if (kelvinMap[ls]) {
+          result.color_temp = kelvinMap[ls];
+        }
+      } else if (tag === 0x9209) { // Flash
+        const flashVal = readU16(valOffset) || 0;
+        result.flash = (flashVal & 0x01) !== 0 ? '已擊發' : '未擊發';
+      } else if (tag === 0xA001) { // ColorSpace
+        const cs = readU16(valOffset) || 0;
+        result.color_space = cs === 1 ? 'sRGB' : (cs === 2 ? 'Adobe RGB' : 'Wide Gamut');
       }
-      entryOffset += 12;
+
+      subEntryOffset += 12;
     }
   }
 
-  return { make, model };
+  return result;
 }
 
 const SUPPORTED_EXTS = ['arw', 'cr2', 'cr3', 'nef', 'raf', 'dng', 'jpg', 'jpeg'];
@@ -331,14 +486,9 @@ export class IngestionService {
           const jpegBlob = new Blob([jpegBytes], { type: 'image/jpeg' });
           const blobUrl = URL.createObjectURL(jpegBlob);
 
-          // Dynamically parse make and model using standard TIFF tags (0x010F / 0x0110)
-          const { make, model } = parseTiffMetadataFromBytes(bytes.subarray(0, 65536));
-          let cameraModel = `${ext.toUpperCase()} 相機`;
-          if (model) {
-            cameraModel = make && !model.toLowerCase().includes(make.toLowerCase())
-              ? `${make} ${model}`
-              : model;
-          }
+          // Dynamically parse full optical EXIF using standard TIFF tags from the 16MB raw buffer
+          const parsedExif = parseTiffExifFromBytes(bytes);
+          let cameraModel = parsedExif.camera_model || `${ext.toUpperCase()} 相機`;
 
           return {
             file_path: filePath,
@@ -347,13 +497,9 @@ export class IngestionService {
             blob_url: blobUrl,
             extraction_time_ms: Math.round(performance.now() - startTime) || 16,
             exif: {
+              ...parsedExif,
               camera_model: cameraModel,
-              lens_model: '原生光學鏡頭',
-              iso: 100,
-              shutter_speed: '--',
-              aperture: '--',
-              focal_length: '--',
-              date_time: new Date(fileBlob.lastModified).toLocaleString('zh-TW')
+              date_time: parsedExif.date_time !== '--' ? parsedExif.date_time : new Date(fileBlob.lastModified).toLocaleString('zh-TW')
             }
           };
         }
