@@ -126,3 +126,12 @@ graph TD
 * **標準影像**：`.JPG`, `.JPEG`
 
 ---
+
+## 3D LUT 色彩科學與開源致謝 / Acknowledgements
+
+本專案之膠片色彩科學與相機風格比對，部分 3D LUT 紋理與曲線參照自開源社群之精確相機還原設定檔：
+
+* **Fujifilm Camera Profiles (Classic Chrome 等)**：
+  * 專案來源：[abpy/FujifilmCameraProfiles](https://github.com/abpy/FujifilmCameraProfiles/tree/master)
+  * 授權條款：[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+  * 用途說明：用於本專案 WebGL 2.0 3D 紋理之真實原廠色彩曲線映射與解碼對齊。

@@ -10,6 +10,7 @@ export interface TuningParameters {
   colorTemp: number;    // 2800 ~ 8500 Kelvin
   tint?: number;        // -100 ~ +100 Green <-> Magenta
   lutIntensity: number; // 0.0 ~ 1.0
+  shadowLift?: number;  // -0.5 ~ +0.5 Non-linear shadow lift (Toe lift)
   bypassLut: boolean;   // true for pure natural straight-out-of-camera
   clarity?: number;     // -1.0 ~ +1.0, mid-tone local contrast (large radius)
   sharpness?: number;   // 0.0 ~ 1.0, fine detail unsharp mask (small radius)
@@ -41,10 +42,18 @@ uniform float u_contrast;
 uniform float u_colorTemp;
 uniform float u_tint;
 uniform float u_intensity;
+uniform float u_shadowLift;
 uniform bool u_bypassLut;
 uniform float u_lutSize;   // Per-LUT size so .cube files of 17/33/65 sample correctly
 uniform float u_clarity;
 uniform float u_sharpness;
+
+// Non-linear shadow lift (Toe lift, predominantly affects lower 40% luminance)
+vec3 applyShadowLift(vec3 color, float lift) {
+    if (abs(lift) < 0.001) return color;
+    vec3 liftAmount = (1.0 - color) * (1.0 - color) * (lift * 0.45);
+    return clamp(color + liftAmount, 0.0, 1.0);
+}
 
 float lumaOf(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -97,6 +106,11 @@ void main() {
         color *= pow(2.0, u_exposure);
     }
     color = clamp(color, 0.0, 1.0);
+
+    // 1.5 Non-linear Shadow Lift (暗部黑階抬升，Sony FL 啞光膠卷之魂)
+    if (abs(u_shadowLift) > 0.001) {
+        color = applyShadowLift(color, u_shadowLift);
+    }
 
     // 2. White Balance BEFORE the LUT (camera order: WB -> Creative Look),
     //    so changing color temperature and tint does not shift the LUT's look.
@@ -155,6 +169,7 @@ export class WebglLutRenderer {
   private uLutSizeLoc: WebGLUniformLocation | null = null;
   private uClarityLoc: WebGLUniformLocation | null = null;
   private uSharpnessLoc: WebGLUniformLocation | null = null;
+  private uShadowLiftLoc: WebGLUniformLocation | null = null;
 
   public initialize(canvas: HTMLCanvasElement): boolean {
     const gl = canvas.getContext('webgl2', {
@@ -180,6 +195,7 @@ export class WebglLutRenderer {
     this.uContrastLoc = gl.getUniformLocation(program, 'u_contrast');
     this.uColorTempLoc = gl.getUniformLocation(program, 'u_colorTemp');
     this.uTintLoc = gl.getUniformLocation(program, 'u_tint');
+    this.uShadowLiftLoc = gl.getUniformLocation(program, 'u_shadowLift');
     this.uBypassLutLoc = gl.getUniformLocation(program, 'u_bypassLut');
     this.uImageLoc = gl.getUniformLocation(program, 'u_image');
     this.uLutLoc = gl.getUniformLocation(program, 'u_lut');
@@ -277,6 +293,7 @@ export class WebglLutRenderer {
     gl.uniform1f(this.uContrastLoc, params.contrast);
     gl.uniform1f(this.uColorTempLoc, params.colorTemp);
     gl.uniform1f(this.uTintLoc, params.tint ?? 0);
+    gl.uniform1f(this.uShadowLiftLoc, params.shadowLift ?? 0);
     gl.uniform1f(this.uIntensityLoc, params.lutIntensity);
     gl.uniform1i(this.uBypassLutLoc, (params.bypassLut || !targetLutTex) ? 1 : 0);
 
@@ -308,6 +325,108 @@ export class WebglLutRenderer {
 
   public setProfile(profileId: string) {
     this.activeLutId = profileId;
+  }
+
+  /**
+   * 依據 AI 產生的 NeuralColorMatrix 色彩向量，在記憶體極速 (<5ms) 動態合成全新 33x33x33 3D LUT
+   */
+  public generateBespokeLut(matrix: import('../services/aiSceneService').NeuralColorMatrix): Float32Array {
+    const size = 33;
+    const data = new Float32Array(size * size * size * 4);
+    const ss = WebglLutRenderer.smoothstep;
+    let index = 0;
+
+    const shadowTint = matrix.shadow_tint || [0.0, 0.0, 0.0];
+    const highlightTint = matrix.highlight_tint || [0.0, 0.0, 0.0];
+    const blackLift = Math.max(0.0, Math.min(0.4, matrix.black_lift ?? 0.0));
+    const cyanSkyShift = Math.max(0.0, Math.min(1.0, matrix.cyan_sky_shift ?? 0.0));
+    const desatGreens = Math.max(0.0, Math.min(1.0, matrix.desaturate_greens ?? 0.0));
+    const warmHl = Math.max(0.0, Math.min(1.0, matrix.warm_highlights ?? 0.0));
+    const curveMode = matrix.curve_mode || 'punchy_s';
+
+    for (let b = 0; b < size; b++) {
+      for (let g = 0; g < size; g++) {
+        for (let r = 0; r < size; r++) {
+          let red = r / (size - 1);
+          let green = g / (size - 1);
+          let blue = b / (size - 1);
+
+          const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+
+          // 1. S 曲線或黑階形態
+          if (curveMode === 'punchy_s') {
+            const sCurve = (v: number) => v < 0.5
+              ? Math.pow(v * 2.0, 1.08) * 0.5
+              : 1.0 - Math.pow((1.0 - v) * 2.0, 1.08) * 0.5;
+            red = sCurve(red);
+            green = sCurve(green);
+            blue = sCurve(blue);
+          } else if (curveMode === 'fade_black') {
+            const fadeCurve = (v: number) => 0.04 + v * 0.94;
+            red = fadeCurve(red);
+            green = fadeCurve(green);
+            blue = fadeCurve(blue);
+          } else if (curveMode === 'soft_highlight') {
+            const softHl = (v: number) => v > 0.7 ? 0.7 + (v - 0.7) * 0.8 : v;
+            red = softHl(red);
+            green = softHl(green);
+            blue = softHl(blue);
+          }
+
+          // 2. 黑階抬升 (Black Lift / Matte Pedestal) 與陰影色彩注入
+          const darkMask = Math.pow(Math.max(0.0, 1.0 - luma), 1.6);
+          const hlMask = Math.pow(Math.max(0.0, luma), 1.6);
+
+          // 注入 AI 暗部向量 (例如青綠 [0.03, 0.08, 0.10])
+          red += (shadowTint[0] * 0.15 + blackLift * 0.15) * darkMask;
+          green += (shadowTint[1] * 0.15 + blackLift * 0.15) * darkMask;
+          blue += (shadowTint[2] * 0.15 + blackLift * 0.15) * darkMask;
+
+          // 注入 AI 高光向量 (例如暖琥珀 [0.10, 0.07, 0.02])
+          red += (highlightTint[0] * 0.15 + warmHl * 0.04) * hlMask;
+          green += (highlightTint[1] * 0.15 + warmHl * 0.02) * hlMask;
+          blue += (highlightTint[2] * 0.15 - warmHl * 0.02) * hlMask;
+
+          // 3. 青空色相扭轉 (Cyan Sky Shift: 藍轉青藍，富士與索尼膠卷之靈魂)
+          if (cyanSkyShift > 0.01) {
+            const skyMask = ss(0.0, 0.15, blue - red) * ss(0.15, 0.35, blue);
+            const blueDelta = Math.min(0.4, Math.max(0.0, blue - red));
+            green += skyMask * blueDelta * (0.20 * cyanSkyShift);
+            red -= skyMask * blueDelta * (0.08 * cyanSkyShift);
+          }
+
+          // 4. 草木綠收斂沉穩 (Desaturate neon greens to olive)
+          if (desatGreens > 0.01) {
+            const foliageMask = ss(0.0, 0.03, green - red) * ss(0.03, 0.10, green - blue);
+            const foliageDelta = Math.max(0.0, green - blue);
+            blue += foliageMask * foliageDelta * (0.15 * desatGreens);
+            green -= foliageMask * foliageDelta * (0.06 * desatGreens);
+            red -= foliageMask * foliageDelta * (0.06 * desatGreens);
+          }
+
+          // 5. 膚色保護 (平滑過渡避免人臉變綠或過紅)
+          const skinMask = ss(0.0, 0.03, red - green) * ss(0.0, 0.03, green - blue) * ss(0.08, 0.20, red - blue);
+          red += skinMask * 0.015;
+          blue -= skinMask * 0.015;
+
+          data[index++] = Math.min(1.0, Math.max(0.0, red));
+          data[index++] = Math.min(1.0, Math.max(0.0, green));
+          data[index++] = Math.min(1.0, Math.max(0.0, blue));
+          data[index++] = 1.0;
+        }
+      }
+    }
+    return data;
+  }
+
+  /**
+   * 註冊並即時套用由 AI 動態合成的專屬 3D LUT
+   */
+  public registerAndApplyBespokeLut(matrix: import('../services/aiSceneService').NeuralColorMatrix, profileId: string = 'Profile_AI_Bespoke'): void {
+    if (!this.gl) return;
+    const data = this.generateBespokeLut(matrix);
+    this.registerLut(profileId, data, 33);
+    this.setProfile(profileId);
   }
 
   /**
@@ -377,6 +496,25 @@ export class WebglLutRenderer {
 
     // 5. Profile_05_DocumentaryChrome (Documentary Hard Contrast, Muted Chroma Print Look)
     this.registerLut('Profile_05_DocumentaryChrome', this.generateDocumentaryChromeLut(), 33);
+
+    // 6. 自動非同步升級載入真實 Fujifilm Classic Chrome .cube 紋理 (若靜態資源目錄存在)
+    this.loadCubeFileIfAvailable('Profile_05_DocumentaryChrome', '/luts/fuji_classic_chrome.cube');
+  }
+
+  private async loadCubeFileIfAvailable(profileId: string, url: string) {
+    if (typeof fetch === 'undefined') return;
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const text = await res.text();
+        const success = this.parseAndRegisterCube(profileId, text);
+        if (success) {
+          console.info(`[WebGL LUT] 成功載入並升級真實 .cube 紋理: ${profileId} (${url})`);
+        }
+      }
+    } catch {
+      // 離線或檔案未找到時靜默略過，維持即時數學兜底紋理
+    }
   }
 
   private registerLut(profileId: string, data: Float32Array, size: number = 33) {

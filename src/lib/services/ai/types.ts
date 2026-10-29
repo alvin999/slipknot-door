@@ -7,13 +7,32 @@
 import type { ExifOpticalData } from '../../types/photo';
 import type { AiSceneDecision, CopywritingPayload, CopywritingResult } from '../aiSceneService';
 
+export interface AvailableProfileSummary {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export type StylePresetKey =
+  | 'film_like_fl'
+  | 'classic_chrome_cc'
+  | 'monochrome_hc'
+  | 'matte_shadow'
+  | 'tungsten_soft'
+  | 'custom_prompt'
+  | 'auto';
+
 export interface VisionInferenceOptions {
   apiKey: string;
   modelId: string;
   imagePayload512pxBase64: string;
   exif: ExifOpticalData;
+  availableProfiles?: AvailableProfileSummary[];
   timeoutMs?: number;
   signal?: AbortSignal;
+  analysisMode?: 'auto_develop' | 'style_grading';
+  stylePreset?: StylePresetKey;
+  customStylePrompt?: string;
 }
 
 export interface TextInferenceOptions {
