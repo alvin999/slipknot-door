@@ -1,11 +1,10 @@
 /**
- * AI Scene Analysis & Heuristic Offline Fallback Service
- * Authentic Gemini / Groq live API inference with automated optical heuristic fallback.
+ * AI Scene Analysis & Vision Orchestration Service
+ * Authentic Gemini / Groq live API inference with automated retry and lightweight image compression.
  * Zero hardcoded dummy returns.
  */
 
 import type { ExifOpticalData } from '../types/photo';
-import { KeyVaultService } from './keyVaultService';
 import { AiEngineFactory } from './ai/engineFactory';
 
 export interface AiSceneDecision {
@@ -169,9 +168,9 @@ export class AiSceneService {
 
   /**
    * 執行場景分析決策：
-   * 1. 若使用者「已配置 API 金鑰」：100% 執行雲端多模態神經推論，具備「智慧自動重試（Auto-retry）」抗尖峰壅塞 (503/429)。
+   * 1. 100% 執行雲端多模態神經推論，具備「智慧自動重試（Auto-retry）」抗尖峰壅塞 (503/429)。
    * 2. 支援隨時手動中斷（AbortSignal），中止時立即掐斷連線與等待。
-   * 3. 若使用者「未配置 API 金鑰」：才以本機光學規則作為免費基礎輔助。
+   * 3. 若未配置 API 金鑰，直接拋出錯誤提示使用者配置，不進行任何本地偽裝或兜底。
    */
   public static async analyzeScene(
     imagePayload512pxBase64: string,
@@ -185,10 +184,7 @@ export class AiSceneService {
     const hasValidKey = !!(apiKey && apiKey.trim() !== '');
 
     if (!hasValidKey) {
-      // 純離線無金鑰模式：才走本地光學啟發式推估
-      const fallback = this.heuristicFallback(exif, '未配置 API 金鑰 (純離線本機光學模式)');
-      fallback.inferenceDurationMs = Date.now() - startTime;
-      return fallback;
+      throw new Error(`未配置 ${strategy.providerName} 之可用 API 金鑰，請先至右下角保險庫輸入金鑰`);
     }
 
     if (!imagePayload512pxBase64 || imagePayload512pxBase64.trim() === '') {
@@ -268,208 +264,21 @@ export class AiSceneService {
   }
 
   /**
-   * Rule-based Optical Heuristics when offline or timeout occurs
-   */
-  public static heuristicFallback(exif: ExifOpticalData, reason?: string): AiSceneDecision {
-    const focalMm = parseInt(exif.focalLength, 10) || 0;
-    const aperture = parseFloat(exif.apertureValue.replace('f/', '')) || 0;
-    const iso = exif.iso || 100;
-    const hasCompleteExif = focalMm > 0 && aperture > 0;
-
-    // Rule 1: Portrait condition (large aperture + focal length >= 50mm)
-    if (hasCompleteExif && aperture <= 2.0 && focalMm >= 50) {
-      return {
-        scene_type: 'portrait',
-        scene_title: '大光圈淺景深人像',
-        style_insight: '偵測到大光圈特寫鏡頭，建議柔化肌膚調性並微升曝光，呈現鎢絲燈柔光暖意。',
-        recommended_mood: '柔焦暖光人像',
-        recommended_profile: 'Profile_03_TungstenSoft',
-        confidence: 0.88,
-        exposure_compensation: 0.2,
-        contrast: -0.05,
-        color_temp: 5800,
-        tint: 3.0,
-        lift_shadows: 0.15,
-        lut_intensity: 0.85,
-        tags: ['大光圈', '淺景深', '柔焦暖光', '人像特寫'],
-        isFallback: true,
-        fallbackReason: reason,
-        crop_box: [0.06, 0.10, 0.94, 0.90],
-        rotation_deg: 0.0,
-        keystone_v: 0.0,
-        aspect_ratio: '4:5',
-        crop_rationale: '偵測到大光圈特寫人像，建議以 4:5 經典直式比例居中微聚焦主體。'
-      };
-    }
-
-    // Rule 2: Low-light or Night photography (ISO >= 3200)
-    if (iso >= 3200) {
-      return {
-        scene_type: 'outdoor_street',
-        scene_title: '微光夜巡街景',
-        style_insight: '高感光度低光場景，建議微調高光抑止噪點、提亮暗部細節，賦予沉穩霧面黑質感。',
-        recommended_mood: '消光暗夜影調',
-        recommended_profile: 'Profile_01_MatteShadow',
-        confidence: 0.82,
-        exposure_compensation: 0.1,
-        contrast: 0.05,
-        color_temp: 5200,
-        tint: -2.0,
-        lift_shadows: 0.25,
-        lut_intensity: 0.80,
-        tags: ['微光夜景', '高感度', '暗夜影調', '低光街拍'],
-        isFallback: true,
-        fallbackReason: reason,
-        crop_box: [0.03, 0.04, 0.97, 0.96],
-        rotation_deg: -0.5,
-        keystone_v: 0.0,
-        aspect_ratio: 'original',
-        crop_rationale: '夜巡微光環境，微幅校正地平線傾斜以維持視覺重心穩定。'
-      };
-    }
-
-    // Rule 3: High contrast architecture (aperture >= f/5.6)
-    if (hasCompleteExif && aperture >= 5.6) {
-      return {
-        scene_type: 'urban_geometry',
-        scene_title: '幾何建築線條',
-        style_insight: '深景深幾何架構，光影對比較為分明，推薦純粹的高反差黑白以強化幾何張力。',
-        recommended_mood: '硬調幾何黑白',
-        recommended_profile: 'Profile_04_HighContrastMono',
-        confidence: 0.85,
-        exposure_compensation: 0.0,
-        contrast: 0.12,
-        color_temp: 5500,
-        tint: 0.0,
-        lift_shadows: -0.05,
-        lut_intensity: 1.0,
-        tags: ['幾何建築', '深景深', '高反差黑白', '結構線條'],
-        isFallback: true,
-        fallbackReason: reason,
-        crop_box: [0.04, 0.05, 0.96, 0.95],
-        rotation_deg: 0.0,
-        keystone_v: -1.0,
-        aspect_ratio: 'original',
-        crop_rationale: '深景深建築幾何，建議微幅補正仰角透視垂直梯形，消除視覺壓迫感。'
-      };
-    }
-
-    // Rule 4: Daylight / Landscape / Street base when EXIF is incomplete or ISO is low
-    if (iso <= 400) {
-      return {
-        scene_type: 'outdoor_street',
-        scene_title: '日光寫實紀實',
-        style_insight: '低感光度自然光照環境，賦予通透層次與適度反差，推薦經典人文寫實底片調性。',
-        recommended_mood: '人文寫實紀實',
-        recommended_profile: 'Profile_05_DocumentaryChrome',
-        confidence: 0.80,
-        exposure_compensation: 0.1,
-        contrast: 0.04,
-        color_temp: 5600,
-        tint: 0.5,
-        lift_shadows: 0.08,
-        lut_intensity: 0.85,
-        isFallback: true,
-        fallbackReason: reason,
-        crop_box: [0.0, 0.0, 1.0, 1.0],
-        rotation_deg: 0.0,
-        keystone_v: 0.0,
-        aspect_ratio: 'original',
-        crop_rationale: '日光寫實場景，構圖保持原始取景視角。'
-      };
-    }
-
-    // Default Fallback
-    return {
-      scene_type: 'general',
-      scene_title: '生活隨拍底片',
-      style_insight: '均衡光影環境，微調對比與自然色溫，展現溫潤生活感底片成像。',
-      recommended_mood: '日常紀實溫潤',
-      recommended_profile: 'Profile_02_GoldenWarmth',
-      confidence: 0.75,
-      exposure_compensation: 0.05,
-      contrast: 0.02,
-      color_temp: 5500,
-      tint: 0.0,
-      lift_shadows: 0.05,
-      lut_intensity: 0.80,
-      tags: ['日常隨拍', '溫潤色彩', '自然光'],
-      isFallback: true,
-      fallbackReason: reason,
-      crop_box: [0.0, 0.0, 1.0, 1.0],
-      rotation_deg: 0.0,
-      keystone_v: 0.0,
-      aspect_ratio: 'original',
-      crop_rationale: '通用隨拍場景，維持原始構圖長寬比。'
-    };
-  }
-
-  /**
-   * 依據使用者指派之視覺策略執行多模態影像推論 (Strategy Pattern)
-   */
-  private static async callVisionModel(
-    imagePayload512pxBase64: string,
-    exif: ExifOpticalData
-  ): Promise<AiSceneDecision> {
-    if (!imagePayload512pxBase64 || imagePayload512pxBase64.trim() === '') {
-      return this.heuristicFallback(exif, '縮圖影像資料為空');
-    }
-
-    const { strategy, modelId, apiKey } = await AiEngineFactory.getVisionEngine();
-    if (!apiKey || apiKey.trim() === '') {
-      return this.heuristicFallback(exif, `未配置 ${strategy.providerName} 之可用 API 金鑰 (請於右下角保險庫輸入)`);
-    }
-
-    const tPrep = Date.now();
-    const { base64: cleanBase64 } = await this.toCleanBase64(imagePayload512pxBase64);
-    const prepMs = Date.now() - tPrep;
-    const sizeKb = (cleanBase64.length * 0.75 / 1024).toFixed(1);
-    console.info(`[AI_VISION] 縮圖準備完成 (耗時: ${prepMs}ms, 體積: ${sizeKb} KB, 模型: ${modelId})`);
-
-    return await strategy.analyzePhoto({
-      apiKey,
-      modelId,
-      imagePayload512pxBase64: cleanBase64,
-      exif,
-      timeoutMs: this.TIMEOUT_MS
-    });
-  }
-
-  /**
    * 依據使用者指派之文字策略執行極速社群文案與 IPTC 標籤生成 (Strategy Pattern)
    */
   public static async generateGroqCopywriting(payload: CopywritingPayload): Promise<CopywritingResult> {
-    try {
-      const { strategy, modelId, apiKey } = await AiEngineFactory.getCopywritingEngine();
-      if (!apiKey || apiKey.trim() === '') {
-        return this.offlineCopywritingFallback(payload);
-      }
-
-      return await strategy.generateCopywriting({
-        apiKey,
-        modelId,
-        payload,
-        timeoutMs: 15000
-      });
-    } catch (err: any) {
-      console.warn('AI Copywriting call failed, falling back to offline template:', err?.message || err);
-      return this.offlineCopywritingFallback(payload);
+    const { strategy, modelId, apiKey } = await AiEngineFactory.getCopywritingEngine();
+    if (!apiKey || apiKey.trim() === '') {
+      throw new Error(`未配置 ${strategy.providerName} 之可用 API 金鑰，請先至右下角保險庫輸入金鑰`);
     }
-  }
 
-  /**
-   * 離線離線文案降級模板 (Instant aesthetic templates)
-   */
-  private static offlineCopywritingFallback(payload: CopywritingPayload): CopywritingResult {
-    const baseNote = payload.userPrompt && payload.userPrompt.trim()
-      ? `「${payload.userPrompt.trim()}」— `
-      : '';
-    return {
-      caption: `${baseNote}${payload.sceneTitle}。光線於底片顆粒中悄然凝結，留住快門開啟時最真實的呼吸與溫度。`,
-      hashtags: ['#底片攝影', '#底片日常', '#35mm', '#光影散策', '#暗房顯影'],
-      iptcKeywords: [...(payload.tags || []), 'Analog', 'FilmPhotography', '35mm', 'StreetScene'],
-      providerUsed: 'offline'
-    };
+    return await strategy.generateCopywriting({
+      apiKey,
+      modelId,
+      payload,
+      timeoutMs: 15000
+    });
   }
 }
+
 
