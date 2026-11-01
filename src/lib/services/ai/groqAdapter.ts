@@ -5,8 +5,8 @@
  * Dynamic model IDs, zero hardcoded strings.
  */
 
-import type { IVisionStrategy, ITextStrategy, VisionInferenceOptions, TextInferenceOptions } from './types';
-import { buildStyleInstructionBlock } from './styleDirectives';
+import type { IVisionStrategy, ITextStrategy, VisionInferenceOptions, TextInferenceOptions, RefinementInferenceOptions, RefinementDecision } from './types';
+import { buildStyleInstructionBlock, buildCriticInstructionBlock } from './styleDirectives';
 import type { AiSceneDecision, CopywritingResult } from '../aiSceneService';
 
 export class GroqAdapter implements IVisionStrategy, ITextStrategy {
@@ -141,6 +141,99 @@ Respond ONLY with raw JSON matching this schema:
       keystone_v: typeof parsed.keystone_v === 'number' ? parsed.keystone_v : 0.0,
       aspect_ratio: parsed.aspect_ratio || 'original',
       crop_rationale: parsed.crop_rationale || ''
+    };
+  }
+
+  /**
+   * 雙圖閉環覆審分析 (Pass 2 Critic Refinement)
+   * 傳入原圖與 Pass 1 成果圖，進行品控微調
+   */
+  public async refinePhoto(options: RefinementInferenceOptions): Promise<RefinementDecision> {
+    const { apiKey, modelId, originalImageBase64, renderedImageBase64, firstPassDecision } = options;
+    if (!apiKey || apiKey.trim() === '') {
+      throw new Error('未配置 Groq API 金鑰');
+    }
+
+    const activeModel = (modelId && modelId.trim()) ? modelId.trim() : 'llama-3.2-11b-vision-preview';
+    const isVisionModel = /(vision|-vl-|llama-3.2-(11b|90b)-vision)/i.test(activeModel);
+    if (!isVisionModel) {
+      throw new Error(`Groq 模型 [${activeModel}] 為純文字引擎，不支援雙圖視覺覆審`);
+    }
+
+    const cleanOrig = originalImageBase64.includes(',')
+      ? originalImageBase64.slice(originalImageBase64.indexOf(',') + 1)
+      : originalImageBase64;
+
+    const cleanRendered = renderedImageBase64.includes(',')
+      ? renderedImageBase64.slice(renderedImageBase64.indexOf(',') + 1)
+      : renderedImageBase64;
+
+    const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
+    const criticPrompt = buildCriticInstructionBlock(
+      firstPassDecision.recommended_profile,
+      options.stylePreset,
+      options.styleKeywords,
+      options.customStylePrompt
+    );
+
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: activeModel,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: criticPrompt },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:image/jpeg;base64,${cleanOrig}` }
+                },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:image/jpeg;base64,${cleanRendered}` }
+                }
+              ]
+            }
+          ],
+          response_format: { type: 'json_object' },
+          max_tokens: 512,
+          temperature: 0.2
+        }),
+        signal: options.signal
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || options.signal?.aborted) {
+        throw new Error('覆審連線已由使用者手動中止');
+      }
+      throw new Error(`無法連線至 Groq 覆審伺服器 (${err?.message || '網路連線異常'})`);
+    }
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => null);
+      const detail = errJson?.error?.message || `HTTP ${response.status}`;
+      throw new Error(`Groq 覆審端點回應異常 (${detail})`);
+    }
+
+    const jsonRes = await response.json();
+    const rawContent = jsonRes.choices?.[0]?.message?.content;
+    if (!rawContent) {
+      throw new Error('Groq 覆審未回傳內容');
+    }
+
+    const parsed = JSON.parse(rawContent);
+    return {
+      exposure_delta: typeof parsed.exposure_delta === 'number' ? parsed.exposure_delta : 0.0,
+      lift_shadows_delta: typeof parsed.lift_shadows_delta === 'number' ? parsed.lift_shadows_delta : 0.0,
+      color_temp_delta: typeof parsed.color_temp_delta === 'number' ? parsed.color_temp_delta : 0,
+      contrast_delta: typeof parsed.contrast_delta === 'number' ? parsed.contrast_delta : 0.0,
+      refine_rationale: parsed.refine_rationale || '雙圖比對覆審完成，暗部與動態範圍已微調優化。'
     };
   }
 

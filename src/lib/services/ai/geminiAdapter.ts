@@ -4,8 +4,8 @@
  * Dynamic model IDs, zero hardcoded strings.
  */
 
-import type { IVisionStrategy, ITextStrategy, VisionInferenceOptions, TextInferenceOptions } from './types';
-import { buildStyleInstructionBlock } from './styleDirectives';
+import type { IVisionStrategy, ITextStrategy, VisionInferenceOptions, TextInferenceOptions, RefinementInferenceOptions, RefinementDecision } from './types';
+import { buildStyleInstructionBlock, buildCriticInstructionBlock } from './styleDirectives';
 import type { AiSceneDecision, CopywritingResult } from '../aiSceneService';
 
 export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
@@ -26,10 +26,13 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
       ? imagePayload512pxBase64.slice(imagePayload512pxBase64.indexOf(',') + 1)
       : imagePayload512pxBase64;
 
-    const cleanModel = (modelId && modelId.trim()) ? modelId.trim().replace(/^models\//, '') : '';
-    if (!cleanModel) {
+    const cleanModelRaw = (modelId && modelId.trim()) ? modelId.trim().replace(/^models\//, '') : '';
+    if (!cleanModelRaw) {
       throw new Error('未指定有效的模型名稱，請至右下角保險庫選擇欲指派之端點模型');
     }
+    const cleanModel = cleanModelRaw === 'gemini-flash-latest'
+      ? 'gemini-1.5-flash-latest'
+      : (cleanModelRaw === 'gemini-pro-latest' ? 'gemini-1.5-pro-latest' : cleanModelRaw);
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
 
@@ -139,6 +142,104 @@ Respond ONLY with raw JSON matching this schema:
       keystone_v: typeof parsed.keystone_v === 'number' ? parsed.keystone_v : 0.0,
       aspect_ratio: parsed.aspect_ratio || 'original',
       crop_rationale: parsed.crop_rationale || ''
+    };
+  }
+
+  /**
+   * 雙圖閉環覆審分析 (Pass 2 Critic Refinement)
+   * 傳入原圖與 Pass 1 成果圖，進行品控微調
+   */
+  public async refinePhoto(options: RefinementInferenceOptions): Promise<RefinementDecision> {
+    const { apiKey, modelId, originalImageBase64, renderedImageBase64, firstPassDecision } = options;
+    if (!apiKey || apiKey.trim() === '') {
+      throw new Error('未配置 Gemini API 金鑰');
+    }
+
+    const cleanOrig = originalImageBase64.includes(',')
+      ? originalImageBase64.slice(originalImageBase64.indexOf(',') + 1)
+      : originalImageBase64;
+
+    const cleanRendered = renderedImageBase64.includes(',')
+      ? renderedImageBase64.slice(renderedImageBase64.indexOf(',') + 1)
+      : renderedImageBase64;
+
+    const cleanModelRaw = (modelId && modelId.trim()) ? modelId.trim().replace(/^models\//, '') : '';
+    if (!cleanModelRaw) {
+      throw new Error('未指定有效的模型名稱');
+    }
+    const cleanModel = cleanModelRaw === 'gemini-flash-latest'
+      ? 'gemini-1.5-flash-latest'
+      : (cleanModelRaw === 'gemini-pro-latest' ? 'gemini-1.5-pro-latest' : cleanModelRaw);
+
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
+    const criticPrompt = buildCriticInstructionBlock(
+      firstPassDecision.recommended_profile,
+      options.stylePreset,
+      options.styleKeywords,
+      options.customStylePrompt
+    );
+
+    const requestBody = JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: criticPrompt },
+            {
+              inlineData: {
+                mimeType: 'image/jpeg',
+                data: cleanOrig
+              }
+            },
+            {
+              inlineData: {
+                mimeType: 'image/jpeg',
+                data: cleanRendered
+              }
+            }
+          ]
+        }
+      ],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        maxOutputTokens: 512,
+        temperature: 0.2
+      }
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+        signal: options.signal
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || options.signal?.aborted) {
+        throw new Error('覆審連線已由使用者手動中止');
+      }
+      throw new Error(`無法連線至 Gemini 覆審伺服器 (${err?.message || '網路連線異常'})`);
+    }
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => null);
+      const detail = errJson?.error?.message || `HTTP ${response.status}`;
+      throw new Error(`Gemini 覆審端點回應異常 (${detail})`);
+    }
+
+    const jsonRes = await response.json();
+    const rawContent = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawContent) {
+      throw new Error('Gemini 覆審未回傳內容');
+    }
+
+    const parsed = JSON.parse(rawContent);
+    return {
+      exposure_delta: typeof parsed.exposure_delta === 'number' ? parsed.exposure_delta : 0.0,
+      lift_shadows_delta: typeof parsed.lift_shadows_delta === 'number' ? parsed.lift_shadows_delta : 0.0,
+      color_temp_delta: typeof parsed.color_temp_delta === 'number' ? parsed.color_temp_delta : 0,
+      contrast_delta: typeof parsed.contrast_delta === 'number' ? parsed.contrast_delta : 0.0,
+      refine_rationale: parsed.refine_rationale || '雙圖比對覆審完成，暗部與動態範圍已微調優化。'
     };
   }
 

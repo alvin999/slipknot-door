@@ -18,6 +18,10 @@ export class AiEngineFactory {
   private static STORAGE_KEY_VISION_MODEL = 'slipknot_role_vision_model';
   private static STORAGE_KEY_TEXT_PROV = 'slipknot_role_copywriting_provider';
   private static STORAGE_KEY_TEXT_MODEL = 'slipknot_role_copywriting_model';
+  private static STORAGE_KEY_CRITIC_ENABLED = 'slipknot_critic_enabled';
+  private static STORAGE_KEY_CRITIC_USE_CUSTOM = 'slipknot_critic_use_custom';
+  private static STORAGE_KEY_CRITIC_PROV = 'slipknot_role_critic_provider';
+  private static STORAGE_KEY_CRITIC_MODEL = 'slipknot_role_critic_model';
 
   // Static initialization of default registered adapters
   static {
@@ -88,6 +92,20 @@ export class AiEngineFactory {
       if (cm) copyModel = cm;
     }
 
+    let criticEnabled = false;
+    let criticUseCustom = false;
+    let criticProv = 'gemini';
+    let criticModel = '';
+
+    if (typeof localStorage !== 'undefined') {
+      criticEnabled = localStorage.getItem(this.STORAGE_KEY_CRITIC_ENABLED) === 'true';
+      criticUseCustom = localStorage.getItem(this.STORAGE_KEY_CRITIC_USE_CUSTOM) === 'true';
+      const ctp = localStorage.getItem(this.STORAGE_KEY_CRITIC_PROV);
+      if (ctp) criticProv = ctp;
+      const ctm = localStorage.getItem(this.STORAGE_KEY_CRITIC_MODEL) || localStorage.getItem(`slipknot_model_${criticProv}`);
+      if (ctm) criticModel = ctm;
+    }
+
     return {
       vision: {
         provider: visionProv,
@@ -96,6 +114,12 @@ export class AiEngineFactory {
       copywriting: {
         provider: copyProv,
         modelId: copyModel
+      },
+      critic: {
+        enabled: criticEnabled,
+        useCustomModel: criticUseCustom,
+        provider: criticProv,
+        modelId: criticModel
       }
     };
   }
@@ -123,6 +147,59 @@ export class AiEngineFactory {
         localStorage.setItem(this.STORAGE_KEY_TEXT_MODEL, roles.copywriting.modelId.trim());
       }
     }
+
+    if (roles.critic) {
+      if (roles.critic.enabled !== undefined) {
+        localStorage.setItem(this.STORAGE_KEY_CRITIC_ENABLED, String(roles.critic.enabled));
+      }
+      if (roles.critic.useCustomModel !== undefined) {
+        localStorage.setItem(this.STORAGE_KEY_CRITIC_USE_CUSTOM, String(roles.critic.useCustomModel));
+      }
+      if (roles.critic.provider) {
+        localStorage.setItem(this.STORAGE_KEY_CRITIC_PROV, roles.critic.provider);
+      }
+      if (roles.critic.modelId !== undefined) {
+        localStorage.setItem(this.STORAGE_KEY_CRITIC_MODEL, roles.critic.modelId.trim());
+      }
+    }
+  }
+
+  /**
+   * 依據使用者指派，取得負責雙圖閉環覆審之品控策略與金鑰
+   */
+  public static async getCriticEngine(): Promise<{
+    strategy: IVisionStrategy | null;
+    modelId: string;
+    apiKey: string;
+    enabled: boolean;
+  }> {
+    const roles = this.getTaskRoles();
+    if (!roles.critic.enabled) {
+      return { strategy: null, modelId: '', apiKey: '', enabled: false };
+    }
+
+    if (!roles.critic.useCustomModel) {
+      const visionEngine = await this.getVisionEngine();
+      return {
+        strategy: visionEngine.strategy,
+        modelId: visionEngine.modelId,
+        apiKey: visionEngine.apiKey,
+        enabled: true
+      };
+    }
+
+    const assignedProvider = roles.critic.provider;
+    let strategy = this.visionRegistry.get(assignedProvider);
+    if (!strategy) {
+      strategy = this.visionRegistry.get('gemini') || Array.from(this.visionRegistry.values())[0];
+    }
+    const loaded = await KeyVaultService.loadKey(strategy.providerId as 'gemini' | 'groq');
+    return {
+      strategy,
+      modelId: roles.critic.modelId,
+      apiKey: loaded.apiKey || '',
+      enabled: true
+    };
   }
 
   /**

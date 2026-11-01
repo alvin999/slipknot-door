@@ -42,6 +42,7 @@ export interface AnalyzeSceneOptions {
   stylePreset?: import('./ai/types').StylePresetKey;
   styleKeywords?: import('./ai/types').StyleKeywordId[];
   customStylePrompt?: string;
+  renderPreview?: (previewSrc: string, decision: AiSceneDecision) => Promise<string | null>;
 }
 
 export interface CopywritingPayload {
@@ -222,6 +223,60 @@ export class AiSceneService {
           customStylePrompt: options?.customStylePrompt,
           timeoutMs: 180000 // 提供寬裕的 Socket 守護
         });
+
+        // 若開啟雙圖閉環覆審 (Pass 2 Critic Refinement)，且有提供渲染器
+        try {
+          const criticEngine = await AiEngineFactory.getCriticEngine();
+          if (criticEngine.enabled && criticEngine.strategy?.refinePhoto && criticEngine.apiKey && options?.renderPreview) {
+            if (options.onLog) {
+              await options.onLog(`> [AI_CRITIC] 啟動雙圖閉環覆審 (${criticEngine.modelId || criticEngine.strategy.providerName})...`);
+            }
+            // 傳入已輕量化至 512px 之純淨 Base64 進行渲染，確保成果圖體積僅約 30KB，杜絕龐大 Base64 阻塞網路
+            const previewInput = `data:image/jpeg;base64,${cleanBase64}`;
+            const renderedBase64 = await options.renderPreview(previewInput, decision);
+            if (!renderedBase64 || renderedBase64.trim() === '') {
+              if (options.onLog) {
+                await options.onLog(`> [AI_CRITIC_NOTICE] 成果圖生成略過，直接採用 Pass 1 決策出圖`);
+              }
+            } else {
+              if (options.onLog) {
+                await options.onLog(`> [AI_CRITIC_INSPECT] 雙圖比對審查中 (${criticEngine.modelId || 'Critic'})...`);
+              }
+              const refinement = await criticEngine.strategy.refinePhoto({
+                apiKey: criticEngine.apiKey,
+                modelId: criticEngine.modelId,
+                originalImageBase64: cleanBase64,
+                renderedImageBase64: renderedBase64,
+                firstPassDecision: decision,
+                exif,
+                signal: options.signal,
+                stylePreset: options.stylePreset,
+                styleKeywords: options.styleKeywords,
+                customStylePrompt: options.customStylePrompt
+              });
+
+              // 數值安全融合 (Delta Clamping)
+              const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
+              decision.exposure_compensation = parseFloat(clamp(decision.exposure_compensation + refinement.exposure_delta, -2.0, 2.0).toFixed(2));
+              decision.lift_shadows = parseFloat(clamp(decision.lift_shadows + refinement.lift_shadows_delta, -0.5, 0.5).toFixed(2));
+              decision.color_temp = Math.round(clamp((decision.color_temp ?? 5500) + refinement.color_temp_delta, 2500, 10000));
+              decision.contrast = parseFloat(clamp((decision.contrast ?? 0.0) + refinement.contrast_delta, -0.5, 0.5).toFixed(2));
+
+              if (options.onLog) {
+                const evStr = refinement.exposure_delta >= 0 ? `+${refinement.exposure_delta.toFixed(2)}` : refinement.exposure_delta.toFixed(2);
+                const shStr = refinement.lift_shadows_delta >= 0 ? `+${refinement.lift_shadows_delta.toFixed(2)}` : refinement.lift_shadows_delta.toFixed(2);
+                await options.onLog(
+                  `> [AI_CRITIC_DONE] 覆審校正完成：${refinement.refine_rationale} (ΔEV: ${evStr}, ΔShadow: ${shStr})`
+                );
+              }
+            }
+          }
+        } catch (criticErr: any) {
+          console.warn('[AI_CRITIC] 覆審階段異常（保留 Pass 1 決策繼續）：', criticErr);
+          if (options?.onLog) {
+            await options.onLog(`> [AI_CRITIC_SKIP] 覆審略過（保持起草參數）：${criticErr.message}`);
+          }
+        }
 
         decision.inferenceDurationMs = Date.now() - startTime;
         decision.isFallback = false; // 確信為雲端真實推論

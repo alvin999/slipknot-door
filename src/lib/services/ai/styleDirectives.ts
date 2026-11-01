@@ -244,15 +244,70 @@ Pixels pass sequentially through these 5 hardware shader stages:
 1. [Stage 1: exposure_compensation] (-2.0 to +2.0 EV): Multiplies RGB by pow(2.0, EV). Controls global brightness before all other stages.
 2. [Stage 1.5: lift_shadows] (-0.5 to +0.5): Non-linear shadow toe curve \`(1 - color)^2 * lift * 0.45\`. ONLY affects the darkest 40% luminance while keeping highlights untouched. Positive values create matte faded film blacks; negative values deepen black point.
 3. [Stage 2: color_temp & tint] (Pre-LUT White Balance): Baseline is 5500K / 0.0 Tint. >5500K shifts warm (+R/-B, amber/gold), <5500K shifts cool (-R/+B, cyan/blue). Tint > 0 shifts Magenta (+R/+B/-G), Tint < 0 shifts Green (+G/-R/-B). Applied BEFORE the 3D LUT so it drives the LUT's color response organically.
-4. [Stage 3: recommended_profile & lut_intensity] (0.0 to 1.0): Trilinear 3D .cube interpolation. Many 3D LUTs (e.g. ClassicNeg, VelvetSlide, HighContrastMono, DocumentaryChrome) already bake in strong S-curve contrast.
+4. [Stage 3: recommended_profile & lut_intensity] (0.0 to 1.0): Trilinear 3D .cube volumetric mapping. Note that film emulation LUTs (e.g. ClassicNeg, VelvetSlide, HighContrastMono, DocumentaryChrome) inherently incorporate non-linear S-curve tonal compression (typically expanding mid-tone separation while rolling off shadows and highlights). Account for this profile curve when evaluating additional contrast or lift_shadows.
 5. [Stage 4: contrast] (-0.5 to +0.5) vs [Stage 5: clarity & sharpness] (-1.0 to +1.0):
-   - \`contrast\` is a global linear pivot around 0.4 luminance: \`(color - 0.4) * (1 + contrast * 0.5) + 0.4\`.
+   - \`contrast\` is a global linear pivot around 0.4 luminance: \`(color - 0.4) * (1 + contrast * 0.5) + 0.4\`. Freely exercise the full range (-0.5 to +0.5) to sculpt the exact visual punch and dynamic tension that suits the capture.
    - \`clarity\` is a coarse-radius (8px) mid-tone unsharp mask protected by a mid-tone mask \`1 - (2*luma - 1)^2\`. Positive values add local mid-tone punch; negative values create dreamy halation / lens bloom without flattening global black/white points.
    - \`sharpness\` is a fine-radius (1.5px) edge unsharp mask. Positive sharpens fine grain/edges; negative softens optical edges.
-   - ORTHOGONALITY RULE: Do NOT double-stack high \`contrast\` (+0.3+) on top of an already high-contrast 3D LUT unless extreme gritty monochrome is requested. Use \`lift_shadows\` for matte shadow fade instead of lowering global \`contrast\` if you want to preserve mid-tone punch.`;
+   - CREATIVE AUTONOMY: You have unrestricted creative liberty across the entire parameter space. Use \`lift_shadows\` when you want independent matte film shadow roll-off, and freely push \`contrast\`, \`exposure_compensation\`, and white balance as boldly as your artistic vision demands.`;
 
   return {
     instructionBlock: baseBlock,
     recommendedProfileSchemaHint,
   };
+}
+
+/**
+ * 建立雙圖閉環覆審 (Pass 2 Refinement / Critic) 之專用品控 Prompt 指令區塊
+ * 嚴格鎖定 Pass 1 底片風格，專注於暗部浮黑 (Shadow Lift)、動態範圍與色彩中性殘差校正
+ */
+export function buildCriticInstructionBlock(
+  firstPassProfile: string,
+  stylePreset?: StylePresetKey,
+  styleKeywords?: StyleKeywordId[],
+  customStylePrompt?: string
+): string {
+  const keywordLines: string[] = [];
+  if (Array.isArray(styleKeywords) && styleKeywords.length > 0) {
+    for (const kwId of styleKeywords) {
+      const found = STYLE_KEYWORD_ENTRIES.find((k) => k.id === kwId);
+      if (found) {
+        keywordLines.push(`- [Target Aesthetic ${found.shortTag}]: ${found.promptDirective}`);
+      }
+    }
+  }
+  const trimmedCustom = customStylePrompt?.trim() || '';
+  if (trimmedCustom) {
+    keywordLines.push(`- [Target User Vibe]: ${trimmedCustom}`);
+  }
+
+  let criticPrompt = `You are an elite darkroom quality-control colorist and technical critic.
+You are inspecting TWO images:
+1. IMAGE 1: The original unedited capture.
+2. IMAGE 2: The rendered draft result produced after applying Pass 1 tone & 3D LUT profile parameters (Profile: "${firstPassProfile}").
+
+YOUR RIGID CONSTRAINTS & MISSION:
+- DO NOT change or override the chosen film profile or general creative intent.
+- Focus strictly on residual micro-corrections (Delta values) by comparing Image 1 vs Image 2:
+  1. SHADOW PURITY & BLACK POINT (lift_shadows_delta, range: -0.20 to +0.20):
+     - Check if Image 2 exhibits an unnatural milky, washed-out veil in the shadows due to excessive shadow lift. If so, supply a NEGATIVE delta (e.g. -0.05 to -0.15) to restore clean, organic shadow depth.
+     - Conversely, if deep shadows are severely crushed into flat black voids with loss of intended subject texture, supply a small POSITIVE delta (e.g. +0.05 to +0.12).
+  2. EXPOSURE BALANCE (exposure_delta, range: -0.30 to +0.30 EV):
+     - Evaluate if the rendered highlights are clipping harshly or if the subject is slightly under/over exposed.
+  3. COLOR TEMPERATURE NEUTRALITY (color_temp_delta, range: -300 to +300 Kelvin):
+     - Compensate for unintended unpleasant color casts introduced by the combination of lighting and the LUT.
+  4. LOCAL CONTRAST (contrast_delta, range: -0.15 to +0.15):
+     - Correct any excessive harshness or muddy mid-tone compression.
+
+${keywordLines.length > 0 ? `Aesthetic Targets for Verification:\n${keywordLines.join('\n')}\n` : ''}
+Respond ONLY with raw JSON matching this schema:
+{
+  "exposure_delta": "number (-0.30 to +0.30 EV, 0.0 if already optimal)",
+  "lift_shadows_delta": "number (-0.20 to +0.20, 0.0 if shadows are clean and balanced)",
+  "color_temp_delta": "integer (-300 to +300 Kelvin, 0 if white balance is on point)",
+  "contrast_delta": "number (-0.15 to +0.15, 0.0 if contrast is pleasant)",
+  "refine_rationale": "string (1 concise sentence in Traditional Chinese diagnosing the shadow/exposure quality and explaining the delta adjustments)"
+}`;
+
+  return criticPrompt;
 }

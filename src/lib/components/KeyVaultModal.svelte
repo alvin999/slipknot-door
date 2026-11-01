@@ -82,6 +82,16 @@
   // 任務職責指派狀態 (Task Roles: 只需指定負責服務，模型採用該服務已選定之模型)
   let roleVisionProvider = $state<string>('gemini');
   let roleCopywritingProvider = $state<string>('groq');
+  let roleCriticEnabled = $state<boolean>(false);
+  let roleCriticUseCustom = $state<boolean>(false);
+  let roleCriticProvider = $state<string>('gemini');
+  let roleCriticModelId = $state<string>('');
+
+  function onCriticProviderChange(newProv: string) {
+    roleCriticProvider = newProv;
+    const models = getDynamicModelsForProvider(newProv);
+    roleCriticModelId = models[0]?.id || getAssignedModelDisplay(newProv);
+  }
 
   /**
    * 取得指定 Provider 當前已選取或預設推薦之模型名稱
@@ -123,6 +133,14 @@
     const roles = AiEngineFactory.getTaskRoles();
     roleVisionProvider = roles.vision.provider || 'gemini';
     roleCopywritingProvider = roles.copywriting.provider || 'groq';
+    roleCriticEnabled = roles.critic?.enabled ?? false;
+    roleCriticUseCustom = roles.critic?.useCustomModel ?? false;
+    roleCriticProvider = roles.critic?.provider || 'gemini';
+    roleCriticModelId = roles.critic?.modelId || '';
+    if (!roleCriticModelId) {
+      const models = getDynamicModelsForProvider(roleCriticProvider);
+      roleCriticModelId = models[0]?.id || getAssignedModelDisplay(roleCriticProvider);
+    }
   }
 
   function loadStoredModelSelection() {
@@ -326,7 +344,15 @@
     // 持久化儲存任務職責指派 (Task Roles)
     AiEngineFactory.setTaskRoles({
       vision: { provider: roleVisionProvider, modelId: getAssignedModelDisplay(roleVisionProvider) },
-      copywriting: { provider: roleCopywritingProvider, modelId: getAssignedModelDisplay(roleCopywritingProvider) }
+      copywriting: { provider: roleCopywritingProvider, modelId: getAssignedModelDisplay(roleCopywritingProvider) },
+      critic: {
+        enabled: roleCriticEnabled,
+        useCustomModel: roleCriticUseCustom,
+        provider: roleCriticProvider,
+        modelId: roleCriticUseCustom
+          ? (roleCriticModelId || getAssignedModelDisplay(roleCriticProvider))
+          : getAssignedModelDisplay(roleVisionProvider)
+      }
     });
 
     // If apiKeyInput is empty but already exists and user is just changing model or role selection
@@ -641,6 +667,75 @@
                   <span class="badge-text">{getAssignedModelDisplay(roleCopywritingProvider)}</span>
                 </div>
               </div>
+            </div>
+
+            <!-- 任務 3: 雙圖閉環覆審 (Critic) -->
+            <div class="role-card hairline-all" style="grid-column: 1 / -1; margin-top: 4px;">
+              <div class="role-card-top font-mono" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">fact_check</span>
+                  <span>雙圖閉環覆審 (Pass 2 Two-Pass Refinement)</span>
+                </div>
+                <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" bind:checked={roleCriticEnabled} style="accent-color: var(--amber-highlight); cursor: pointer;" />
+                  <span>啟用雙圖閉環覆審</span>
+                </label>
+              </div>
+
+              {#if roleCriticEnabled}
+                <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
+                  <div style="display: flex; gap: 16px; align-items: center; font-size: 11px;">
+                    <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+                      <input type="radio" name="critic_mode" value={false} bind:group={roleCriticUseCustom} style="accent-color: var(--amber-highlight);" />
+                      <span>同起草模型 (推薦 Flash-Lite 極速無感)</span>
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+                      <input type="radio" name="critic_mode" value={true} bind:group={roleCriticUseCustom} style="accent-color: var(--amber-highlight);" />
+                      <span>自訂專用覆審模型 (異質品控 Cross-check)</span>
+                    </label>
+                  </div>
+
+                  {#if roleCriticUseCustom}
+                    {@const criticModels = getDynamicModelsForProvider(roleCriticProvider)}
+                    <div class="role-fields" style="display: flex; gap: 8px;">
+                      <select 
+                        class="role-select font-mono" 
+                        style="width: 140px; flex-shrink: 0;"
+                        value={roleCriticProvider}
+                        onchange={(e) => onCriticProviderChange((e.target as HTMLSelectElement).value)}
+                      >
+                        <option value="gemini">Google Gemini</option>
+                        <option value="groq">Groq Vision</option>
+                      </select>
+
+                      <select 
+                        class="role-select font-mono" 
+                        style="flex: 1;"
+                        bind:value={roleCriticModelId}
+                      >
+                        {#each criticModels as m}
+                          <option value={m.id}>
+                            {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
+                          </option>
+                        {/each}
+                        {#if !criticModels.some(m => m.id === roleCriticModelId) && roleCriticModelId}
+                          <option value={roleCriticModelId}>
+                            {roleCriticModelId}
+                          </option>
+                        {/if}
+                      </select>
+                    </div>
+                  {:else}
+                    <div class="role-model-badge font-mono" style="align-self: flex-start;">
+                      <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">sync</span>
+                      <span class="badge-text">自動沿用影像視覺模型：{getAssignedModelDisplay(roleVisionProvider)}</span>
+                    </div>
+                  {/if}
+                  <p style="font-size: 11px; color: var(--text-muted); margin: 0; line-height: 1.4;">
+                    說明：第一階段起草完成後，本地 WebGL 著色器即時渲染出成品，與原圖一同回傳 AI 比對，專門修正 Shadow Lift 浮灰死黑與色溫偏差。
+                  </p>
+                </div>
+              {/if}
             </div>
           </div>
         </div>

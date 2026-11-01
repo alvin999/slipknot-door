@@ -1371,6 +1371,94 @@
   }
 
   /**
+   * 雙圖閉環覆審專用：以 Pass 1 決策參數極速渲染 512px 預覽縮圖供 AI 覆審比對
+   */
+  async function renderPass1PreviewForCritic(
+    previewSrc: string,
+    decision: any,
+  ): Promise<string | null> {
+    if (!ensureOffscreenRenderer() || !offscreenRenderer) return null;
+    try {
+      // 確保格式為有效之圖片 URI
+      let safeSrc = previewSrc;
+      if (!safeSrc.startsWith("data:") && !safeSrc.startsWith("blob:") && !safeSrc.startsWith("http") && !safeSrc.startsWith("asset:")) {
+        safeSrc = `data:image/jpeg;base64,${safeSrc}`;
+      }
+
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          img.onload = null;
+          img.onerror = null;
+          if (img.naturalWidth > 0) {
+            resolve();
+          } else {
+            reject(new Error("覆審縮圖載入逾時 (>3s)"));
+          }
+        }, 3000);
+
+        img.onload = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        img.onerror = (e) => {
+          clearTimeout(timer);
+          reject(e);
+        };
+        img.src = safeSrc;
+
+        // 若圖片已在快取完成解碼，立即推進
+        if (img.complete && img.naturalWidth > 0) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+
+      const forcedProfileId =
+        activeStylePreset !== "auto"
+          ? styleGradingPresets.find((sp) => sp.key === activeStylePreset)?.profileId
+          : undefined;
+      const targetProf = forcedProfileId || decision.recommended_profile || "Profile_00_StandardNatural";
+
+      const maxDim = 512;
+      let targetW = img.naturalWidth || 400;
+      let targetH = img.naturalHeight || 300;
+      if (targetW > maxDim || targetH > maxDim) {
+        if (targetW > targetH) {
+          targetH = Math.round((targetH * maxDim) / targetW);
+          targetW = maxDim;
+        } else {
+          targetW = Math.round((targetW * maxDim) / targetH);
+          targetH = maxDim;
+        }
+      }
+
+      offscreenRenderer.setImageSource(img);
+      offscreenRenderer.setProfile(targetProf);
+      offscreenRenderer.render(
+        {
+          exposure: decision.exposure_compensation ?? 0.0,
+          contrast: decision.contrast ?? 0.0,
+          colorTemp: decision.color_temp ?? 5500,
+          tint: decision.tint ?? 0.0,
+          shadowLift: decision.lift_shadows ?? 0.0,
+          lutIntensity: decision.lut_intensity ?? 1.0,
+          bypassLut: false,
+          clarity: decision.clarity ?? 0.0,
+          sharpness: decision.sharpness ?? 0.0,
+        },
+        targetW,
+        targetH,
+      );
+
+      return offscreenRenderer.exportDataUrl("image/jpeg", 0.8);
+    } catch (err) {
+      console.warn("[Pass1CriticRenderer] 預覽生成失敗:", err);
+      return null;
+    }
+  }
+
+  /**
    * 一鍵還原為相機原生拍攝參數（As Shot WB & Exposure）
    */
   function resetToAsShot() {
@@ -2026,6 +2114,7 @@
           onLog: async (msg: string) => {
             await appendAiLog(msg, 15);
           },
+          renderPreview: renderPass1PreviewForCritic,
         },
       );
 
