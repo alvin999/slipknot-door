@@ -317,7 +317,25 @@ export class IngestionService {
   public static async pickWebDirectory(): Promise<RawPhotoItem[]> {
     if (typeof window === 'undefined') return [];
 
-    // 1. Try Modern File System Access API
+    // 1. Tauri 桌面原生環境：調用系統原生資料夾選擇對話框（避免 WebKitGTK 強制要求選檔案）
+    if (this.isTauri()) {
+      try {
+        const { open } = await import('@tauri-apps/plugin-dialog');
+        const selected = await open({
+          directory: true,
+          multiple: false,
+          title: '選擇相片目錄'
+        });
+        if (selected && typeof selected === 'string') {
+          return await this.scanDirectory(selected);
+        }
+        return [];
+      } catch (err) {
+        console.warn('Tauri open directory dialog failed, falling back to Web API:', err);
+      }
+    }
+
+    // 2. Try Modern File System Access API
     if ('showDirectoryPicker' in window) {
       try {
         const dirHandle = await (window as any).showDirectoryPicker();
