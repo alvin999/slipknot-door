@@ -236,7 +236,7 @@
       cropHeight === 1.0 &&
       cropRotation === 0.0;
 
-    activePhoto.crop = isDefaultCrop
+    const targetCrop = isDefaultCrop
       ? undefined
       : {
           x: cropX,
@@ -252,6 +252,11 @@
           rationale: aiCropRationale,
         };
 
+    if (JSON.stringify(activePhoto.crop) === JSON.stringify(targetCrop)) {
+      return;
+    }
+
+    activePhoto.crop = targetCrop;
     photoPlates = photoPlates.map((p) =>
       p.id === activePhoto!.id
         ? {
@@ -1004,6 +1009,52 @@
     darkroomState.showABComparison = showABComparison;
   }
 
+  // 保持 darkroomState 與主頁面狀態雙向同步，並持久化到 activePhoto.tuning
+  $effect(() => {
+    // 響應式追蹤 darkroomState 數值
+    const exp = darkroomState.exposure;
+    const con = darkroomState.contrast;
+    const shd = darkroomState.shadows;
+    const temp = darkroomState.colorTemp;
+    const tnt = darkroomState.tint;
+    const lut = darkroomState.lutIntensity;
+    const clr = darkroomState.clarity;
+    const shp = darkroomState.sharpness;
+
+    // 同步至 +page.svelte 局部狀態供匯出與其他邏輯使用
+    exposure = exp;
+    contrast = con;
+    shadows = shd;
+    colorTemp = temp;
+    tint = tnt;
+    lutIntensity = lut;
+    clarity = clr;
+    sharpness = shp;
+
+    cropX = darkroomState.cropX;
+    cropY = darkroomState.cropY;
+    cropWidth = darkroomState.cropWidth;
+    cropHeight = darkroomState.cropHeight;
+    cropRotation = darkroomState.cropRotation;
+    keystoneV = darkroomState.keystoneV;
+    keystoneH = darkroomState.keystoneH;
+    cropAspectRatio = darkroomState.cropAspectRatio;
+    flipH = darkroomState.flipH;
+    flipV = darkroomState.flipV;
+    isCropMode = darkroomState.isCropMode;
+    aiCropRationale = darkroomState.aiCropRationale;
+    diffMode = darkroomState.diffMode;
+    splitPosition = darkroomState.splitPosition;
+    showABComparison = darkroomState.showABComparison;
+
+    if (!isBatchAiRunning) {
+      untrack(() => {
+        syncActivePhotoTuning();
+        syncCropToActivePhoto();
+      });
+    }
+  });
+
   function openRetouchForPhoto(plate: PhotoPlate) {
     selectPhoto(plate);
     activeTab = "retouch";
@@ -1166,6 +1217,13 @@
       lutIntensity = found.lutIntensityDefault;
       clarity = found.clarityDefault ?? 0.0;
       sharpness = found.sharpnessDefault ?? 0.0;
+
+      darkroomState.exposure = exposure;
+      darkroomState.contrast = contrast;
+      darkroomState.shadows = shadows;
+      darkroomState.lutIntensity = lutIntensity;
+      darkroomState.clarity = clarity;
+      darkroomState.sharpness = sharpness;
     }
     triggerWebglRender();
     enqueueThumbnailRender(activePhoto);
@@ -1493,6 +1551,16 @@
     lutIntensity = 1.0;
     clarity = 0.0;
     sharpness = 0.0;
+
+    darkroomState.colorTemp = colorTemp;
+    darkroomState.tint = tint;
+    darkroomState.exposure = exposure;
+    darkroomState.contrast = contrast;
+    darkroomState.shadows = shadows;
+    darkroomState.lutIntensity = lutIntensity;
+    darkroomState.clarity = clarity;
+    darkroomState.sharpness = sharpness;
+
     triggerWebglRender();
   }
 
@@ -1603,6 +1671,8 @@
     lutIntensity = 1.0;
     clarity = 0.0;
     sharpness = 0.0;
+    darkroomState.resetTuningParams();
+    darkroomState.resetCropState();
     resetCropState();
 
     aiCropRationale = "";
@@ -2005,6 +2075,14 @@
       tint = parseFloat(
         (startTint + (targetTint - startTint) * ease).toFixed(1),
       );
+
+      // 同步動態調色至 darkroomState 以流暢驅動右側面板滑桿與 WebGL 著色
+      darkroomState.exposure = exposure;
+      darkroomState.contrast = contrast;
+      darkroomState.shadows = shadows;
+      darkroomState.lutIntensity = lutIntensity;
+      darkroomState.colorTemp = colorTemp;
+      darkroomState.tint = tint;
 
       if (progress < 1.0) {
         requestAnimationFrame(step);
@@ -2484,9 +2562,14 @@
         cropX = decision.crop_box[1];
         cropHeight = decision.crop_box[2] - decision.crop_box[0];
         cropWidth = decision.crop_box[3] - decision.crop_box[1];
+        darkroomState.cropY = cropY;
+        darkroomState.cropX = cropX;
+        darkroomState.cropHeight = cropHeight;
+        darkroomState.cropWidth = cropWidth;
       }
       if (typeof decision.rotation_deg === "number") {
         cropRotation = decision.rotation_deg;
+        darkroomState.cropRotation = cropRotation;
       }
       if (
         decision.aspect_ratio &&
@@ -2495,9 +2578,12 @@
         )
       ) {
         cropAspectRatio = decision.aspect_ratio as any;
+        darkroomState.cropAspectRatio = cropAspectRatio;
       }
       aiCropRationale = decision.crop_rationale || "已套用 AI 建議構圖比例。";
+      darkroomState.aiCropRationale = aiCropRationale;
       isCropMode = true; // 自動開啟裁切框供檢視
+      darkroomState.isCropMode = true;
       await appendAiLog(`> [SUCCESS] 智慧裁切已套用：${aiCropRationale} ✓`);
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 裁切分析失敗：${err.message}`);
@@ -2527,6 +2613,8 @@
         typeof decision.rotation_deg === "number" ? decision.rotation_deg : 0.0;
       keystoneV =
         typeof decision.keystone_v === "number" ? decision.keystone_v : 0.0;
+      darkroomState.cropRotation = cropRotation;
+      darkroomState.keystoneV = keystoneV;
       await appendAiLog(
         `> [SUCCESS] 地平線校正 ${cropRotation.toFixed(1)}°，垂直梯形 ${keystoneV.toFixed(1)}° ✓`,
       );
@@ -2596,6 +2684,7 @@
         500,
       );
       shadows = decision.lift_shadows;
+      darkroomState.shadows = shadows;
       await appendAiLog(
         `> [SUCCESS] 自動光比已套用 (EV: ${decision.exposure_compensation > 0 ? "+" : ""}${decision.exposure_compensation}) ✓`,
       );
@@ -3398,29 +3487,6 @@
           photos={photoPlates}
           {activeQueue}
           {exportNotice}
-          {exposure}
-          {contrast}
-          {shadows}
-          {colorTemp}
-          {tint}
-          {lutIntensity}
-          {clarity}
-          {sharpness}
-          {cropX}
-          {cropY}
-          {cropWidth}
-          {cropHeight}
-          {cropRotation}
-          {keystoneV}
-          {keystoneH}
-          {cropAspectRatio}
-          {flipH}
-          {flipV}
-          {isCropMode}
-          {aiCropRationale}
-          {diffMode}
-          {splitPosition}
-          {showABComparison}
           {previewHoverProfileId}
           onSelectPhoto={(p) => selectPhoto(p as any)}
           onOpenQuickExport={() => (isQuickExportOpen = true)}
