@@ -231,9 +231,10 @@ Respond ONLY with raw JSON matching this schema:
     return {
       exposure_delta: typeof parsed.exposure_delta === 'number' ? parsed.exposure_delta : 0.0,
       lift_shadows_delta: typeof parsed.lift_shadows_delta === 'number' ? parsed.lift_shadows_delta : 0.0,
-      color_temp_delta: typeof parsed.color_temp_delta === 'number' ? parsed.color_temp_delta : 0,
+      color_temp_delta: typeof parsed.color_temp_delta === 'number' ? Math.round(parsed.color_temp_delta) : 0,
       contrast_delta: typeof parsed.contrast_delta === 'number' ? parsed.contrast_delta : 0.0,
-      refine_rationale: parsed.refine_rationale || '雙圖比對覆審完成，暗部與動態範圍已微調優化。'
+      lut_intensity_delta: typeof parsed.lut_intensity_delta === 'number' ? parsed.lut_intensity_delta : undefined,
+      refine_rationale: parsed.refine_rationale || '雙圖比對覆審完成，曝光與動態範圍已微調優化。'
     };
   }
 

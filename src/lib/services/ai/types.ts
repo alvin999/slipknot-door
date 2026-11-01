@@ -65,11 +65,12 @@ export interface RefinementInferenceOptions {
 }
 
 export interface RefinementDecision {
-  exposure_delta: number;      // -0.30 to +0.30 EV
-  lift_shadows_delta: number;  // -0.20 to +0.20
-  color_temp_delta: number;    // -300 to +300 Kelvin
-  contrast_delta: number;      // -0.15 to +0.15
-  refine_rationale: string;    // Traditional Chinese explanation
+  exposure_delta: number;
+  lift_shadows_delta: number;
+  color_temp_delta: number;
+  contrast_delta: number;
+  lut_intensity_delta?: number;
+  refine_rationale: string;
 }
 
 /**

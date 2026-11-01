@@ -250,8 +250,7 @@
 
         // 若為手動點擊「測試連線」，進一步執行端對端真實推論診斷（Session 診斷）
         if (isManualTest) {
-          let targetModel = selectedModelId || (prov === 'gemini' ? 'gemini-1.5-flash-latest' : 'llama-3.3-70b-versatile');
-          if (targetModel === 'gemini-1.5-flash') targetModel = 'gemini-1.5-flash-latest';
+          let targetModel = selectedModelId || res.recommendedModelId || (res.models[0]?.id ?? '');
           let cleanTarget = targetModel.replace(/^models\//, '');
           statusMessage = { text: `正在使用當前 Session 對 [${cleanTarget}] 進行推論回應測試...`, type: 'info' };
           const t0 = Date.now();
@@ -261,14 +260,6 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ contents: [{ parts: [{ text: 'Ping: Reply OK' }] }] })
             });
-            if (!testRes.ok && testRes.status === 404 && cleanTarget !== 'gemini-1.5-flash-latest') {
-              cleanTarget = 'gemini-1.5-flash-latest';
-              testRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${cleanTarget}:generateContent?key=${key}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: 'Ping: Reply OK' }] }] })
-              });
-            }
             const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
             if (!testRes.ok) {
               const errJson = await testRes.json().catch(() => null);

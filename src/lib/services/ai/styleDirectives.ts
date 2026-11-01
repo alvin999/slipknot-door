@@ -286,27 +286,34 @@ You are inspecting TWO images:
 1. IMAGE 1: The original unedited capture.
 2. IMAGE 2: The rendered draft result produced after applying Pass 1 tone & 3D LUT profile parameters (Profile: "${firstPassProfile}").
 
-YOUR RIGID CONSTRAINTS & MISSION:
-- DO NOT change or override the chosen film profile or general creative intent.
-- Focus strictly on residual micro-corrections (Delta values) by comparing Image 1 vs Image 2:
-  1. SHADOW PURITY & BLACK POINT (lift_shadows_delta, range: -0.20 to +0.20):
-     - Check if Image 2 exhibits an unnatural milky, washed-out veil in the shadows due to excessive shadow lift. If so, supply a NEGATIVE delta (e.g. -0.05 to -0.15) to restore clean, organic shadow depth.
-     - Conversely, if deep shadows are severely crushed into flat black voids with loss of intended subject texture, supply a small POSITIVE delta (e.g. +0.05 to +0.12).
-  2. EXPOSURE BALANCE (exposure_delta, range: -0.30 to +0.30 EV):
-     - Evaluate if the rendered highlights are clipping harshly or if the subject is slightly under/over exposed.
-  3. COLOR TEMPERATURE NEUTRALITY (color_temp_delta, range: -300 to +300 Kelvin):
-     - Compensate for unintended unpleasant color casts introduced by the combination of lighting and the LUT.
-  4. LOCAL CONTRAST (contrast_delta, range: -0.15 to +0.15):
-     - Correct any excessive harshness or muddy mid-tone compression.
+YOUR MISSION & GUIDELINES:
+- DO NOT change the chosen film profile (${firstPassProfile}).
+- Since you have Image 2 (rendered actual result) as concrete ground truth, you are NOT bound by narrow incremental limits. Provide ANY magnitude of Delta required to correct flaws seen in Image 2.
+- Inspect and refine the following parameters:
+  1. EXPOSURE & HIGHLIGHT CLIPPING (exposure_delta):
+     - Closely evaluate if Image 2 suffers from washed-out/blown highlights, harsh clipping on bright backgrounds, skies, skin, or white surfaces.
+     - If Image 2 is noticeably overexposed or clipping, decisively supply a negative delta (e.g. -0.5, -0.8, -1.2 EV or whatever is needed) to recover highlight details and rebalance the dynamic range.
+     - If Image 2 is too dark or underexposed compared to the intended mood, supply an appropriate positive delta.
+  2. SHADOW DEPTH & PURITY (lift_shadows_delta):
+     - If Image 2 displays a cloudy, washed-out matte veil over deep blacks, supply a negative delta to drop the black point back to punchy natural depth.
+     - If dark regions are crushed into murky, muddy black voids losing essential subject detail, provide a positive delta to gently lift shadows.
+  3. LOCAL CONTRAST & DYNAMIC RANGE (contrast_delta):
+     - If harsh contrast exacerbates blown highlights or makes the transition too severe, provide a negative delta to soften tonal roll-off.
+     - If the image looks flat, muddy, or lifeless, provide a positive delta to add visual punch.
+  4. COLOR TEMPERATURE & TINT NEUTRALITY (color_temp_delta):
+     - Supply the necessary Kelvin adjustment to eliminate unnatural color casts or lighting clashes caused by the combination of scene lighting and the 3D LUT profile.
+  5. 3D LUT INTENSITY (lut_intensity_delta, optional):
+     - If the LUT profile itself introduces overly aggressive saturation, harsh highlight rolloff, or heavy color clipping, supply a negative delta (e.g. -0.15 to -0.40) to soften the profile's volumetric influence.
 
 ${keywordLines.length > 0 ? `Aesthetic Targets for Verification:\n${keywordLines.join('\n')}\n` : ''}
 Respond ONLY with raw JSON matching this schema:
 {
-  "exposure_delta": "number (-0.30 to +0.30 EV, 0.0 if already optimal)",
-  "lift_shadows_delta": "number (-0.20 to +0.20, 0.0 if shadows are clean and balanced)",
-  "color_temp_delta": "integer (-300 to +300 Kelvin, 0 if white balance is on point)",
-  "contrast_delta": "number (-0.15 to +0.15, 0.0 if contrast is pleasant)",
-  "refine_rationale": "string (1 concise sentence in Traditional Chinese diagnosing the shadow/exposure quality and explaining the delta adjustments)"
+  "exposure_delta": "number (EV delta to add to current exposure, 0.0 if optimal)",
+  "lift_shadows_delta": "number (delta to add to current shadow lift, 0.0 if clean)",
+  "color_temp_delta": "integer (Kelvin delta to add, e.g. -500 to +500, 0 if accurate)",
+  "contrast_delta": "number (delta to add to contrast, 0.0 if balanced)",
+  "lut_intensity_delta": "number (optional delta to add to lut intensity, 0.0 if optimal)",
+  "refine_rationale": "string (1 concise sentence in Traditional Chinese diagnosing the highlight/shadow/exposure issues and explaining the corrective deltas)"
 }`;
 
   return criticPrompt;
