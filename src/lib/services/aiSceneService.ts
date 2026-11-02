@@ -65,7 +65,7 @@ export class AiSceneService {
   private static TIMEOUT_MS = 60000; // 放寬至 60 秒，提供雲端多模態模型尖峰排隊充裕運算時間
 
   /**
-   * 將任何影像載入並透過 HTML5 Canvas 等比例壓縮為最大 512px 之輕量 JPEG Base64
+   * 將任何影像載入並透過 HTML5 Canvas 等比例壓縮為最大 1024px 之輕量 JPEG Base64
    * 確保 Payload 降至 30KB~50KB，使雲端多模態推論在 1~3 秒內極速完成，杜絕逾時
    */
   public static async toCleanBase64(imageSrc: string): Promise<{ base64: string; mimeType: string }> {
@@ -73,7 +73,7 @@ export class AiSceneService {
       throw new Error('影像資料為空');
     }
 
-    // 瀏覽器環境：使用 Image + Canvas 執行極速縮圖壓縮 (Max 512px)
+    // 瀏覽器環境：使用 Image + Canvas 執行極速縮圖壓縮 (Max 1024px)
     if (typeof document !== 'undefined' && typeof Image !== 'undefined') {
       try {
         const img = new Image();
@@ -95,7 +95,7 @@ export class AiSceneService {
           img.src = imageSrc;
         });
 
-        const maxDim = 512;
+        const maxDim = 1024;
         let w = img.naturalWidth || img.width || maxDim;
         let h = img.naturalHeight || img.height || maxDim;
 
@@ -123,7 +123,7 @@ export class AiSceneService {
           };
         }
       } catch (e) {
-        console.warn('Canvas 512px 壓縮回退至直接 Base64 轉換:', e);
+        console.warn('Canvas 1024px 壓縮回退至直接 Base64 轉換:', e);
       }
     }
 
@@ -178,7 +178,7 @@ export class AiSceneService {
    * 3. 若未配置 API 金鑰，直接拋出錯誤提示使用者配置，不進行任何本地偽裝或兜底。
    */
   public static async analyzeScene(
-    imagePayload512pxBase64: string,
+    imagePayload1024pxBase64: string,
     exif: ExifOpticalData,
     options?: AnalyzeSceneOptions
   ): Promise<AiSceneDecision> {
@@ -192,13 +192,13 @@ export class AiSceneService {
       throw new Error(`未配置 ${strategy.providerName} 之可用 API 金鑰，請先至右下角保險庫輸入金鑰`);
     }
 
-    if (!imagePayload512pxBase64 || imagePayload512pxBase64.trim() === '') {
+    if (!imagePayload1024pxBase64 || imagePayload1024pxBase64.trim() === '') {
       throw new Error('縮圖影像資料為空，無法傳輸至雲端進行神經視覺分析');
     }
 
-    // 準備輕量 512px Payload
+    // 準備輕量 1024px Payload
     const tPrep = Date.now();
-    const { base64: cleanBase64 } = await this.toCleanBase64(imagePayload512pxBase64);
+    const { base64: cleanBase64 } = await this.toCleanBase64(imagePayload1024pxBase64);
     const prepMs = Date.now() - tPrep;
     const sizeKb = (cleanBase64.length * 0.75 / 1024).toFixed(1);
     console.info(`[AI_VISION] 縮圖準備完成 (耗時: ${prepMs}ms, 體積: ${sizeKb} KB, 模型: ${modelId})`);
@@ -215,7 +215,7 @@ export class AiSceneService {
         const decision = await strategy.analyzePhoto({
           apiKey,
           modelId,
-          imagePayload512pxBase64: cleanBase64,
+          imagePayload1024pxBase64: cleanBase64,
           exif,
           signal: options?.signal,
           stylePreset: options?.stylePreset,
@@ -249,7 +249,7 @@ export class AiSceneService {
             if (options.onLog) {
               await options.onLog(`> [AI_CRITIC] 啟動雙圖閉環覆審 (${criticEngine.modelId || criticEngine.strategy.providerName})...`);
             }
-            // 傳入已輕量化至 512px 之純淨 Base64 進行渲染，確保成果圖體積僅約 30KB，杜絕龐大 Base64 阻塞網路
+            // 傳入已輕量化至 1024px 之純淨 Base64 進行渲染，確保成果圖體積約 120KB-250KB，杜絕龐大 Base64 阻塞網路
             const previewInput = `data:image/jpeg;base64,${cleanBase64}`;
             const renderedBase64 = await options.renderPreview(previewInput, decision);
             if (!renderedBase64 || renderedBase64.trim() === '') {

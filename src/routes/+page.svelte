@@ -1446,7 +1446,7 @@
   }
 
   /**
-   * 雙圖閉環覆審專用：以 Pass 1 決策參數極速渲染 512px 預覽縮圖供 AI 覆審比對
+   * 雙圖閉環覆審專用：以 Pass 1 決策參數極速渲染 1024px 預覽縮圖供 AI 覆審比對
    */
   async function renderPass1PreviewForCritic(
     previewSrc: string,
@@ -1495,7 +1495,7 @@
           : undefined;
       const targetProf = forcedProfileId || decision.recommended_profile || "Profile_00_StandardNatural";
 
-      const maxDim = 512;
+      const maxDim = 1024;
       let targetW = img.naturalWidth || 400;
       let targetH = img.naturalHeight || 300;
       if (targetW > maxDim || targetH > maxDim) {
@@ -2188,7 +2188,7 @@
     );
     const activeModelInfo = AiSceneService.getActiveModelInfo();
     await appendAiLog(
-      `> [STREAM] 傳輸 512px 縮圖至 ${activeModelInfo.provider === "gemini" ? "Google Gemini" : "Groq Vision"} (${activeModelInfo.modelId})...`,
+      `> [STREAM] 傳輸 1024px 縮圖至 ${activeModelInfo.provider === "gemini" ? "Google Gemini" : "Groq Vision"} (${activeModelInfo.modelId})...`,
       40,
     );
     if (selectedStyleKeywords.length > 0 || customStylePrompt.trim()) {

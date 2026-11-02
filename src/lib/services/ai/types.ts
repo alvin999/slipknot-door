@@ -33,7 +33,7 @@ export type StyleKeywordId =
 export interface VisionInferenceOptions {
   apiKey: string;
   modelId: string;
-  imagePayload512pxBase64: string;
+  imagePayload1024pxBase64: string;
   exif: ExifOpticalData;
   timeoutMs?: number;
   signal?: AbortSignal;

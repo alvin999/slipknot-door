@@ -26,7 +26,7 @@ if (!apiKey) {
   process.exit(1);
 }
 
-// 產生最小有效 512px 測試圖片 Base64 (純色帶光影梯度)
+// 產生最小有效 1024px 測試圖片 Base64 (純色帶光影梯度)
 const SAMPLE_BASE64 = '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
 
 /**

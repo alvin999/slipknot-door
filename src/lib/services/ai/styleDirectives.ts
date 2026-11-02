@@ -216,7 +216,13 @@ ${manifest}`;
    - Negative values (< 0.0) attenuate high-frequency contrast to produce optical halation, emulsion diffusion, and roll-off.
    - Positive values (> 0.0) amplify mid-tone micro-contrast and edge steepness to accentuate tactile relief, structural texture, and grit.
    - Modulate according to whether the target aesthetic prioritizes optical diffusion (negative) or tactile texture and grit (positive).
-7. FILMIC HIGHLIGHT PHILOSOPHY: Analog film prioritizes highlight roll-off over global brightness. Protect organic textures in bright skies, sunlit walls, and skin highlights; preserve highlight headroom rather than pushing exposure.`;
+7. FILMIC HIGHLIGHT PHILOSOPHY: Analog film prioritizes highlight roll-off over global brightness. Protect organic textures in bright skies, sunlit walls, and skin highlights; preserve highlight headroom rather than pushing exposure.
+8. composition & geometric framing (crop_box, rotation_deg, keystone_v):
+   - Frame Boundary Consolidation vs. Environmental Negative Space:
+     * When perimeter edges contain disruptive tangential cuts, visual clutter, or unbalanced dead space, consolidate crop boundaries inwards to anchor subject prominence and compositional harmony.
+     * When wide contextual breathing room, atmospheric scale, or environmental context reinforces the aesthetic, preserve open framing or full frame [0.0, 0.0, 1.0, 1.0].
+   - Horizon & Perspective Alignment:
+     * Modulate rotation_deg and keystone_v to correct unintended optical lean or keystoning on architectural verticals and natural horizons, while respecting intentional dynamic angles.`;
 
   return {
     instructionBlock: baseBlock,
@@ -274,7 +280,7 @@ export function buildCriticInstructionBlock(
 
   let criticPrompt = `You are an elite darkroom quality-control colorist and technical critic.
 You are inspecting TWO images:
-1. IMAGE 1: The original unedited capture proxy (512px downscaled preview).
+1. IMAGE 1: The original unedited capture proxy (1024px downscaled preview).
 2. IMAGE 2: The rendered draft result produced after applying Pass 1 tone & 3D LUT profile parameters (Profile: "${firstPassProfile}").
 Note: Do not supply positive clarity/sharpness deltas to compensate for proxy resolution; evaluate strictly for intended artistic character.
 

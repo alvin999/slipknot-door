@@ -26,15 +26,15 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
    * 影像視覺顯影分析
    */
   public async analyzePhoto(options: VisionInferenceOptions): Promise<AiSceneDecision> {
-    const { apiKey, modelId, imagePayload512pxBase64, exif } = options;
+    const { apiKey, modelId, imagePayload1024pxBase64, exif } = options;
     if (!apiKey || apiKey.trim() === '') {
       throw new Error('未配置 Gemini API 金鑰');
     }
 
     // 將縮圖清理為純 Base64
-    const cleanBase64 = imagePayload512pxBase64.includes(',')
-      ? imagePayload512pxBase64.slice(imagePayload512pxBase64.indexOf(',') + 1)
-      : imagePayload512pxBase64;
+    const cleanBase64 = imagePayload1024pxBase64.includes(',')
+      ? imagePayload1024pxBase64.slice(imagePayload1024pxBase64.indexOf(',') + 1)
+      : imagePayload1024pxBase64;
 
     const cleanModel = (modelId && modelId.trim()) ? modelId.trim().replace(/^models\//, '') : '';
     if (!cleanModel) {
@@ -52,7 +52,7 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
     const promptText = `You are a master analog darkroom colorist and curatorial director.
 Analyze this photographic image and optical EXIF (ISO: ${exif.iso || 'N/A'}, Shutter: ${exif.shutterSpeed || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}, Lens/Focal: ${exif.focalLength || 'N/A'}).
 
-Note: The image is a 512px preview proxy downscaled from a high-resolution capture; native optical sharpness is optimal at baseline 0.0. Do not add clarity or sharpness to compensate for proxy resolution; evaluate strictly for artistic character.
+Note: The image is a 1024px preview proxy downscaled from a high-resolution capture; native optical sharpness is optimal at baseline 0.0. Do not add clarity or sharpness to compensate for proxy resolution; evaluate strictly for artistic character.
 
 Evaluate lighting dynamics, color harmony, optical texture, and visual composition.
 
@@ -74,7 +74,7 @@ Respond ONLY with raw JSON matching this schema:
   "clarity": "number between -1.0 and +1.0",
   "sharpness": "number between -1.0 and +1.0",
   "tags": ["string (3 to 6 tags in Traditional Chinese)"],
-  "crop_box": [ymin, xmin, ymax, xmax] (four numbers between 0.0 and 1.0; use [0.0, 0.0, 1.0, 1.0] if composition is already balanced),
+  "crop_box": [ymin, xmin, ymax, xmax] (normalized bounding box [ymin, xmin, ymax, xmax] within 0.0 to 1.0; [0.0, 0.0, 1.0, 1.0] denotes uncropped full frame),
   "rotation_deg": "number between -45.0 and +45.0",
   "keystone_v": "number between -45.0 and +45.0",
   "aspect_ratio": "original | 1:1 | 4:5 | 16:9 | 9:16 | free",
