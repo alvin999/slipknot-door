@@ -16,6 +16,7 @@
   import TopNav from "$lib/components/navigation/TopNav.svelte";
   import WorkflowSidebar from "$lib/components/navigation/WorkflowSidebar.svelte";
   import PickedPreviewsRack from "$lib/components/catalog/PickedPreviewsRack.svelte";
+  import { toastStore } from "$lib/stores/toastStore.svelte";
   import CatalogView from "$lib/components/views/CatalogView.svelte";
   import RetouchView from "$lib/components/views/RetouchView.svelte";
   import AiAssistPanel from "$lib/components/retouch/AiAssistPanel.svelte";
@@ -2504,6 +2505,9 @@
       enqueueThumbnailRender(photoToProcess);
 
       await appendAiLog(`> [SUCCESS] 顯影調校完成 ✓`, 10);
+      if (!isBatchAiRunning) {
+        toastStore.show(`【${decision.scene_title || decision.scene_type}】AI 顯影調校完成 ✓`, 'success');
+      }
       return true;
     } catch (err: any) {
       if (
@@ -2519,6 +2523,7 @@
         `> [ERROR] 顯影推估異常：${err.message || "未知錯誤"}`,
         20,
       );
+      toastStore.show(`AI 顯影失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
       return false;
     } finally {
       isAiAnalyzing = false;
@@ -2574,8 +2579,10 @@
       isCropMode = true; // 自動開啟裁切框供檢視
       darkroomState.isCropMode = true;
       await appendAiLog(`> [SUCCESS] 智慧裁切已套用：${aiCropRationale} ✓`);
+      toastStore.show(`智慧構圖已套用：${aiCropRationale} ✓`, 'success');
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 裁切分析失敗：${err.message}`);
+      toastStore.show(`AI 裁切失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
     } finally {
       isAiAnalyzing = false;
     }
@@ -2607,8 +2614,10 @@
       await appendAiLog(
         `> [SUCCESS] 地平線校正 ${cropRotation.toFixed(1)}°，垂直梯形 ${keystoneV.toFixed(1)}° ✓`,
       );
+      toastStore.show(`地平線校正 ${cropRotation.toFixed(1)}°，垂直梯形 ${keystoneV.toFixed(1)}° ✓`, 'success');
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 水平偵測失敗：${err.message}`);
+      toastStore.show(`水平偵測失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
     } finally {
       isAiAnalyzing = false;
     }
@@ -2641,8 +2650,10 @@
       await appendAiLog(
         `> [SUCCESS] 自動白平衡已套用 (${decision.color_temp}K, Tint: ${decision.tint}) ✓`,
       );
+      toastStore.show(`自動白平衡已套用 (${decision.color_temp}K, Tint: ${decision.tint}) ✓`, 'success');
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 白平衡失敗：${err.message}`);
+      toastStore.show(`白平衡失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
     } finally {
       isAiAnalyzing = false;
     }
@@ -2685,8 +2696,10 @@
       await appendAiLog(
         `> [SUCCESS] 自動光比已套用 (EV: ${decision.exposure_compensation > 0 ? "+" : ""}${decision.exposure_compensation}) ✓`,
       );
+      toastStore.show(`自動光比已套用 (EV: ${decision.exposure_compensation > 0 ? "+" : ""}${decision.exposure_compensation}) ✓`, 'success');
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 光比失敗：${err.message}`);
+      toastStore.show(`光比分析失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
     } finally {
       isAiAnalyzing = false;
     }
@@ -2719,8 +2732,10 @@
       await appendAiLog(
         `> [SUCCESS] 已推薦套用：${decision.recommended_profile} ✓`,
       );
+      toastStore.show(`已推薦套用風格：${decision.recommended_profile} ✓`, 'success');
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 風格推薦失敗：${err.message}`);
+      toastStore.show(`風格推薦失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
     } finally {
       isAiAnalyzing = false;
     }
@@ -2742,8 +2757,10 @@
       aiSocialCaption = res.caption;
       aiSocialHashtags = res.hashtags;
       aiIptcKeywords = res.iptcKeywords;
+      toastStore.show("AI 社群文案與標籤已生成 ✓", 'success', 2500);
     } catch (err: any) {
       console.error("Groq copywriting error:", err);
+      toastStore.show(`文案生成失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
     } finally {
       isGeneratingCopy = false;
     }
@@ -2756,11 +2773,13 @@
     try {
       await navigator.clipboard.writeText(fullText);
       copyNotice = "文案已複製 ✓";
+      toastStore.show("社群文案與標籤已複製至剪貼簿 ✓", 'success', 2500);
       setTimeout(() => {
         copyNotice = "";
       }, 2500);
     } catch {
       copyNotice = "複製失敗";
+      toastStore.show("文案複製失敗", 'error', 3000);
       setTimeout(() => {
         copyNotice = "";
       }, 2000);
