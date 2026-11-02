@@ -789,7 +789,6 @@
     total: number;
     countdown: number;
   } | null>(null);
-  let aiDecisionIsFallback = $state<boolean | null>(null);
   let aiSuggestedScene = $state<string>("等待判讀");
   let aiSceneTitle = $state<string>("");
   let aiStyleInsight = $state<string>("");
@@ -958,10 +957,7 @@
 
     // 載入當前選中相片的專屬 AI 決策與場景 Label (若尚未分析則顯示初始狀態)
     if (plate.aiDecision) {
-      aiDecisionIsFallback = plate.aiDecision.isFallback;
-      aiSuggestedScene = plate.aiDecision.isFallback
-        ? `${plate.aiDecision.scene_type} (在地光學推估)`
-        : `${plate.aiDecision.scene_type} (視覺即時判讀)`;
+      aiSuggestedScene = `${plate.aiDecision.scene_type} (視覺即時判讀)`;
       aiSceneTitle =
         plate.aiDecision.scene_title || plate.aiDecision.scene_type;
       aiStyleInsight = plate.aiDecision.style_insight || "";
@@ -971,7 +967,6 @@
       aiCropRationale = plate.aiDecision.crop_rationale || "";
       aiVisionTags = plate.aiDecision.tags || [];
     } else {
-      aiDecisionIsFallback = null;
       aiSuggestedScene = "尚未分析";
       aiSceneTitle =
         plate.sceneTag && plate.sceneTag !== "本機相簿幀" ? plate.sceneTag : "";
@@ -2160,11 +2155,15 @@
       selectPhoto(photoToProcess);
     }
 
+    if (!hasActiveApiKey()) {
+      isKeyPromptModalOpen = true;
+      return false;
+    }
+
     isAiAnalyzing = true;
     if (!isBatchAiRunning) {
       aiTerminalLogs = [];
     }
-    const hasKey = hasActiveApiKey();
     await appendAiLog(
       `> [OPTICAL_SCAN] 掃描 ${photoToProcess.filename} 影格光學數據...`,
       20,
@@ -2173,27 +2172,20 @@
       `> [EXIF] ISO ${photoToProcess.iso} · ${photoToProcess.aperture} · ${photoToProcess.shutter} · ${photoToProcess.focalLength}`,
       20,
     );
-    if (hasKey) {
-      const activeModelInfo = AiSceneService.getActiveModelInfo();
+    const activeModelInfo = AiSceneService.getActiveModelInfo();
+    await appendAiLog(
+      `> [STREAM] 傳輸 512px 縮圖至 ${activeModelInfo.provider === "gemini" ? "Google Gemini" : "Groq Vision"} (${activeModelInfo.modelId})...`,
+      40,
+    );
+    if (selectedStyleKeywords.length > 0 || customStylePrompt.trim()) {
+      const kwLabels = selectedStyleKeywords
+        .map(
+          (id) =>
+            STYLE_KEYWORD_ENTRIES.find((k) => k.id === id)?.shortTag || id,
+        )
+        .concat(customStylePrompt.trim() ? [customStylePrompt.trim()] : []);
       await appendAiLog(
-        `> [STREAM] 傳輸 512px 縮圖至 ${activeModelInfo.provider === "gemini" ? "Google Gemini" : "Groq Vision"} (${activeModelInfo.modelId})...`,
-        40,
-      );
-      if (selectedStyleKeywords.length > 0 || customStylePrompt.trim()) {
-        const kwLabels = selectedStyleKeywords
-          .map(
-            (id) =>
-              STYLE_KEYWORD_ENTRIES.find((k) => k.id === id)?.shortTag || id,
-          )
-          .concat(customStylePrompt.trim() ? [customStylePrompt.trim()] : []);
-        await appendAiLog(
-          `> [STYLE_PROMPT] 注入調色關鍵字：${kwLabels.join(" + ")}`,
-          20,
-        );
-      }
-    } else {
-      await appendAiLog(
-        `> [LOCAL_EVAL] 在地光學特徵評估中 (免連線降級)...`,
+        `> [STYLE_PROMPT] 注入調色關鍵字：${kwLabels.join(" + ")}`,
         20,
       );
     }
@@ -2234,10 +2226,7 @@
 
       // 若為焦點相片或單幀模式，同步頂部與面板 AI 決策狀態
       if (isCurrentActive || !isBatchAiRunning) {
-        aiDecisionIsFallback = decision.isFallback;
-        aiSuggestedScene = decision.isFallback
-          ? `${decision.scene_type} (在地光學推估)`
-          : `${decision.scene_type} (視覺即時判讀)`;
+        aiSuggestedScene = `${decision.scene_type} (視覺即時判讀)`;
         aiSceneTitle = decision.scene_title || decision.scene_type;
         aiStyleInsight = decision.style_insight || "";
         aiRecommendedMood = decision.recommended_mood || "";
@@ -2254,24 +2243,11 @@
       const durationText = decision.inferenceDurationMs
         ? `${(decision.inferenceDurationMs / 1000).toFixed(1)}s`
         : null;
-      if (decision.isFallback) {
-        if (decision.fallbackReason) {
-          await appendAiLog(
-            `> [CLOUD_NOTICE] 轉入在地推估原因：${decision.fallbackReason}${durationText ? ` (耗時 ${durationText})` : ""}`,
-            20,
-          );
-        }
-        await appendAiLog(
-          `> [LOCAL_FALLBACK] 在地光學推估：【${decision.scene_title || decision.scene_type}】(無雲端消耗)`,
-          20,
-        );
-      } else {
-        const modelTag = decision.modelUsed ? ` [${decision.modelUsed}]` : "";
-        await appendAiLog(
-          `> [CLOUD_DETECTED] 雲端視覺識別完成${modelTag}：【${decision.scene_title || decision.scene_type}】${durationText ? ` (耗時 ${durationText})` : ""}`,
-          20,
-        );
-      }
+      const modelTag = decision.modelUsed ? ` [${decision.modelUsed}]` : "";
+      await appendAiLog(
+        `> [CLOUD_DETECTED] 雲端視覺識別完成${modelTag}：【${decision.scene_title || decision.scene_type}】${durationText ? ` (耗時 ${durationText})` : ""}`,
+        20,
+      );
       if (decision.tags && decision.tags.length > 0) {
         await appendAiLog(
           `> [VISION_TAGS] 視覺特徵：#${decision.tags.join(" #")}`,
@@ -2287,11 +2263,7 @@
           20,
         );
       }
-      if (decision.isFallback) {
-        await appendAiLog(`> [AUTOTUNE] 依據在地推估光學參數開始套用...`, 20);
-      } else {
-        await appendAiLog(`> [AUTOTUNE] 依據 AI 職責勾選開始套用參數...`, 20);
-      }
+      await appendAiLog(`> [AUTOTUNE] 依據 AI 職責勾選開始套用參數...`, 20);
 
       // 計算目標參數值
       const foundProfile = profiles.find(
@@ -2788,11 +2760,6 @@
     }
   }
 
-  function confirmOfflineBatch() {
-    isKeyPromptModalOpen = false;
-    runBatchAiAnalysis();
-  }
-
   function openVaultFromPrompt() {
     isKeyPromptModalOpen = false;
     isVaultOpen = true;
@@ -2810,7 +2777,10 @@
       return;
     }
 
-    const hasOnlineKey = hasActiveApiKey();
+    if (!hasActiveApiKey()) {
+      isKeyPromptModalOpen = true;
+      return;
+    }
 
     isBatchAiRunning = true;
     cancelBatchRequested = false;
@@ -2821,30 +2791,15 @@
       20,
     );
 
-    if (hasOnlineKey) {
-      const activeModelInfo = AiSceneService.getActiveModelInfo();
-      await appendAiLog(
-        `> [CLOUD_AI] 已偵測到有效金鑰，啟動視覺多模態雲端推論 [${activeModelInfo.provider.toUpperCase()} · ${activeModelInfo.modelId}]`,
-        20,
-      );
-      await appendAiLog(
-        `> [RATE_LIMIT] 啟用雲端 API 速率保護 (間隔 4.2 秒防超限冷卻)`,
-        20,
-      );
-    } else {
-      await appendAiLog(
-        `> [OFFLINE_NOTICE] ⚠️ 未配置雲端 API 金鑰，全面採用「本機光學降級演算法 (EXIF Fallback)」`,
-        20,
-      );
-      await appendAiLog(
-        `> [TIP] 可點擊右下角「金鑰保險庫 🔑」輸入 Gemini / Groq Key 以解鎖完整多模態視覺判讀`,
-        20,
-      );
-      await appendAiLog(
-        `> [SPEED_BOOST] 本機推估無雲端配額限制，已自動停用冷卻倒數，極速批次顯影中 ⚡`,
-        20,
-      );
-    }
+    const activeModelInfo = AiSceneService.getActiveModelInfo();
+    await appendAiLog(
+      `> [CLOUD_AI] 已偵測到有效金鑰，啟動視覺多模態雲端推論 [${activeModelInfo.provider.toUpperCase()} · ${activeModelInfo.modelId}]`,
+      20,
+    );
+    await appendAiLog(
+      `> [RATE_LIMIT] 啟用雲端 API 速率保護 (間隔 4.2 秒防超限冷卻)`,
+      20,
+    );
 
     for (let i = 0; i < targetList.length; i++) {
       if (cancelBatchRequested) {
@@ -2874,9 +2829,8 @@
         break;
       }
 
-      // 只有在真正連接雲端在線 API（有有效金鑰）時，才需要 4.2 秒的速率保護等待
-      // 若為純本地光學推估（無金鑰），直接跳過等待，避免浪費使用者時間與主機資源
-      if (hasOnlineKey && i < targetList.length - 1 && !cancelBatchRequested) {
+      // 每張相片之間進行 4.2 秒速率保護等待，避免超過雲端 API 速率限制
+      if (i < targetList.length - 1 && !cancelBatchRequested) {
         for (let cd = 4; cd > 0; cd--) {
           if (cancelBatchRequested) break;
           batchProgress.countdown = cd;
@@ -3666,7 +3620,7 @@
     {/if}
   </main>
 
-  <!-- 未配置金鑰引導確認 Modal (Fallback Confirmation Prompt) -->
+  <!-- 未配置金鑰引導確認 Modal (API Key Required Prompt) -->
   {#if isKeyPromptModalOpen}
     <div
       class="key-prompt-backdrop"
@@ -3693,7 +3647,7 @@
                 尚未配置 AI 雲端金鑰
               </div>
               <div class="prompt-subtitle font-mono">
-                NEURAL DEVELOP // OFFLINE HEURISTIC CONFIRMATION
+                NEURAL DEVELOP // API KEY REQUIRED
               </div>
             </div>
           </div>
@@ -3712,30 +3666,17 @@
         <div class="prompt-body">
           <p class="prompt-desc">
             目前尚未檢測到已配置的 <strong>Google Gemini</strong> 或
-            <strong>Groq</strong> API 金鑰。
+            <strong>Groq</strong> API 金鑰。AI 神經顯影調色需仰賴雲端視覺多模態模型進行即時判讀，請先前往金鑰保險庫配置 API 金鑰。
           </p>
 
           <div class="prompt-modes-grid">
             <div class="prompt-mode-card highlight">
               <div class="mode-card-header font-mono amber">
-                <span class="material-symbols-outlined">computer</span>
-                <span>由電腦自己跑 (本機光學推算)</span>
-              </div>
-              <p class="mode-card-text">
-                採用相機 EXIF 光學幾何、大光圈景深與色彩動態特徵演算法。<strong
-                  >無網路依賴、0 雲端配額消耗、極速完成</strong
-                >。
-              </p>
-            </div>
-
-            <div class="prompt-mode-card">
-              <div class="mode-card-header font-mono">
                 <span class="material-symbols-outlined">psychology</span>
                 <span>雲端 AI 多模態顯影</span>
               </div>
               <p class="mode-card-text">
-                需先前往金鑰保險庫設定 API Key。解鎖 Gemini 視覺光學神經判讀與
-                Groq 極速策展社群文案。
+                支援 Google Gemini 視覺多模態即時美學分析與 Groq 社群文案生成。可在右下角金鑰保險庫中隨時切換與管理。
               </p>
             </div>
           </div>
@@ -3751,23 +3692,13 @@
           </button>
           <button
             type="button"
-            class="archival-btn-secondary prompt-action-btn font-mono amber-border"
+            class="archival-btn-primary prompt-action-btn font-mono"
             onclick={openVaultFromPrompt}
           >
             <span class="material-symbols-outlined" style="font-size: 15px;"
               >vpn_key</span
             >
             <span>前往配置金鑰 🔑</span>
-          </button>
-          <button
-            type="button"
-            class="archival-btn-primary prompt-action-btn font-mono"
-            onclick={confirmOfflineBatch}
-          >
-            <span class="material-symbols-outlined" style="font-size: 15px;"
-              >bolt</span
-            >
-            <span>電腦自己跑 (啟動本機顯影) ⚡</span>
           </button>
         </div>
       </div>
@@ -4443,9 +4374,5 @@
     padding: 8px 14px;
     font-size: 12px;
     cursor: pointer;
-  }
-  .amber-border {
-    border-color: rgba(212, 163, 115, 0.5) !important;
-    color: var(--amber-highlight) !important;
   }
 </style>
