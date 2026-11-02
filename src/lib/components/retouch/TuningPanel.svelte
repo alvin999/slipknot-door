@@ -2,6 +2,22 @@
   import { darkroomState, type CropRatioPreset } from "$lib/stores/darkroomState.svelte";
   import { photoLibrary, type PhotoPlateItem } from "$lib/stores/photoLibrary.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
+  import DarkroomSlider from "./DarkroomSlider.svelte";
+
+  // 百分比參數解析函式 (支援 20 -> 0.2 或 0.2 -> 0.2)
+  function parsePercentage(text: string): number | null {
+    const clean = text.replace("%", "").trim();
+    const num = parseFloat(clean);
+    if (isNaN(num)) return null;
+    return Math.abs(num) > 1.0 ? num / 100 : num;
+  }
+
+  // 角度與純數值解析函式
+  function parseCleanNumber(text: string): number | null {
+    const clean = text.replace(/[^0-9.-]/g, "").trim();
+    const num = parseFloat(clean);
+    return isNaN(num) ? null : num;
+  }
 
   interface Props {
     profiles: any[];
@@ -103,160 +119,112 @@
   </div>
 
   <!-- Slider 1: Exposure -->
-  <div class="control-row">
-    <div class="control-header font-mono">
-      <span>EXPOSURE (EV)</span>
-      <span class="control-val">
-        {darkroomState.exposure > 0
-          ? `+${darkroomState.exposure.toFixed(2)}`
-          : darkroomState.exposure.toFixed(2)}
-      </span>
-    </div>
-    <input
-      type="range"
-      min="-2.0"
-      max="2.0"
-      step="0.05"
-      bind:value={darkroomState.exposure}
-      class="darkroom-slider"
-    />
-  </div>
+  <DarkroomSlider
+    label="EXPOSURE (EV)"
+    bind:value={darkroomState.exposure}
+    defaultValue={0}
+    min={-2.0}
+    max={2.0}
+    step={0.05}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2))}
+    parseInput={parseCleanNumber}
+  />
 
   <!-- Slider 2: Contrast -->
-  <div class="control-row">
-    <div class="control-header font-mono">
-      <span>CONTRAST (對比)</span>
-      <span class="control-val">
-        {darkroomState.contrast > 0
-          ? `+${Math.round(darkroomState.contrast * 100)}%`
-          : `${Math.round(darkroomState.contrast * 100)}%`}
-      </span>
-    </div>
-    <input
-      type="range"
-      min="-0.8"
-      max="0.8"
-      step="0.02"
-      bind:value={darkroomState.contrast}
-      class="darkroom-slider"
-    />
-  </div>
+  <DarkroomSlider
+    label="CONTRAST (對比)"
+    bind:value={darkroomState.contrast}
+    defaultValue={0}
+    min={-0.8}
+    max={0.8}
+    step={0.02}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+    parseInput={parsePercentage}
+  />
 
   <!-- Slider 2.5: Shadow Lift (Matte Toe Lift) -->
-  <div class="control-row">
-    <div class="control-header font-mono">
-      <span>SHADOW LIFT (暗部啞光抬升)</span>
-      <span class="control-val">
-        {darkroomState.shadows > 0
-          ? `+${Math.round(darkroomState.shadows * 100)}%`
-          : `${Math.round(darkroomState.shadows * 100)}%`}
-      </span>
-    </div>
-    <input
-      type="range"
-      min="-0.5"
-      max="0.5"
-      step="0.02"
-      bind:value={darkroomState.shadows}
-      class="darkroom-slider"
-    />
-  </div>
+  <DarkroomSlider
+    label="SHADOW LIFT (暗部啞光抬升)"
+    bind:value={darkroomState.shadows}
+    defaultValue={0}
+    min={-0.5}
+    max={0.5}
+    step={0.02}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+    parseInput={parsePercentage}
+  />
 
   <!-- Slider 3: LUT Intensity -->
-  <div class="control-row">
-    <div class="control-header font-mono">
-      <span>LUT INTENSITY (風格濃度)</span>
-      <span class="control-val amber">
-        {Math.round(darkroomState.lutIntensity * 100)}%
-      </span>
-    </div>
-    <input
-      type="range"
-      min="0"
-      max="1"
-      step="0.01"
-      bind:value={darkroomState.lutIntensity}
-      class="darkroom-slider"
-    />
-  </div>
+  <DarkroomSlider
+    label="LUT INTENSITY (風格濃度)"
+    bind:value={darkroomState.lutIntensity}
+    defaultValue={1.0}
+    min={0}
+    max={1}
+    step={0.01}
+    amberValue={true}
+    formatValue={(v) => `${Math.round(v * 100)}%`}
+    parseInput={parsePercentage}
+  />
 
   <!-- Slider 4: Color Temp -->
-  <div class="control-row">
-    <div class="control-header font-mono">
-      <span>KELVIN SCALE</span>
-      <span class="control-val">{darkroomState.colorTemp}K</span>
-    </div>
-    <input
-      type="range"
-      min="2800"
-      max="8500"
-      step="50"
-      bind:value={darkroomState.colorTemp}
-      class="darkroom-slider"
-    />
-  </div>
+  <DarkroomSlider
+    label="KELVIN SCALE"
+    bind:value={darkroomState.colorTemp}
+    defaultValue={activePhoto?.asShotTemp ?? 5500}
+    min={2800}
+    max={8500}
+    step={50}
+    formatValue={(v) => `${v}K`}
+    parseInput={parseCleanNumber}
+  />
 
   <!-- Slider 4.5: Tint (Green <-> Magenta) -->
-  <div class="control-row">
-    <div class="control-header font-mono">
-      <span>TINT (色調微調)</span>
-      <span class="control-val">
-        {darkroomState.tint > 0
-          ? `+${Math.round(darkroomState.tint)} (洋紅)`
-          : darkroomState.tint < 0
-            ? `${Math.round(darkroomState.tint)} (青綠)`
-            : "0"}
-      </span>
-    </div>
-    <input
-      type="range"
-      min="-100"
-      max="100"
-      step="1"
-      bind:value={darkroomState.tint}
-      class="darkroom-slider"
-    />
-  </div>
+  <DarkroomSlider
+    label="TINT (色調微調)"
+    bind:value={darkroomState.tint}
+    defaultValue={activePhoto?.asShotTint ?? 0}
+    min={-100}
+    max={100}
+    step={1}
+    isBipolar={true}
+    formatValue={(v) =>
+      v > 0
+        ? `+${Math.round(v)} (洋紅)`
+        : v < 0
+          ? `${Math.round(v)} (青綠)`
+          : "0"}
+    parseInput={parseCleanNumber}
+  />
 
   <!-- Slider 5: Clarity -->
-  <div class="control-row">
-    <div class="control-header font-mono">
-      <span>CLARITY (清晰度)</span>
-      <span class="control-val">
-        {darkroomState.clarity > 0
-          ? `+${Math.round(darkroomState.clarity * 100)}%`
-          : `${Math.round(darkroomState.clarity * 100)}%`}
-      </span>
-    </div>
-    <input
-      type="range"
-      min="-1.0"
-      max="1.0"
-      step="0.05"
-      bind:value={darkroomState.clarity}
-      class="darkroom-slider"
-    />
-  </div>
+  <DarkroomSlider
+    label="CLARITY (清晰度)"
+    bind:value={darkroomState.clarity}
+    defaultValue={0}
+    min={-1.0}
+    max={1.0}
+    step={0.05}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+    parseInput={parsePercentage}
+  />
 
   <!-- Slider 6: Sharpness -->
-  <div class="control-row">
-    <div class="control-header font-mono">
-      <span>SHARPNESS (銳利度)</span>
-      <span class="control-val">
-        {darkroomState.sharpness > 0
-          ? `+${Math.round(darkroomState.sharpness * 100)}%`
-          : `${Math.round(darkroomState.sharpness * 100)}%`}
-      </span>
-    </div>
-    <input
-      type="range"
-      min="-1.0"
-      max="1.0"
-      step="0.05"
-      bind:value={darkroomState.sharpness}
-      class="darkroom-slider"
-    />
-  </div>
+  <DarkroomSlider
+    label="SHARPNESS (銳利度)"
+    bind:value={darkroomState.sharpness}
+    defaultValue={0}
+    min={-1.0}
+    max={1.0}
+    step={0.05}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+    parseInput={parsePercentage}
+  />
 </div>
 
 <!-- 2. CROP & GEOMETRY TELEMETRY BOX - 第二順位 -->
@@ -316,44 +284,30 @@
   </div>
 
   <!-- Rotation Slider -->
-  <div class="control-row">
-    <div class="control-header font-mono">
-      <span>ROTATION (水平旋轉)</span>
-      <span class="control-val">
-        {darkroomState.cropRotation > 0
-          ? `+${darkroomState.cropRotation.toFixed(1)}°`
-          : `${darkroomState.cropRotation.toFixed(1)}°`}
-      </span>
-    </div>
-    <input
-      type="range"
-      min="-45"
-      max="45"
-      step="0.1"
-      bind:value={darkroomState.cropRotation}
-      class="darkroom-slider"
-    />
-  </div>
+  <DarkroomSlider
+    label="ROTATION (水平旋轉)"
+    bind:value={darkroomState.cropRotation}
+    defaultValue={0}
+    min={-45}
+    max={45}
+    step={0.1}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${v.toFixed(1)}°` : `${v.toFixed(1)}°`)}
+    parseInput={parseCleanNumber}
+  />
 
   <!-- Vertical Keystone Slider -->
-  <div class="control-row">
-    <div class="control-header font-mono">
-      <span>KEYSTONE V (垂直透視梯形)</span>
-      <span class="control-val">
-        {darkroomState.keystoneV > 0
-          ? `+${darkroomState.keystoneV.toFixed(1)}°`
-          : `${darkroomState.keystoneV.toFixed(1)}°`}
-      </span>
-    </div>
-    <input
-      type="range"
-      min="-30"
-      max="30"
-      step="0.5"
-      bind:value={darkroomState.keystoneV}
-      class="darkroom-slider"
-    />
-  </div>
+  <DarkroomSlider
+    label="KEYSTONE V (垂直透視梯形)"
+    bind:value={darkroomState.keystoneV}
+    defaultValue={0}
+    min={-30}
+    max={30}
+    step={0.5}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${v.toFixed(1)}°` : `${v.toFixed(1)}°`)}
+    parseInput={parseCleanNumber}
+  />
 
   <!-- Flip & Reset Controls -->
   <div class="geom-actions-row font-mono">
@@ -649,42 +603,6 @@
   .quick-ai-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
-  }
-  .control-row {
-    margin-bottom: 12px;
-  }
-  .control-header {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    letter-spacing: 0.05em;
-    color: var(--parchment-dim);
-    margin-bottom: 6px;
-  }
-  .control-val {
-    color: var(--parchment-bright);
-    font-weight: 500;
-  }
-  .control-val.amber {
-    color: var(--amber-highlight);
-  }
-  .darkroom-slider {
-    width: 100%;
-    accent-color: var(--amber-highlight);
-    background: var(--surface-overlay);
-    height: 4px;
-    border-radius: 2px;
-    appearance: none;
-    outline: none;
-  }
-  .darkroom-slider::-webkit-slider-thumb {
-    appearance: none;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--parchment-bright);
-    cursor: pointer;
-    box-shadow: 0 0 4px rgba(0,0,0,0.5);
   }
 
 </style>
