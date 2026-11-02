@@ -224,6 +224,24 @@ export class AiSceneService {
           timeoutMs: 180000 // 提供寬裕的 Socket 守護
         });
 
+        // Pass 1 視覺分析完成，即時輸出初判成果與風格洞見
+        if (options?.onLog) {
+          const pass1Duration = ((Date.now() - startTime) / 1000).toFixed(1);
+          const modelTag = decision.modelUsed ? ` [${decision.modelUsed}]` : '';
+          await options.onLog(
+            `> [CLOUD_DETECTED] 雲端視覺識別完成${modelTag}：【${decision.scene_title || decision.scene_type}】 (耗時 ${pass1Duration}s)`
+          );
+          if (decision.tags && decision.tags.length > 0) {
+            await options.onLog(`> [VISION_TAGS] 視覺特徵：#${decision.tags.join(' #')}`);
+          }
+          if (decision.style_insight) {
+            await options.onLog(`> [INSIGHT] ${decision.style_insight}`);
+          }
+          if (decision.recommended_mood) {
+            await options.onLog(`> [MOOD_SUGGEST] 建議風格調性：${decision.recommended_mood}`);
+          }
+        }
+
         // 若開啟雙圖閉環覆審 (Pass 2 Critic Refinement)，且有提供渲染器
         try {
           const criticEngine = await AiEngineFactory.getCriticEngine();
@@ -261,6 +279,8 @@ export class AiSceneService {
               const prevTemp = decision.color_temp ?? 5500;
               const prevContrast = decision.contrast ?? 0.0;
               const prevLut = decision.lut_intensity ?? 0.85;
+              const prevClarity = decision.clarity ?? 0.0;
+              const prevSharpness = decision.sharpness ?? 0.0;
 
               // 數值安全融合：Delta 本身不設微小限幅，僅約束總體結果於 UI 滑桿與著色器物理有效範圍內
               const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
@@ -270,6 +290,12 @@ export class AiSceneService {
               decision.contrast = parseFloat(clamp(prevContrast + refinement.contrast_delta, -0.5, 0.5).toFixed(2));
               if (typeof refinement.lut_intensity_delta === 'number') {
                 decision.lut_intensity = parseFloat(clamp(prevLut + refinement.lut_intensity_delta, 0.0, 1.0).toFixed(2));
+              }
+              if (typeof refinement.clarity_delta === 'number') {
+                decision.clarity = parseFloat(clamp(prevClarity + refinement.clarity_delta, -1.0, 1.0).toFixed(2));
+              }
+              if (typeof refinement.sharpness_delta === 'number') {
+                decision.sharpness = parseFloat(clamp(prevSharpness + refinement.sharpness_delta, -1.0, 1.0).toFixed(2));
               }
 
               if (options.onLog) {
@@ -297,6 +323,14 @@ export class AiSceneService {
                 }
                 if (typeof refinement.lut_intensity_delta === 'number' && Math.abs(refinement.lut_intensity_delta) >= 0.01) {
                   diffLogs.push(`  • LUT 濃度: ${formatDelta(refinement.lut_intensity_delta)} (${prevLut.toFixed(2)} → ${decision.lut_intensity.toFixed(2)})`);
+                }
+                if (typeof refinement.clarity_delta === 'number' && Math.abs(refinement.clarity_delta) >= 0.01) {
+                  const newClarity = decision.clarity ?? 0.0;
+                  diffLogs.push(`  • 清晰度: ${formatDelta(refinement.clarity_delta)} (${prevClarity >= 0 ? '+' : ''}${prevClarity.toFixed(2)} → ${newClarity >= 0 ? '+' : ''}${newClarity.toFixed(2)})`);
+                }
+                if (typeof refinement.sharpness_delta === 'number' && Math.abs(refinement.sharpness_delta) >= 0.01) {
+                  const newSharpness = decision.sharpness ?? 0.0;
+                  diffLogs.push(`  • 銳利度: ${formatDelta(refinement.sharpness_delta)} (${prevSharpness >= 0 ? '+' : ''}${prevSharpness.toFixed(2)} → ${newSharpness >= 0 ? '+' : ''}${newSharpness.toFixed(2)})`);
                 }
 
                 if (diffLogs.length > 0) {

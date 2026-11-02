@@ -2024,6 +2024,8 @@
       lutIntensity?: number;
       colorTemp?: number;
       tint?: number;
+      clarity?: number;
+      sharpness?: number;
     },
     durationMs = 650,
   ) {
@@ -2033,6 +2035,8 @@
     const startLutIntensity = lutIntensity;
     const startColorTemp = colorTemp;
     const startTint = tint;
+    const startClarity = clarity;
+    const startSharpness = sharpness;
 
     const targetExposure = target.exposure ?? startExposure;
     const targetContrast = target.contrast ?? startContrast;
@@ -2040,6 +2044,8 @@
     const targetLutIntensity = target.lutIntensity ?? startLutIntensity;
     const targetColorTemp = target.colorTemp ?? startColorTemp;
     const targetTint = target.tint ?? startTint;
+    const targetClarity = target.clarity ?? startClarity;
+    const targetSharpness = target.sharpness ?? startSharpness;
 
     const startTime = performance.now();
 
@@ -2070,6 +2076,12 @@
       tint = parseFloat(
         (startTint + (targetTint - startTint) * ease).toFixed(1),
       );
+      clarity = parseFloat(
+        (startClarity + (targetClarity - startClarity) * ease).toFixed(2),
+      );
+      sharpness = parseFloat(
+        (startSharpness + (targetSharpness - startSharpness) * ease).toFixed(2),
+      );
 
       // 同步動態調色至 darkroomState 以流暢驅動右側面板滑桿與 WebGL 著色
       darkroomState.exposure = exposure;
@@ -2078,6 +2090,8 @@
       darkroomState.lutIntensity = lutIntensity;
       darkroomState.colorTemp = colorTemp;
       darkroomState.tint = tint;
+      darkroomState.clarity = clarity;
+      darkroomState.sharpness = sharpness;
 
       if (progress < 1.0) {
         requestAnimationFrame(step);
@@ -2240,29 +2254,6 @@
         }
       }
 
-      const durationText = decision.inferenceDurationMs
-        ? `${(decision.inferenceDurationMs / 1000).toFixed(1)}s`
-        : null;
-      const modelTag = decision.modelUsed ? ` [${decision.modelUsed}]` : "";
-      await appendAiLog(
-        `> [CLOUD_DETECTED] 雲端視覺識別完成${modelTag}：【${decision.scene_title || decision.scene_type}】${durationText ? ` (耗時 ${durationText})` : ""}`,
-        20,
-      );
-      if (decision.tags && decision.tags.length > 0) {
-        await appendAiLog(
-          `> [VISION_TAGS] 視覺特徵：#${decision.tags.join(" #")}`,
-          20,
-        );
-      }
-      if (decision.style_insight) {
-        await appendAiLog(`> [INSIGHT] ${decision.style_insight}`, 20);
-      }
-      if (decision.recommended_mood) {
-        await appendAiLog(
-          `> [MOOD_SUGGEST] 建議風格調性：${decision.recommended_mood}`,
-          20,
-        );
-      }
       await appendAiLog(`> [AUTOTUNE] 依據 AI 職責勾選開始套用參數...`, 20);
 
       // 計算目標參數值
@@ -2305,21 +2296,35 @@
         ? (decision.sharpness ?? 0.0)
         : (photoToProcess.tuning?.sharpness ?? 0.0);
 
-      if (aiScope.tone) {
+      const origEv = photoToProcess.tuning?.exposure ?? photoToProcess.asShotExposure ?? 0.0;
+      const origContrast = photoToProcess.tuning?.contrast ?? 0.0;
+      const origShadows = photoToProcess.tuning?.shadows ?? (foundProfile ? (foundProfile.shadowsDefault ?? 0.0) : 0.0);
+      const origClarity = photoToProcess.tuning?.clarity ?? 0.0;
+      const origSharpness = photoToProcess.tuning?.sharpness ?? 0.0;
+      const origTemp = photoToProcess.tuning?.colorTemp ?? photoToProcess.asShotTemp ?? 5500;
+      const origTint = photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0;
+      const origLut = photoToProcess.tuning?.lutIntensity ?? (foundProfile ? foundProfile.lutIntensityDefault : 1.0);
+
+      const fmt = (v: number, unit = "", sign = true, decimals = 2) => {
+        const s = sign && v > 0 ? "+" : "";
+        return `${s}${v.toFixed(decimals)}${unit}`;
+      };
+
+      if (aiScope.whiteBalance) {
         await appendAiLog(
-          `> [AI_TONE] 光影對比已推進 (EV: ${decision.exposure_compensation > 0 ? "+" : ""}${decision.exposure_compensation})`,
+          `> [AI_WB] 白平衡調校：\n  • 色溫: ${origTemp}K → ${baseTemp}K\n  • 色調 (Tint): ${fmt(origTint, "", true, 1)} → ${fmt(baseTint, "", true, 1)}`,
           15,
         );
       }
-      if (aiScope.whiteBalance) {
+      if (aiScope.tone) {
         await appendAiLog(
-          `> [AI_WB] 自動白平衡已校正 (${decision.color_temp ?? 5500}K, Tint: ${decision.tint ?? 0})`,
+          `> [AI_TONE] 光影與動態調校：\n  • 曝光補償: ${fmt(origEv, " EV")} → ${fmt(baseEv, " EV")}\n  • 對比度: ${fmt(origContrast)} → ${fmt(baseContrast)}\n  • 暗部抬升: ${fmt(origShadows)} → ${fmt(baseShadows)}\n  • 清晰度: ${fmt(origClarity)} → ${fmt(baseClarity)}\n  • 銳利度: ${fmt(origSharpness)} → ${fmt(baseSharpness)}`,
           15,
         );
       }
       if (applyLut) {
         await appendAiLog(
-          `> [AI_LUT] 套用底片風格：${decision.recommended_profile}`,
+          `> [AI_LUT] 底片風格套用：${targetProfile} (濃度: ${origLut.toFixed(2)} → ${baseLut.toFixed(2)})`,
           15,
         );
       }
@@ -2422,11 +2427,15 @@
             colorTemp?: number;
             tint?: number;
             lutIntensity?: number;
+            clarity?: number;
+            sharpness?: number;
           } = {};
           if (aiScope.tone) {
             targetAnim.exposure = baseEv;
             targetAnim.contrast = baseContrast;
             targetAnim.shadows = baseShadows;
+            targetAnim.clarity = baseClarity;
+            targetAnim.sharpness = baseSharpness;
           }
           if (aiScope.whiteBalance) {
             targetAnim.colorTemp = baseTemp;
@@ -2437,6 +2446,8 @@
           }
           clarity = baseClarity;
           sharpness = baseSharpness;
+          darkroomState.clarity = baseClarity;
+          darkroomState.sharpness = baseSharpness;
           if (Object.keys(targetAnim).length > 0) {
             animateAdjustmentValues(targetAnim, 650);
           }
@@ -2462,6 +2473,8 @@
           lutIntensity = baseLut;
           clarity = baseClarity;
           sharpness = baseSharpness;
+          darkroomState.clarity = baseClarity;
+          darkroomState.sharpness = baseSharpness;
           if (targetCrop) {
             cropX = targetCrop.x;
             cropY = targetCrop.y;
@@ -2657,6 +2670,14 @@
       );
       shadows = decision.lift_shadows;
       darkroomState.shadows = shadows;
+      if (typeof decision.clarity === 'number') {
+        clarity = decision.clarity;
+        darkroomState.clarity = clarity;
+      }
+      if (typeof decision.sharpness === 'number') {
+        sharpness = decision.sharpness;
+        darkroomState.sharpness = sharpness;
+      }
       await appendAiLog(
         `> [SUCCESS] 自動光比已套用 (EV: ${decision.exposure_compensation > 0 ? "+" : ""}${decision.exposure_compensation}) ✓`,
       );

@@ -70,6 +70,8 @@ export interface RefinementDecision {
   color_temp_delta: number;
   contrast_delta: number;
   lut_intensity_delta?: number;
+  clarity_delta?: number;
+  sharpness_delta?: number;
   refine_rationale: string;
 }
 

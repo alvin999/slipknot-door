@@ -1,11 +1,21 @@
 /**
+ * ═══════════════════════════════════════════════════════════════════
+ * 【AI Prompt 中性化與客觀數據規範準則 (Prompt Neutrality Guidelines)】
+ * 1. 保持客觀中立：不使用情緒化形容詞（如 punch, dreamy, extreme, harsh, poetic）。
+ * 2. 避免固定數值區間：不提供預設數字範例或固定範圍，由模型依據畫面光學動態自主推算。
+ * 3. 純物理控制通道：僅提供數據型別、物理邊界、方向定義與 EXIF 參數。
+ * 4. 責任分離：Schema 作為標準型別規格，由前置風格意向引導調色，回歸模型預訓練常識。
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+/**
  * Google Gemini Provider Adapter
  * Implements IVisionStrategy & ITextStrategy for Google Gemini API
  * Dynamic model IDs, zero hardcoded strings.
  */
 
 import type { IVisionStrategy, ITextStrategy, VisionInferenceOptions, TextInferenceOptions, RefinementInferenceOptions, RefinementDecision } from './types';
-import { buildStyleInstructionBlock, buildCriticInstructionBlock } from './styleDirectives';
+import { buildStyleInstructionBlock, buildCriticInstructionBlock, parseAiJsonString } from './styleDirectives';
 import type { AiSceneDecision, CopywritingResult } from '../aiSceneService';
 
 export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
@@ -42,31 +52,33 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
     const promptText = `You are a master analog darkroom colorist and curatorial director.
 Analyze this photographic image and optical EXIF (ISO: ${exif.iso || 'N/A'}, Shutter: ${exif.shutterSpeed || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}, Lens/Focal: ${exif.focalLength || 'N/A'}).
 
-Evaluate lighting dynamics, color harmony, and visual composition.
+Note: The image is a 512px preview proxy downscaled from a high-resolution capture; native optical sharpness is optimal at baseline 0.0. Do not add clarity or sharpness to compensate for proxy resolution; evaluate strictly for artistic character.
+
+Evaluate lighting dynamics, color harmony, optical texture, and visual composition.
 
 ${instructionBlock}
 
 Respond ONLY with raw JSON matching this schema:
 {
-  "scene_title": "string (4-8 chars poetic title in Traditional Chinese describing the actual subject/light)",
-  "scene_type": "string (lowercase code: portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
-  "style_insight": "string (1-2 sentences professional light/color analysis and treatment rationale in Traditional Chinese)",
-  "recommended_mood": "string (short mood/style label in Traditional Chinese)",
+  "scene_title": "string (4-8 chars in Traditional Chinese)",
+  "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
+  "style_insight": "string (1-2 sentences in Traditional Chinese)",
+  "recommended_mood": "string (short mood label in Traditional Chinese)",
   "recommended_profile": "${recommendedProfileSchemaHint}",
-  "exposure_compensation": "number (-2.0 to +2.0 EV)",
-  "contrast": "number (-0.5 to +0.5)",
-  "color_temp": "integer (2500 to 10000 Kelvin)",
-  "tint": "number (-30.0 to +30.0, negative=green, positive=magenta)",
-  "lift_shadows": "number (-0.5 to +0.5)",
-  "lut_intensity": "number (0.0 to 1.0)",
-  "clarity": "number (-1.0 to +1.0, mid-tone local contrast)",
-  "sharpness": "number (-1.0 to +1.0, fine edge detail; negative softens, positive sharpens)",
-  "tags": ["string (3 to 6 Traditional Chinese tags capturing actual subjects, light, and textures)"],
+  "exposure_compensation": "number between -2.0 and +2.0",
+  "contrast": "number between -0.5 and +0.5",
+  "color_temp": "integer between 2500 and 10000",
+  "tint": "number between -30.0 and +30.0",
+  "lift_shadows": "number between -0.5 and +0.5",
+  "lut_intensity": "number between 0.0 and 1.0",
+  "clarity": "number between -1.0 and +1.0",
+  "sharpness": "number between -1.0 and +1.0",
+  "tags": ["string (3 to 6 tags in Traditional Chinese)"],
   "crop_box": [ymin, xmin, ymax, xmax] (four numbers between 0.0 and 1.0; use [0.0, 0.0, 1.0, 1.0] if composition is already balanced),
-  "rotation_deg": "number between -45.0 and +45.0 (horizon leveling angle, 0.0 if straight)",
-  "keystone_v": "number between -45.0 and +45.0 (vertical perspective keystoning correction, 0.0 if not needed)",
+  "rotation_deg": "number between -45.0 and +45.0",
+  "keystone_v": "number between -45.0 and +45.0",
   "aspect_ratio": "original | 1:1 | 4:5 | 16:9 | 9:16 | free",
-  "crop_rationale": "string (diagnosis and justification for composition crop/rotation in Traditional Chinese, or empty string if unchanged)"
+  "crop_rationale": "string (explanation in Traditional Chinese, or empty string if unchanged)"
 }`;
 
     const requestBody = JSON.stringify({
@@ -115,7 +127,7 @@ Respond ONLY with raw JSON matching this schema:
       throw new Error('Gemini 多模態模型未回傳推論內容');
     }
 
-    const parsed = JSON.parse(rawContent);
+    const parsed = parseAiJsonString(rawContent);
     return {
       scene_type: parsed.scene_type || 'outdoor_street',
       scene_title: parsed.scene_title || '光影畫面顯影',
@@ -227,13 +239,15 @@ Respond ONLY with raw JSON matching this schema:
       throw new Error('Gemini 覆審未回傳內容');
     }
 
-    const parsed = JSON.parse(rawContent);
+    const parsed = parseAiJsonString(rawContent);
     return {
       exposure_delta: typeof parsed.exposure_delta === 'number' ? parsed.exposure_delta : 0.0,
       lift_shadows_delta: typeof parsed.lift_shadows_delta === 'number' ? parsed.lift_shadows_delta : 0.0,
       color_temp_delta: typeof parsed.color_temp_delta === 'number' ? Math.round(parsed.color_temp_delta) : 0,
       contrast_delta: typeof parsed.contrast_delta === 'number' ? parsed.contrast_delta : 0.0,
       lut_intensity_delta: typeof parsed.lut_intensity_delta === 'number' ? parsed.lut_intensity_delta : undefined,
+      clarity_delta: typeof parsed.clarity_delta === 'number' ? parsed.clarity_delta : undefined,
+      sharpness_delta: typeof parsed.sharpness_delta === 'number' ? parsed.sharpness_delta : undefined,
       refine_rationale: parsed.refine_rationale || '雙圖比對覆審完成，曝光與動態範圍已微調優化。'
     };
   }
@@ -283,7 +297,7 @@ ${userPromptSection}
 
     const jsonRes = await response.json();
     const rawContent = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
-    const parsed = JSON.parse(rawContent);
+    const parsed = parseAiJsonString(rawContent);
     return {
       caption: parsed.caption || '靜謐的光影，在時間的流隙中凝結成永恆的底片記憶。',
       hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : ['#35mm', '#FilmPhotography'],
