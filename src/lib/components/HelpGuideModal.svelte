@@ -25,6 +25,7 @@
   <div 
     class="modal-backdrop" 
     onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    onkeydown={(e) => { if (e.key === 'Escape' && e.target === e.currentTarget) onClose(); }}
     role="dialog" 
     aria-modal="true"
     tabindex="-1"

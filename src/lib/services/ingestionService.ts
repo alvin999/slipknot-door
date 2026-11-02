@@ -247,6 +247,39 @@ function parseTiffExifFromBytes(bytes: Uint8Array): {
 const SUPPORTED_EXTS = ['arw', 'cr2', 'cr3', 'nef', 'raf', 'dng', 'jpg', 'jpeg'];
 
 export class IngestionService {
+  private static createdBlobUrls: Set<string> = new Set();
+
+  /**
+   * Convert Base64 string directly into a Blob URL and track it
+   * Immediately frees the mega-byte string from JS Heap
+   */
+  public static base64ToBlobUrl(base64: string, mimeType: string = 'image/jpeg'): string {
+    const binary = atob(base64);
+    const len = binary.length;
+    const buffer = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      buffer[i] = binary.charCodeAt(i);
+    }
+    const blob = new Blob([buffer], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    this.createdBlobUrls.add(url);
+    return url;
+  }
+
+  /**
+   * Revoke all generated Blob URLs to prevent memory leaks on catalog switch
+   */
+  public static revokeAllBlobUrls(): void {
+    for (const url of this.createdBlobUrls) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // ignore
+      }
+    }
+    this.createdBlobUrls.clear();
+  }
+
   public static isTauri(): boolean {
     return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
   }
@@ -423,7 +456,13 @@ export class IngestionService {
     if (this.isTauri()) {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
-        return await invoke<EmbeddedPreviewResult>('extract_embedded_jpeg', { filePath });
+        const res = await invoke<EmbeddedPreviewResult>('extract_embedded_jpeg', { filePath });
+        if (res && res.jpeg_base64 && !res.blob_url) {
+          // Immediately convert multi-megabyte Base64 payload into a lightweight Blob URL
+          res.blob_url = this.base64ToBlobUrl(res.jpeg_base64, res.mime_type || 'image/jpeg');
+          res.jpeg_base64 = ''; // Release raw base64 string from V8 heap immediately
+        }
+        return res;
       } catch (err) {
         console.warn('Tauri extract_embedded_jpeg failed:', err);
       }

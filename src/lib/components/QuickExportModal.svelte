@@ -37,11 +37,12 @@
   let selectedMode = $state<'modeA' | 'modeB'>('modeA');
   let isProcessing = $state<boolean>(false);
   let resultSuccess = $state<boolean>(false);
-  let resolvedTargetDir = $state<string>(targetDir);
+  let resolvedTargetDir = $state<string>('');
 
   // 同步外部傳入的 exportMode 與目標路徑解析
   $effect(() => {
     selectedMode = exportMode;
+    resolvedTargetDir = targetDir;
     ExportService.resolveExportPath(targetDir).then((res) => {
       resolvedTargetDir = res;
     });
@@ -88,6 +89,7 @@
   <div 
     class="modal-backdrop" 
     onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    onkeydown={(e) => { if (e.key === 'Escape' && e.target === e.currentTarget) onClose(); }}
     role="dialog"
     aria-modal="true"
     tabindex="-1"

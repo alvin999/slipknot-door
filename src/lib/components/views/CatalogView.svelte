@@ -371,12 +371,15 @@
             class:selected={activePhoto?.id === photo.id}
             class:flagged={photo.flagged}
             role="gridcell"
-            tabindex="-1"
+            tabindex="0"
             onclick={(e) => {
               (e.currentTarget as HTMLElement).blur();
               onSelectPhoto(photo);
             }}
             ondblclick={() => onOpenRetouch(photo)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') onOpenRetouch(photo);
+            }}
           >
             <!-- 35mm Film Top Sprocket Bar -->
             <div class="sprocket-strip top font-mono">
