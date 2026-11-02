@@ -3,6 +3,7 @@
   import { KeyVaultService, type KeyEncryptionMode } from '$lib/services/keyVaultService';
   import { ModelDiscoveryService, type DiscoveredModel } from '$lib/services/modelDiscoveryService';
   import { AiEngineFactory } from '$lib/services/ai/engineFactory';
+  import { toastStore } from '$lib/stores/toastStore.svelte';
 
   interface Props {
     isOpen?: boolean;
@@ -54,6 +55,7 @@
   let masterPassword = $state<string>('');
   let showKey = $state<boolean>(false);
   let statusMessage = $state<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  let isSaving = $state<boolean>(false);
 
   // Dynamic Model Discovery States
   let discoveredModels = $state<DiscoveredModel[]>([]);
@@ -230,6 +232,7 @@
     const meta = getProviderMeta(prov);
     if (isManualTest) {
       statusMessage = { text: `正在連線 ${meta.name} 端點驗證金鑰與探測可用模型...`, type: 'info' };
+      toastStore.show(`正在連線 ${meta.name} 驗證金鑰...`, 'info', 2000);
     }
 
     try {
@@ -238,6 +241,7 @@
       if (res.error) {
         if (isManualTest) {
           statusMessage = { text: `端點連線失敗：${res.error}`, type: 'error' };
+          toastStore.show(`端點連線失敗：${res.error}`, 'error', 4500);
         }
         discoveredModels = [];
       } else {
@@ -265,8 +269,10 @@
               const errJson = await testRes.json().catch(() => null);
               const detail = errJson?.error?.message || `HTTP ${testRes.status}`;
               statusMessage = { text: `❌ Gemini 端點推論失敗 (${detail})`, type: 'error' };
+              toastStore.show(`Gemini 端點推論失敗：${detail}`, 'error', 4500);
             } else {
               statusMessage = { text: `🎉 Gemini 視覺引擎測試成功！(端點耗時: ${elapsed}s · 模型: ${cleanTarget})`, type: 'success' };
+              toastStore.show(`Gemini 測試成功！(${elapsed}s · ${cleanTarget})`, 'success', 3500);
             }
           } else {
             const testRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -283,8 +289,10 @@
               const errJson = await testRes.json().catch(() => null);
               const detail = errJson?.error?.message || `HTTP ${testRes.status}`;
               statusMessage = { text: `❌ Groq 文案端點失敗 (${detail})`, type: 'error' };
+              toastStore.show(`Groq 文案端點失敗：${detail}`, 'error', 4500);
             } else {
               statusMessage = { text: `🎉 Groq 極速文案測試成功！(極速回應: ${elapsed}s · 模型: ${targetModel})`, type: 'success' };
+              toastStore.show(`Groq 測試成功！(${elapsed}s · ${targetModel})`, 'success', 3500);
             }
           }
         }
@@ -292,6 +300,7 @@
     } catch (err: any) {
       if (isManualTest) {
         statusMessage = { text: `連線異常：${err.message || '未知錯誤'}`, type: 'error' };
+        toastStore.show(`連線異常：${err.message || '未知錯誤'}`, 'error', 4500);
       }
     } finally {
       isDiscoveringModels = false;
@@ -310,6 +319,7 @@
         const loaded = await KeyVaultService.loadKey(selectedProvider, masterPassword);
         if (loaded.requiresPassword) {
           statusMessage = { text: '此金鑰受密碼保護，請在下方輸入主密碼後再點擊測試連線', type: 'info' };
+          toastStore.show('此金鑰受密碼保護，請輸入主密碼後再測試', 'warning', 3500);
           return;
         }
         if (loaded.apiKey) {
@@ -317,19 +327,23 @@
         }
       } catch (err: any) {
         statusMessage = { text: `無法載入已存金鑰：${err.message}`, type: 'error' };
+        toastStore.show(`無法載入金鑰：${err.message}`, 'error', 4000);
         return;
       }
     }
 
     if (!keyToTest) {
       statusMessage = { text: '請先輸入 API Key 後再點擊測試連線', type: 'error' };
+      toastStore.show('請先輸入 API Key 後再點擊測試連線', 'warning', 3500);
       return;
     }
 
     await executeDiscovery(selectedProvider, keyToTest, true);
   }
 
-  async function handleSave() {
+  async function handleSave(autoClose: boolean = true) {
+    if (isSaving) return false;
+    isSaving = true;
     let keyToSave = apiKeyInput.trim();
 
     // 持久化儲存任務職責指派 (Task Roles)
@@ -354,16 +368,18 @@
           localStorage.setItem(`slipknot_model_${selectedProvider}`, selectedModelId);
         }
       }
-      statusMessage = {
-        text: `AI 任務職責與模型設定已更新成功 ✓`,
-        type: 'success'
-      };
-      return;
+      toastStore.show('AI 任務職責與模型設定已更新成功', 'success');
+      isSaving = false;
+      if (autoClose) {
+        forceClose();
+      }
+      return true;
     }
 
     if (!keyToSave) {
       statusMessage = { text: '請輸入有效的 API Key', type: 'error' };
-      return;
+      isSaving = false;
+      return false;
     }
 
     try {
@@ -380,14 +396,18 @@
         }
       }
       refreshStatus();
-      statusMessage = {
-        text: `金鑰已成功安全儲存（${getModeLabel(currentMode)}）· 任務模型已生效 ✓`,
-        type: 'success'
-      };
+      toastStore.show(`金鑰已成功安全儲存（${getModeLabel(currentMode)}）· 任務模型已生效`, 'success');
       apiKeyInput = '';
       masterPassword = '';
+      if (autoClose) {
+        forceClose();
+      }
+      return true;
     } catch (err: any) {
       statusMessage = { text: err.message || '儲存失敗', type: 'error' };
+      return false;
+    } finally {
+      isSaving = false;
     }
   }
 
@@ -436,13 +456,10 @@
   }
 
   async function handleSaveAndProceed() {
-    await handleSave();
-    if (statusMessage?.type === 'success') {
-      if (unsavedActionType === 'switch' && pendingProviderTarget) {
-        await switchProvider(pendingProviderTarget);
-      } else {
-        forceClose();
-      }
+    const isSwitch = unsavedActionType === 'switch' && pendingProviderTarget;
+    const ok = await handleSave(!isSwitch);
+    if (ok && isSwitch && pendingProviderTarget) {
+      await switchProvider(pendingProviderTarget);
     }
   }
 </script>
@@ -784,9 +801,9 @@
         <button type="button" class="archival-btn-secondary" onclick={requestClose}>
           關閉
         </button>
-        <button type="button" class="archival-btn-primary" onclick={handleSave}>
-          <span class="material-symbols-outlined" style="font-size: 15px;">save</span>
-          儲存設定
+        <button type="button" class="archival-btn-primary" onclick={() => handleSave(true)} disabled={isSaving}>
+          <span class="material-symbols-outlined" style="font-size: 15px;">{isSaving ? 'sync' : 'save'}</span>
+          {isSaving ? '儲存中...' : '儲存設定'}
         </button>
       </div>
 
