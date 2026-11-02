@@ -6,7 +6,7 @@
 
 import { IngestionService, type CameraMountInfo, type RawPhotoItem } from "$lib/services/ingestionService";
 import type { AiSceneDecision } from "$lib/services/aiSceneService";
-import type { CropGeometry, TuningParameters } from "$lib/types/photo";
+import type { CropGeometry, TuningParameters, AiTuningSnapshot } from "$lib/types/photo";
 
 export interface PhotoPlateItem {
   id: string;
@@ -35,6 +35,7 @@ export interface PhotoPlateItem {
   asShotExposure?: number;
   crop?: CropGeometry;
   aiDecision?: AiSceneDecision;
+  aiTuningSnapshot?: AiTuningSnapshot;
   tuning?: {
     exposure: number;
     contrast: number;

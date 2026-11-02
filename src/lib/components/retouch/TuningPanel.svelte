@@ -22,6 +22,9 @@
   interface Props {
     profiles: any[];
     styleGradingPresets: any[];
+    hasAiBaseline?: boolean;
+    isModifiedFromAi?: boolean;
+    onRestoreAiTuning?: () => void;
     onQuickAiTone?: () => void;
     onQuickAiWhiteBalance?: () => void;
     onResetToAsShot?: () => void;
@@ -37,6 +40,9 @@
   let {
     profiles = [],
     styleGradingPresets = [],
+    hasAiBaseline = false,
+    isModifiedFromAi = false,
+    onRestoreAiTuning,
     onQuickAiTone,
     onQuickAiWhiteBalance,
     onResetToAsShot,
@@ -89,6 +95,24 @@
             >thermostat</span
           >
           <span>AI 白平衡</span>
+        </button>
+      {/if}
+
+      {#if hasAiBaseline && onRestoreAiTuning}
+        <button
+          type="button"
+          class="reset-tuning-btn font-mono"
+          class:is-modified={isModifiedFromAi}
+          onclick={onRestoreAiTuning}
+          title={isModifiedFromAi ? "已手動微調：點擊可一鍵恢復為 AI 顯影設定" : "當前維持 AI 最佳顯影設定"}
+        >
+          <span
+            class="material-symbols-outlined"
+            style="font-size: 13px; color: {isModifiedFromAi ? 'var(--amber-highlight)' : 'inherit'};"
+          >
+            settings_backup_restore
+          </span>
+          <span>恢復 AI</span>
         </button>
       {/if}
 
@@ -469,6 +493,11 @@
     border-color: var(--amber-highlight);
     color: var(--amber-highlight);
     background-color: var(--surface-overlay);
+  }
+  .reset-tuning-btn.is-modified {
+    border-color: rgba(229, 142, 38, 0.45);
+    color: var(--amber-highlight);
+    background-color: rgba(229, 142, 38, 0.08);
   }
 
   /* PROFILES LIST */

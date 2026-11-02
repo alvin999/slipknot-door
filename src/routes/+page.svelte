@@ -31,7 +31,7 @@
   import { ExportService } from "$lib/services/exportService";
   import { STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
   import type { StyleKeywordId } from "$lib/services/ai/types";
-  import type { CropGeometry, AiScopePreferences } from "$lib/types/photo";
+  import type { CropGeometry, AiScopePreferences, AiTuningSnapshot } from "$lib/types/photo";
 
   // Active module tabs
   type ModuleTab = "catalog" | "retouch" | "profiles" | "export" | "devices";
@@ -106,6 +106,7 @@
     asShotExposure?: number;
     crop?: CropGeometry;
     aiDecision?: AiSceneDecision;
+    aiTuningSnapshot?: AiTuningSnapshot;
     tuning?: {
       exposure: number;
       contrast: number;
@@ -1658,6 +1659,90 @@
     );
   }
 
+  // 判定目前焦點相片是否有 AI 基準可還原
+  const hasAiBaseline = $derived(!!activePhoto?.aiTuningSnapshot);
+
+  // 判定目前調色是否相較於 AI 基準已被使用者手動更動過
+  const isModifiedFromAi = $derived.by(() => {
+    if (!activePhoto?.aiTuningSnapshot) return false;
+    const snap = activePhoto.aiTuningSnapshot;
+    const t = snap.tuning;
+    return (
+      Math.abs(darkroomState.exposure - t.exposure) > 0.001 ||
+      Math.abs(darkroomState.contrast - t.contrast) > 0.001 ||
+      Math.abs(darkroomState.shadows - (t.shadows ?? 0.0)) > 0.001 ||
+      Math.abs(darkroomState.colorTemp - t.colorTemp) > 1 ||
+      Math.abs(darkroomState.tint - (t.tint ?? 0.0)) > 0.001 ||
+      Math.abs(darkroomState.lutIntensity - t.lutIntensity) > 0.001 ||
+      Math.abs(darkroomState.clarity - (t.clarity ?? 0.0)) > 0.001 ||
+      Math.abs(darkroomState.sharpness - (t.sharpness ?? 0.0)) > 0.001 ||
+      activePhoto.appliedProfile !== snap.appliedProfile
+    );
+  });
+
+  /**
+   * 一鍵恢復為 AI 顯影基準參數 (Restore AI Tuning Baseline)
+   * 當使用者在 AI 顯影後進行微調，但想要還原回 AI 最初調好狀態時呼叫
+   */
+  function restoreAiTuning() {
+    if (!activePhoto || !activePhoto.aiTuningSnapshot) return;
+    const snapshot = activePhoto.aiTuningSnapshot;
+
+    if (snapshot.appliedProfile && snapshot.appliedProfile !== activePhoto.appliedProfile) {
+      applyProfile(snapshot.appliedProfile);
+    }
+
+    animateAdjustmentValues(
+      {
+        exposure: snapshot.tuning.exposure,
+        contrast: snapshot.tuning.contrast,
+        shadows: snapshot.tuning.shadows ?? 0.0,
+        lutIntensity: snapshot.tuning.lutIntensity,
+        colorTemp: snapshot.tuning.colorTemp,
+        tint: snapshot.tuning.tint ?? 0.0,
+        clarity: snapshot.tuning.clarity ?? 0.0,
+        sharpness: snapshot.tuning.sharpness ?? 0.0,
+      },
+      450
+    );
+
+    clarity = snapshot.tuning.clarity ?? 0.0;
+    darkroomState.clarity = clarity;
+    sharpness = snapshot.tuning.sharpness ?? 0.0;
+    darkroomState.sharpness = sharpness;
+
+    if (snapshot.crop) {
+      cropX = snapshot.crop.x;
+      cropY = snapshot.crop.y;
+      cropWidth = snapshot.crop.width;
+      cropHeight = snapshot.crop.height;
+      cropRotation = snapshot.crop.rotation;
+      keystoneV = snapshot.crop.keystoneV ?? 0;
+      keystoneH = snapshot.crop.keystoneH ?? 0;
+      cropAspectRatio = snapshot.crop.aspectRatio;
+      flipH = snapshot.crop.flipH;
+      flipV = snapshot.crop.flipV;
+
+      darkroomState.cropX = cropX;
+      darkroomState.cropY = cropY;
+      darkroomState.cropWidth = cropWidth;
+      darkroomState.cropHeight = cropHeight;
+      darkroomState.cropRotation = cropRotation;
+      darkroomState.keystoneV = keystoneV;
+      darkroomState.keystoneH = keystoneH;
+      darkroomState.cropAspectRatio = cropAspectRatio;
+      darkroomState.flipH = flipH;
+      darkroomState.flipV = flipV;
+    }
+
+    activePhoto.tuning = { ...snapshot.tuning };
+    if (snapshot.crop) activePhoto.crop = { ...snapshot.crop };
+    activePhoto.appliedProfile = snapshot.appliedProfile;
+
+    triggerWebglRender();
+    toastStore.show("已恢復為 AI 顯影基準調色 ✓", "success", 2500);
+  }
+
   /**
    * 一鍵完全重設底片（恢復原廠未修原始狀態：清除所有調色、風格濾鏡與構圖裁切）
    * 執行後該照片即刻自「已調色」清單與匯出佇列中排除
@@ -1689,6 +1774,7 @@
       activePhoto.crop = undefined;
       activePhoto.gradedThumbnail = undefined;
       activePhoto.aiDecision = undefined;
+      activePhoto.aiTuningSnapshot = undefined;
       activePhoto.sceneTag = "本機相簿幀";
       photoPlates = photoPlates.map((p) =>
         p.id === activePhoto!.id
@@ -2420,6 +2506,24 @@
       if (targetCrop) {
         photoToProcess.crop = targetCrop;
       }
+
+      // 保存專屬 AI 基準快照供後續一鍵還原 (Restore AI Baseline)
+      photoToProcess.aiTuningSnapshot = {
+        appliedProfile: targetProfile,
+        tuning: {
+          exposure: baseEv,
+          contrast: baseContrast,
+          shadows: baseShadows,
+          lutIntensity: baseLut,
+          colorTemp: baseTemp,
+          tint: baseTint,
+          clarity: baseClarity,
+          sharpness: baseSharpness,
+        },
+        crop: targetCrop ? { ...targetCrop } : undefined,
+        appliedScope: { ...aiScope },
+        appliedAt: Date.now(),
+      };
 
       // 若目前為聚焦相片且為手動單幀觸發，更新全域滑桿與動態動畫
       if (isCurrentActive) {
@@ -3203,6 +3307,9 @@
           {geminiKeyStatus}
           {activePhoto}
           photos={photoPlates}
+          {hasAiBaseline}
+          {isModifiedFromAi}
+          onRestoreAiTuning={restoreAiTuning}
           {isAiAnalyzing}
           {isBatchAiRunning}
           {batchProgress}
@@ -3310,6 +3417,9 @@
           <TuningPanel
             {profiles}
             {styleGradingPresets}
+            {hasAiBaseline}
+            {isModifiedFromAi}
+            onRestoreAiTuning={restoreAiTuning}
             onQuickAiTone={quickAiTone}
             onQuickAiWhiteBalance={quickAiWhiteBalance}
             onResetToAsShot={resetToAsShot}

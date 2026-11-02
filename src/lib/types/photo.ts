@@ -52,6 +52,15 @@ export interface PhotoPlate {
   tuning?: TuningParameters;
   crop?: CropGeometry;
   fileHandle?: any;
+  aiTuningSnapshot?: AiTuningSnapshot;
+}
+
+export interface AiTuningSnapshot {
+  appliedProfile: string;
+  tuning: TuningParameters;
+  crop?: CropGeometry;
+  appliedScope?: AiScopePreferences;
+  appliedAt?: number;
 }
 
 export interface CropGeometry {
@@ -79,11 +88,11 @@ export interface AiScopePreferences {
 export interface TuningParameters {
   exposure: number;       // EV (-2.00 ~ +2.00)
   contrast: number;       // (-0.8 ~ +0.8)
-  shadowLift?: number;    // 0.00 ~ 1.00
+  shadows?: number;       // 暗部抬升 (Matte Toe / Shadows)
+  shadowLift?: number;    // 0.00 ~ 1.00 (相容別名)
   lutIntensity: number;   // 0.00 ~ 1.00
   colorTemp: number;      // Kelvin (2800 ~ 8500)
   tint: number;           // Tint (-100 ~ +100, Green <-> Magenta)
   clarity?: number;       // (-1.0 ~ +1.0)
   sharpness?: number;     // (0.0 ~ 1.0)
 }
-

@@ -10,6 +10,9 @@
     geminiKeyStatus: { exists: boolean; mode: string | null };
     activePhoto?: any;
     photos?: any[];
+    hasAiBaseline?: boolean;
+    isModifiedFromAi?: boolean;
+    onRestoreAiTuning?: () => void;
     isAiAnalyzing?: boolean;
     isBatchAiRunning?: boolean;
     batchProgress?: any;
@@ -39,6 +42,9 @@
     geminiKeyStatus = { exists: false, mode: null },
     activePhoto: propsActivePhoto = null,
     photos: propsPhotos = [],
+    hasAiBaseline = false,
+    isModifiedFromAi = false,
+    onRestoreAiTuning,
     isAiAnalyzing: propsIsAiAnalyzing,
     isBatchAiRunning: propsIsBatchAiRunning,
     batchProgress: propsBatchProgress,
@@ -413,6 +419,31 @@
           </span>
           <span>{currentIsAiAnalyzing ? "正在顯影調校..." : "AI 顯影調色"}</span>
         </button>
+      {/if}
+
+      {#if hasAiBaseline && onRestoreAiTuning}
+        <div class="ai-revert-bar font-mono hairline-all">
+          <div class="revert-info">
+            <span
+              class="material-symbols-outlined"
+              style="font-size: 14px; color: {isModifiedFromAi ? 'var(--amber-highlight)' : 'var(--sage-soft)'};"
+            >
+              {isModifiedFromAi ? "tune" : "check_circle"}
+            </span>
+            <span>{isModifiedFromAi ? "已手動微調參數" : "維持 AI 顯影設定"}</span>
+          </div>
+          {#if isModifiedFromAi}
+            <button
+              type="button"
+              class="revert-chip-btn font-mono"
+              onclick={onRestoreAiTuning}
+              title="捨棄手動微調，復原為 AI 顯影調色基準"
+            >
+              <span class="material-symbols-outlined" style="font-size: 12px;">settings_backup_restore</span>
+              <span>還原 AI</span>
+            </button>
+          {/if}
+        </div>
       {/if}
 
       {#if photoPlates.length > 1 && onRequestBatchAi}
@@ -919,6 +950,39 @@
     border-color: var(--amber-highlight);
     color: var(--amber-highlight);
     background-color: var(--surface-elevated);
+  }
+  .ai-revert-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+    margin-top: 6px;
+    font-size: 11px;
+  }
+  .revert-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--parchment-dim);
+  }
+  .revert-chip-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    background: rgba(229, 142, 38, 0.12);
+    border: 1px solid var(--amber-highlight);
+    border-radius: var(--radius-xs);
+    color: var(--amber-highlight);
+    cursor: pointer;
+    font-size: 10px;
+    transition: all 0.15s ease;
+  }
+  .revert-chip-btn:hover {
+    background: var(--amber-highlight);
+    color: var(--canvas-base);
   }
 
   /* AI SCOPE RESPONSIBILITY SELECTOR */
