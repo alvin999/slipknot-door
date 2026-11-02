@@ -170,7 +170,7 @@ Respond ONLY with raw JSON matching this schema:
 
     const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
     const criticPrompt = buildCriticInstructionBlock(
-      firstPassDecision.recommended_profile,
+      firstPassDecision,
       options.stylePreset,
       options.styleKeywords,
       options.customStylePrompt

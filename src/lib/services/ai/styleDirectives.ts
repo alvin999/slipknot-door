@@ -5,6 +5,7 @@
  */
 
 import type { StylePresetKey, StyleKeywordId } from './types';
+import type { AiSceneDecision } from '../aiSceneService';
 
 export interface StyleKeywordEntry {
   id: StyleKeywordId;
@@ -262,11 +263,33 @@ Pixels pass sequentially through these 5 hardware shader stages:
  * 嚴格鎖定 Pass 1 底片風格，專注於暗部浮黑 (Shadow Lift)、動態範圍與色彩中性殘差校正
  */
 export function buildCriticInstructionBlock(
-  firstPassProfile: string,
+  firstPassInput: string | AiSceneDecision,
   stylePreset?: StylePresetKey,
   styleKeywords?: StyleKeywordId[],
   customStylePrompt?: string
 ): string {
+  const isDecisionObj = typeof firstPassInput === 'object' && firstPassInput !== null;
+  const firstPassProfile = isDecisionObj ? firstPassInput.recommended_profile : firstPassInput;
+
+  let baselineParamsBlock = '';
+  if (isDecisionObj) {
+    const exp = firstPassInput.exposure_compensation;
+    const shadow = firstPassInput.lift_shadows;
+    const contrast = firstPassInput.contrast ?? 0.0;
+    const temp = firstPassInput.color_temp ?? 5500;
+    const tint = firstPassInput.tint ?? 0.0;
+    const lutIntensity = firstPassInput.lut_intensity ?? 0.85;
+    const clarity = firstPassInput.clarity ?? 0.0;
+    const sharpness = firstPassInput.sharpness ?? 0.0;
+
+    baselineParamsBlock = `Current Pass 1 Baseline Parameters Applied on Image 2:
+- 3D LUT Profile: "${firstPassProfile}" (Intensity: ${lutIntensity.toFixed(2)})
+- Exposure Compensation: ${exp >= 0 ? '+' : ''}${exp.toFixed(2)} EV
+- Lift Shadows: ${shadow >= 0 ? '+' : ''}${shadow.toFixed(2)}
+- Contrast: ${contrast >= 0 ? '+' : ''}${contrast.toFixed(2)}
+- Color Temperature: ${temp}K (Tint: ${tint >= 0 ? '+' : ''}${tint.toFixed(1)})
+- Clarity: ${clarity >= 0 ? '+' : ''}${clarity.toFixed(2)}, Sharpness: ${sharpness >= 0 ? '+' : ''}${sharpness.toFixed(2)}\n\n`;
+  }
   const keywordLines: string[] = [];
   if (Array.isArray(styleKeywords) && styleKeywords.length > 0) {
     for (const kwId of styleKeywords) {
@@ -286,34 +309,34 @@ You are inspecting TWO images:
 1. IMAGE 1: The original unedited capture.
 2. IMAGE 2: The rendered draft result produced after applying Pass 1 tone & 3D LUT profile parameters (Profile: "${firstPassProfile}").
 
-YOUR MISSION & GUIDELINES:
-- DO NOT change the chosen film profile (${firstPassProfile}).
-- Since you have Image 2 (rendered actual result) as concrete ground truth, you are NOT bound by narrow incremental limits. Provide ANY magnitude of Delta required to correct flaws seen in Image 2.
-- Inspect and refine the following parameters:
-  1. EXPOSURE & HIGHLIGHT CLIPPING (exposure_delta):
-     - Closely evaluate if Image 2 suffers from washed-out/blown highlights, harsh clipping on bright backgrounds, skies, skin, or white surfaces.
-     - If Image 2 is noticeably overexposed or clipping, decisively supply a negative delta (e.g. -0.5, -0.8, -1.2 EV or whatever is needed) to recover highlight details and rebalance the dynamic range.
-     - If Image 2 is too dark or underexposed compared to the intended mood, supply an appropriate positive delta.
-  2. SHADOW DEPTH & PURITY (lift_shadows_delta):
-     - If Image 2 displays a cloudy, washed-out matte veil over deep blacks, supply a negative delta to drop the black point back to punchy natural depth.
-     - If dark regions are crushed into murky, muddy black voids losing essential subject detail, provide a positive delta to gently lift shadows.
-  3. LOCAL CONTRAST & DYNAMIC RANGE (contrast_delta):
-     - If harsh contrast exacerbates blown highlights or makes the transition too severe, provide a negative delta to soften tonal roll-off.
-     - If the image looks flat, muddy, or lifeless, provide a positive delta to add visual punch.
-  4. COLOR TEMPERATURE & TINT NEUTRALITY (color_temp_delta):
-     - Supply the necessary Kelvin adjustment to eliminate unnatural color casts or lighting clashes caused by the combination of scene lighting and the 3D LUT profile.
-  5. 3D LUT INTENSITY (lut_intensity_delta, optional):
-     - If the LUT profile itself introduces overly aggressive saturation, harsh highlight rolloff, or heavy color clipping, supply a negative delta (e.g. -0.15 to -0.40) to soften the profile's volumetric influence.
+${baselineParamsBlock}YOUR MISSION & GUIDELINES:
+- Baseline Film Aesthetic: The designated 3D film profile is "${firstPassProfile}". Maintain and respect this baseline film aesthetic.
+- Since you have Image 2 (rendered actual result) as concrete ground truth, supply the necessary Delta adjustments to harmonize exposure, dynamic range, and tonal balance toward the intended aesthetic.
+- Inspect and fine-tune the following parameters (Respecting the hardware shader boundaries):
+  1. EXPOSURE & HIGHLIGHT HARMONY (exposure_delta, valid range: -2.0 to +2.0 EV):
+     - Evaluate overall luminance and highlight roll-off relative to the intended aesthetic.
+     - If highlights exceed the desired roll-off or background detail is lost, provide a negative delta within [-2.0, 0.0] EV to gracefully restore highlight texture and dynamic range.
+     - If the draft is darker than intended, supply an appropriate positive delta within [0.0, +2.0] EV.
+  2. SHADOW DEPTH & TOE GRADATION (lift_shadows_delta, valid range: -0.5 to +0.5):
+     - If blacks benefit from deeper, crisper punch, supply a negative delta within [-0.5, 0.0].
+     - If shadow areas require gentle opening or a softer matte film aesthetic is desired, provide a positive delta within [0.0, +0.5].
+  3. TONAL CONTRAST & DYNAMICS (contrast_delta, valid range: -0.5 to +0.5):
+     - If contrast transition is too steep for the target vibe, provide a negative delta within [-0.5, 0.0] for smoother, gentler roll-off.
+     - If the image benefits from greater tonal separation and visual energy, provide a positive delta within [0.0, +0.5].
+  4. COLOR TEMPERATURE & AMBIENT HARMONY (color_temp_delta, valid range: -3000 to +3000 Kelvin):
+     - Supply the necessary Kelvin adjustment within [-3000, +3000] K to harmonize ambient scene lighting with the selected film profile and aesthetic targets.
+  5. 3D LUT INTENSITY (lut_intensity_delta, optional, valid range: -1.0 to +1.0):
+     - Modulate the 3D LUT's volumetric influence within [-1.0, +1.0] if a more subtle or distinct profile presence is desired.
 
 ${keywordLines.length > 0 ? `Aesthetic Targets for Verification:\n${keywordLines.join('\n')}\n` : ''}
 Respond ONLY with raw JSON matching this schema:
 {
-  "exposure_delta": "number (EV delta to add to current exposure, 0.0 if optimal)",
-  "lift_shadows_delta": "number (delta to add to current shadow lift, 0.0 if clean)",
-  "color_temp_delta": "integer (Kelvin delta to add, e.g. -500 to +500, 0 if accurate)",
-  "contrast_delta": "number (delta to add to contrast, 0.0 if balanced)",
-  "lut_intensity_delta": "number (optional delta to add to lut intensity, 0.0 if optimal)",
-  "refine_rationale": "string (1 concise sentence in Traditional Chinese diagnosing the highlight/shadow/exposure issues and explaining the corrective deltas)"
+  "exposure_delta": "number between -2.0 and +2.0 (EV adjustment, 0.0 if optimal)",
+  "lift_shadows_delta": "number between -0.5 and +0.5 (toe lift adjustment, 0.0 if optimal)",
+  "color_temp_delta": "integer between -3000 and +3000 (Kelvin adjustment, 0 if accurate)",
+  "contrast_delta": "number between -0.5 and +0.5 (contrast adjustment, 0.0 if balanced)",
+  "lut_intensity_delta": "number between -1.0 and +1.0 (optional LUT intensity adjustment, 0.0 if optimal)",
+  "refine_rationale": "string (1 concise sentence in Traditional Chinese summarizing the tonal/color refinements and aesthetic rationale)"
 }`;
 
   return criticPrompt;

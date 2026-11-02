@@ -167,7 +167,7 @@ Respond ONLY with raw JSON matching this schema:
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
     const criticPrompt = buildCriticInstructionBlock(
-      firstPassDecision.recommended_profile,
+      firstPassDecision,
       options.stylePreset,
       options.styleKeywords,
       options.customStylePrompt

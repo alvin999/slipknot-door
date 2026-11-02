@@ -255,25 +255,55 @@ export class AiSceneService {
                 customStylePrompt: options.customStylePrompt
               });
 
+              // 記錄 Pass 1 原始基準值以供差值對照紀錄
+              const prevExposure = decision.exposure_compensation;
+              const prevShadow = decision.lift_shadows;
+              const prevTemp = decision.color_temp ?? 5500;
+              const prevContrast = decision.contrast ?? 0.0;
+              const prevLut = decision.lut_intensity ?? 0.85;
+
               // 數值安全融合：Delta 本身不設微小限幅，僅約束總體結果於 UI 滑桿與著色器物理有效範圍內
               const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
-              decision.exposure_compensation = parseFloat(clamp(decision.exposure_compensation + refinement.exposure_delta, -2.0, 2.0).toFixed(2));
-              decision.lift_shadows = parseFloat(clamp(decision.lift_shadows + refinement.lift_shadows_delta, -0.5, 0.5).toFixed(2));
-              decision.color_temp = Math.round(clamp((decision.color_temp ?? 5500) + refinement.color_temp_delta, 2500, 10000));
-              decision.contrast = parseFloat(clamp((decision.contrast ?? 0.0) + refinement.contrast_delta, -0.5, 0.5).toFixed(2));
+              decision.exposure_compensation = parseFloat(clamp(prevExposure + refinement.exposure_delta, -2.0, 2.0).toFixed(2));
+              decision.lift_shadows = parseFloat(clamp(prevShadow + refinement.lift_shadows_delta, -0.5, 0.5).toFixed(2));
+              decision.color_temp = Math.round(clamp(prevTemp + refinement.color_temp_delta, 2500, 10000));
+              decision.contrast = parseFloat(clamp(prevContrast + refinement.contrast_delta, -0.5, 0.5).toFixed(2));
               if (typeof refinement.lut_intensity_delta === 'number') {
-                decision.lut_intensity = parseFloat(clamp(decision.lut_intensity + refinement.lut_intensity_delta, 0.0, 1.0).toFixed(2));
+                decision.lut_intensity = parseFloat(clamp(prevLut + refinement.lut_intensity_delta, 0.0, 1.0).toFixed(2));
               }
 
               if (options.onLog) {
-                const evStr = refinement.exposure_delta >= 0 ? `+${refinement.exposure_delta.toFixed(2)}` : refinement.exposure_delta.toFixed(2);
-                const shStr = refinement.lift_shadows_delta >= 0 ? `+${refinement.lift_shadows_delta.toFixed(2)}` : refinement.lift_shadows_delta.toFixed(2);
-                const lutStr = typeof refinement.lut_intensity_delta === 'number'
-                  ? `, ΔLUT: ${refinement.lut_intensity_delta >= 0 ? `+${refinement.lut_intensity_delta.toFixed(2)}` : refinement.lut_intensity_delta.toFixed(2)}`
-                  : '';
                 await options.onLog(
-                  `> [AI_CRITIC_DONE] 覆審校正完成：${refinement.refine_rationale} (ΔEV: ${evStr}, ΔShadow: ${shStr}${lutStr})`
+                  `> [AI_CRITIC_DONE] 覆審校正完成：${refinement.refine_rationale}`
                 );
+
+                const diffLogs: string[] = [];
+                const formatDelta = (delta: number, unit = '', decimals = 2) => {
+                  const sign = delta > 0 ? '+' : '';
+                  return `${sign}${delta.toFixed(decimals)}${unit}`;
+                };
+
+                if (Math.abs(refinement.exposure_delta) >= 0.01) {
+                  diffLogs.push(`  • 曝光補償: ${formatDelta(refinement.exposure_delta, ' EV')} (${prevExposure >= 0 ? '+' : ''}${prevExposure.toFixed(2)} → ${decision.exposure_compensation >= 0 ? '+' : ''}${decision.exposure_compensation.toFixed(2)})`);
+                }
+                if (Math.abs(refinement.lift_shadows_delta) >= 0.01) {
+                  diffLogs.push(`  • 暗部抬升: ${formatDelta(refinement.lift_shadows_delta)} (${prevShadow >= 0 ? '+' : ''}${prevShadow.toFixed(2)} → ${decision.lift_shadows >= 0 ? '+' : ''}${decision.lift_shadows.toFixed(2)})`);
+                }
+                if (Math.abs(refinement.contrast_delta) >= 0.01) {
+                  diffLogs.push(`  • 對比度: ${formatDelta(refinement.contrast_delta)} (${prevContrast >= 0 ? '+' : ''}${prevContrast.toFixed(2)} → ${decision.contrast >= 0 ? '+' : ''}${decision.contrast.toFixed(2)})`);
+                }
+                if (Math.abs(refinement.color_temp_delta) >= 10) {
+                  diffLogs.push(`  • 色溫: ${refinement.color_temp_delta > 0 ? '+' : ''}${refinement.color_temp_delta} K (${prevTemp}K → ${decision.color_temp}K)`);
+                }
+                if (typeof refinement.lut_intensity_delta === 'number' && Math.abs(refinement.lut_intensity_delta) >= 0.01) {
+                  diffLogs.push(`  • LUT 濃度: ${formatDelta(refinement.lut_intensity_delta)} (${prevLut.toFixed(2)} → ${decision.lut_intensity.toFixed(2)})`);
+                }
+
+                if (diffLogs.length > 0) {
+                  await options.onLog(`> [AI_CRITIC_DIFF] 參數微調明細：\n${diffLogs.join('\n')}`);
+                } else {
+                  await options.onLog(`> [AI_CRITIC_DIFF] 各項參數已達動態平衡，無需大幅更動。`);
+                }
               }
             }
           }
