@@ -14,8 +14,23 @@
  * Dynamic model IDs, zero hardcoded strings.
  */
 
-import type { IVisionStrategy, ITextStrategy, VisionInferenceOptions, TextInferenceOptions, RefinementInferenceOptions, RefinementDecision } from './types';
-import { buildStyleInstructionBlock, buildCriticInstructionBlock, parseAiJsonString } from './styleDirectives';
+import type {
+  IVisionStrategy,
+  ITextStrategy,
+  VisionInferenceOptions,
+  TextInferenceOptions,
+  RefinementInferenceOptions,
+  RefinementDecision,
+  GeometryDecision,
+  ColorGradeDecision,
+} from './types';
+import {
+  buildStyleInstructionBlock,
+  buildCriticInstructionBlock,
+  buildGeometryInstructionPrompt,
+  buildColorGradeInstructionPrompt,
+  parseAiJsonString,
+} from './styleDirectives';
 import type { AiSceneDecision, CopywritingResult } from '../aiSceneService';
 
 export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
@@ -23,15 +38,19 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
   public readonly providerName = 'Google Gemini';
 
   /**
-   * 影像視覺顯影分析
+   * 輔助函式：發送 Gemini Vision JSON 請求
    */
-  public async analyzePhoto(options: VisionInferenceOptions): Promise<AiSceneDecision> {
-    const { apiKey, modelId, imagePayload1024pxBase64, exif } = options;
+  private async executeGeminiVisionRequest(
+    apiKey: string,
+    modelId: string,
+    promptText: string,
+    imagePayload1024pxBase64: string,
+    signal?: AbortSignal
+  ): Promise<any> {
     if (!apiKey || apiKey.trim() === '') {
       throw new Error('未配置 Gemini API 金鑰');
     }
 
-    // 將縮圖清理為純 Base64
     const cleanBase64 = imagePayload1024pxBase64.includes(',')
       ? imagePayload1024pxBase64.slice(imagePayload1024pxBase64.indexOf(',') + 1)
       : imagePayload1024pxBase64;
@@ -43,6 +62,113 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
 
+    const requestBody = JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: promptText },
+            {
+              inlineData: {
+                mimeType: 'image/jpeg',
+                data: cleanBase64,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+        signal,
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) {
+        throw new Error('推論連線已由使用者手動中止');
+      }
+      throw new Error(`無法連線至 Gemini 伺服器 (${err?.message || '網路連線異常'})`);
+    }
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => null);
+      const detail = errJson?.error?.message || `HTTP ${response.status}`;
+      throw new Error(`Gemini 端點回應異常 (${detail})`);
+    }
+
+    const jsonRes = await response.json();
+    const rawContent = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawContent) {
+      throw new Error('Gemini 多模態模型未回傳推論內容');
+    }
+
+    return parseAiJsonString(rawContent);
+  }
+
+  /**
+   * Stage 1: 空間幾何與構圖分析 (Geometry Analysis)
+   */
+  public async analyzeGeometry(options: VisionInferenceOptions): Promise<GeometryDecision> {
+    const promptText = buildGeometryInstructionPrompt(options.exif);
+    const parsed = await this.executeGeminiVisionRequest(
+      options.apiKey,
+      options.modelId,
+      promptText,
+      options.imagePayload1024pxBase64,
+      options.signal
+    );
+
+    return {
+      crop_box: Array.isArray(parsed.crop_box) && parsed.crop_box.length === 4 ? parsed.crop_box : [0.0, 0.0, 1.0, 1.0],
+      rotation_deg: typeof parsed.rotation_deg === 'number' ? parsed.rotation_deg : 0.0,
+      keystone_v: typeof parsed.keystone_v === 'number' ? parsed.keystone_v : 0.0,
+      aspect_ratio: parsed.aspect_ratio || 'original',
+      crop_rationale: parsed.crop_rationale || '',
+    };
+  }
+
+  /**
+   * Stage 2: 物理光學校正與風格階調分級 (Color Grade & Tonal Analysis)
+   */
+  public async analyzeColorGrade(options: VisionInferenceOptions): Promise<ColorGradeDecision> {
+    const promptText = buildColorGradeInstructionPrompt(options);
+    const parsed = await this.executeGeminiVisionRequest(
+      options.apiKey,
+      options.modelId,
+      promptText,
+      options.imagePayload1024pxBase64,
+      options.signal
+    );
+
+    return {
+      scene_type: parsed.scene_type || 'outdoor_street',
+      scene_title: parsed.scene_title || '光影畫面顯影',
+      style_insight: parsed.style_insight || 'AI 已根據畫面光影特徵完成動態範圍與色調調校。',
+      recommended_mood: parsed.recommended_mood || '底片氛圍調性',
+      recommended_profile: parsed.recommended_profile || 'Profile_00_StandardNatural',
+      exposure_compensation: typeof parsed.exposure_compensation === 'number' ? parsed.exposure_compensation : 0.0,
+      contrast: typeof parsed.contrast === 'number' ? parsed.contrast : 0.0,
+      color_temp: typeof parsed.color_temp === 'number' ? parsed.color_temp : 5500,
+      tint: typeof parsed.tint === 'number' ? parsed.tint : 0.0,
+      lift_shadows: typeof parsed.lift_shadows === 'number' ? parsed.lift_shadows : 0.0,
+      lut_intensity: typeof parsed.lut_intensity === 'number' ? parsed.lut_intensity : 0.85,
+      clarity: typeof parsed.clarity === 'number' ? parsed.clarity : 0.0,
+      sharpness: typeof parsed.sharpness === 'number' ? parsed.sharpness : 0.0,
+      tags: Array.isArray(parsed.tags) ? parsed.tags : ['光影顯影', '底片氛圍'],
+    };
+  }
+
+  /**
+   * 影像視覺顯影分析 (全量單次向後相容模式)
+   */
+  public async analyzePhoto(options: VisionInferenceOptions): Promise<AiSceneDecision> {
+    const { exif, apiKey, modelId } = options;
     const { instructionBlock, recommendedProfileSchemaHint } = buildStyleInstructionBlock(
       options.stylePreset,
       options.styleKeywords,
@@ -81,53 +207,15 @@ Respond ONLY with raw JSON matching this schema:
   "crop_rationale": "string (explanation in Traditional Chinese, or empty string if unchanged)"
 }`;
 
-    const requestBody = JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: promptText },
-            {
-              inlineData: {
-                mimeType: 'image/jpeg',
-                data: cleanBase64
-              }
-            }
-          ]
-        }
-      ],
-      generationConfig: {
-        responseMimeType: 'application/json'
-      }
-    });
+    const parsed = await this.executeGeminiVisionRequest(
+      apiKey,
+      modelId,
+      promptText,
+      options.imagePayload1024pxBase64,
+      options.signal
+    );
 
-    let response: Response;
-    try {
-      response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: requestBody,
-        signal: options.signal
-      });
-    } catch (err: any) {
-      if (err?.name === 'AbortError' || options.signal?.aborted) {
-        throw new Error('推論連線已由使用者手動中止');
-      }
-      throw new Error(`無法連線至 Gemini 伺服器 (${err?.message || '網路連線異常'})`);
-    }
-
-    if (!response.ok) {
-      const errJson = await response.json().catch(() => null);
-      const detail = errJson?.error?.message || `HTTP ${response.status}`;
-      throw new Error(`Gemini 端點回應異常 (${detail})`);
-    }
-
-    const jsonRes = await response.json();
-    const rawContent = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawContent) {
-      throw new Error('Gemini 多模態模型未回傳推論內容');
-    }
-
-    const parsed = parseAiJsonString(rawContent);
+    const cleanModel = (modelId && modelId.trim()) ? modelId.trim().replace(/^models\//, '') : '';
     return {
       scene_type: parsed.scene_type || 'outdoor_street',
       scene_title: parsed.scene_title || '光影畫面顯影',
@@ -150,7 +238,7 @@ Respond ONLY with raw JSON matching this schema:
       rotation_deg: typeof parsed.rotation_deg === 'number' ? parsed.rotation_deg : 0.0,
       keystone_v: typeof parsed.keystone_v === 'number' ? parsed.keystone_v : 0.0,
       aspect_ratio: parsed.aspect_ratio || 'original',
-      crop_rationale: parsed.crop_rationale || ''
+      crop_rationale: parsed.crop_rationale || '',
     };
   }
 
@@ -193,23 +281,23 @@ Respond ONLY with raw JSON matching this schema:
             {
               inlineData: {
                 mimeType: 'image/jpeg',
-                data: cleanOrig
-              }
+                data: cleanOrig,
+              },
             },
             {
               inlineData: {
                 mimeType: 'image/jpeg',
-                data: cleanRendered
-              }
-            }
-          ]
-        }
+                data: cleanRendered,
+              },
+            },
+          ],
+        },
       ],
       generationConfig: {
         responseMimeType: 'application/json',
         maxOutputTokens: 512,
-        temperature: 0.2
-      }
+        temperature: 0.2,
+      },
     });
 
     let response: Response;
@@ -218,7 +306,7 @@ Respond ONLY with raw JSON matching this schema:
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: requestBody,
-        signal: options.signal
+        signal: options.signal,
       });
     } catch (err: any) {
       if (err?.name === 'AbortError' || options.signal?.aborted) {
@@ -248,7 +336,7 @@ Respond ONLY with raw JSON matching this schema:
       lut_intensity_delta: typeof parsed.lut_intensity_delta === 'number' ? parsed.lut_intensity_delta : undefined,
       clarity_delta: typeof parsed.clarity_delta === 'number' ? parsed.clarity_delta : undefined,
       sharpness_delta: typeof parsed.sharpness_delta === 'number' ? parsed.sharpness_delta : undefined,
-      refine_rationale: parsed.refine_rationale || '雙圖比對覆審完成，曝光與動態範圍已微調優化。'
+      refine_rationale: parsed.refine_rationale || '雙圖比對覆審完成，曝光與動態範圍已微調優化。',
     };
   }
 
@@ -287,8 +375,8 @@ ${userPromptSection}
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: systemPrompt }] }],
-        generationConfig: { responseMimeType: 'application/json' }
-      })
+        generationConfig: { responseMimeType: 'application/json' },
+      }),
     });
 
     if (!response.ok) {
@@ -302,7 +390,7 @@ ${userPromptSection}
       caption: parsed.caption || '靜謐的光影，在時間的流隙中凝結成永恆的底片記憶。',
       hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : ['#35mm', '#FilmPhotography'],
       iptcKeywords: Array.isArray(parsed.iptc_keywords) ? parsed.iptc_keywords : ['Analog', 'Photography'],
-      providerUsed: 'gemini'
+      providerUsed: 'gemini',
     };
   }
 
@@ -320,7 +408,7 @@ ${userPromptSection}
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: 'Ping test. Reply with OK.' }] }] })
+        body: JSON.stringify({ contents: [{ parts: [{ text: 'Ping test. Reply with OK.' }] }] }),
       });
       const latencySec = parseFloat(((Date.now() - t0) / 1000).toFixed(2));
       if (!res.ok) {

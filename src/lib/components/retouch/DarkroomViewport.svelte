@@ -233,7 +233,10 @@
           colorTemp: 5500,
           tint: 0.0,
           lutIntensity: 0.0,
+          shadowLift: 0.0,
           bypassLut: true,
+          clarity: 0.0,
+          sharpness: 0.0,
         },
         imgWidth,
         imgHeight
@@ -586,6 +589,7 @@
         <button
           type="button"
           class="ab-toggle-btn hairline-all font-mono"
+          class:active={currentShowABComparison}
           onmousedown={() => (darkroomState.showABComparison = true)}
           onmouseup={() => (darkroomState.showABComparison = false)}
           onmouseleave={() => (darkroomState.showABComparison = false)}
@@ -594,7 +598,7 @@
           ontouchcancel={() => (darkroomState.showABComparison = false)}
         >
           <span class="material-symbols-outlined" style="font-size: 15px;">compare</span>
-          <span>{darkroomState.showABComparison ? "原始本相 (RAW)" : "按住比對原圖 (Space)"}</span>
+          <span>{currentShowABComparison ? "原始本相 (RAW)" : "按住比對原圖 (Space)"}</span>
         </button>
       </div>
 
@@ -959,6 +963,7 @@
     transition: all 0.15s ease;
     z-index: 12;
   }
+  .ab-toggle-btn.active,
   .ab-toggle-btn:hover {
     background-color: var(--primary-indigo);
     color: var(--canvas-base);

@@ -24,6 +24,8 @@
     styleGradingPresets: any[];
     hasAiBaseline?: boolean;
     isModifiedFromAi?: boolean;
+    activePhoto?: PhotoPlateItem | any;
+    activeProfileId?: string;
     onRestoreAiTuning?: () => void;
     onQuickAiTone?: () => void;
     onQuickAiWhiteBalance?: () => void;
@@ -42,6 +44,8 @@
     styleGradingPresets = [],
     hasAiBaseline = false,
     isModifiedFromAi = false,
+    activePhoto: propsActivePhoto = null,
+    activeProfileId: propsActiveProfileId,
     onRestoreAiTuning,
     onQuickAiTone,
     onQuickAiWhiteBalance,
@@ -55,7 +59,8 @@
     onGoToExport,
   }: Props = $props();
 
-  const activePhoto = $derived(photoLibrary.activePhoto);
+  const activePhoto = $derived(propsActivePhoto ?? photoLibrary.activePhoto);
+  const currentProfileId = $derived(propsActiveProfileId ?? activePhoto?.appliedProfile);
   const isAiAnalyzing = $derived(aiPipeline.isAiAnalyzing);
 </script>
 
@@ -397,7 +402,7 @@
       <button
         type="button"
         class="profile-card hairline-all"
-        class:active={activePhoto?.appliedProfile === prof.id}
+        class:active={currentProfileId === prof.id}
         onclick={() => {
           if (onHoverProfile) onHoverProfile(null);
           if (onApplyProfile) onApplyProfile(prof.id);

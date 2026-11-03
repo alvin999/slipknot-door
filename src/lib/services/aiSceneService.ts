@@ -4,7 +4,7 @@
  * Zero hardcoded dummy returns.
  */
 
-import type { ExifOpticalData } from '../types/photo';
+import type { ExifOpticalData, AiScopePreferences } from '../types/photo';
 import { AiEngineFactory } from './ai/engineFactory';
 
 export interface AiSceneDecision {
@@ -43,6 +43,7 @@ export interface AnalyzeSceneOptions {
   styleKeywords?: import('./ai/types').StyleKeywordId[];
   customStylePrompt?: string;
   renderPreview?: (previewSrc: string, decision: AiSceneDecision) => Promise<string | null>;
+  scope?: AiScopePreferences;
 }
 
 export interface CopywritingPayload {
@@ -100,82 +101,124 @@ export class AiSceneService {
         let h = img.naturalHeight || img.height || maxDim;
 
         if (w > maxDim || h > maxDim) {
-          if (w > h) {
-            h = Math.round((h * maxDim) / w);
+          if (w >= h) {
+            h = Math.round((h / w) * maxDim);
             w = maxDim;
           } else {
-            w = Math.round((w * maxDim) / h);
+            w = Math.round((w / h) * maxDim);
             h = maxDim;
           }
         }
 
         const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, w);
-        canvas.height = Math.max(1, h);
+        canvas.width = w;
+        canvas.height = h;
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-          const commaIdx = dataUrl.indexOf(',');
-          return {
-            base64: commaIdx !== -1 ? dataUrl.slice(commaIdx + 1) : dataUrl,
-            mimeType: 'image/jpeg'
-          };
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          const base64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
+          return { base64, mimeType: 'image/jpeg' };
         }
-      } catch (e) {
-        console.warn('Canvas 1024px 壓縮回退至直接 Base64 轉換:', e);
+      } catch (err) {
+        console.warn('[AI_PREP] Canvas 縮圖壓縮失敗，降級為原始字串清理:', err);
       }
     }
 
-    // 備援方案：若無 DOM 或 Canvas 失敗，直接擷取 Base64
-    if (imageSrc.startsWith('data:')) {
-      const match = imageSrc.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
-      if (match) {
-        return { mimeType: match[1], base64: match[2] };
-      }
-      const commaIdx = imageSrc.indexOf(',');
-      if (commaIdx !== -1) {
-        return { mimeType: 'image/jpeg', base64: imageSrc.slice(commaIdx + 1) };
-      }
-    }
-
-    try {
-      const resp = await fetch(imageSrc);
-      const blob = await resp.blob();
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const res = reader.result as string;
-          const comma = res.indexOf(',');
-          resolve(comma !== -1 ? res.slice(comma + 1) : res);
-        };
-        reader.onerror = () => reject(new Error('FileReader 讀取 Blob 失敗'));
-        reader.readAsDataURL(blob);
-      });
-
-      return { base64, mimeType: 'image/jpeg' };
-    } catch (err: any) {
-      throw new Error(`無法將縮圖 Blob/URL 轉換為 Base64：${err?.message || err}`);
-    }
+    // Node / 降級環境：純字串剝除 Data URL 前綴
+    const clean = imageSrc.includes(',') ? imageSrc.slice(imageSrc.indexOf(',') + 1) : imageSrc;
+    return { base64: clean, mimeType: 'image/jpeg' };
   }
 
   /**
-   * 取得視覺顯影當前啟用之模型資訊（依使用者任務職責指派動態回傳）
+   * 根據 Stage 1 的構圖裁切框 [ymin, xmin, ymax, xmax] 與旋轉角度，
+   * 透過 HTML5 Canvas 將影像裁切/旋轉為 Stage 2 專屬的 1024px 乾淨縮圖
+   */
+  public static async cropAndRotateBase64(
+    imageSrc: string,
+    cropBox: [number, number, number, number],
+    rotationDeg = 0
+  ): Promise<string> {
+    if (typeof document === 'undefined' || typeof Image === 'undefined') {
+      return imageSrc; // 非瀏覽器/Canvas 環境下降級回傳原圖
+    }
+
+    const [ymin, xmin, ymax, xmax] = cropBox;
+    const clampedYmin = Math.max(0, Math.min(1, ymin));
+    const clampedXmin = Math.max(0, Math.min(1, xmin));
+    const clampedYmax = Math.max(clampedYmin + 0.05, Math.min(1, ymax));
+    const clampedXmax = Math.max(clampedXmin + 0.05, Math.min(1, xmax));
+
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('裁切 proxy 圖片載入失敗'));
+      img.src = imageSrc.startsWith('data:') ? imageSrc : `data:image/jpeg;base64,${imageSrc}`;
+    });
+
+    const srcW = img.naturalWidth || img.width;
+    const srcH = img.naturalHeight || img.height;
+
+    const sx = clampedXmin * srcW;
+    const sy = clampedYmin * srcH;
+    const sWidth = (clampedXmax - clampedXmin) * srcW;
+    const sHeight = (clampedYmax - clampedYmin) * srcH;
+
+    // 將目標縮放至最長邊 1024px 以內
+    const maxDim = 1024;
+    let targetW = sWidth;
+    let targetH = sHeight;
+    if (targetW > maxDim || targetH > maxDim) {
+      if (targetW >= targetH) {
+        targetH = Math.round((targetH / targetW) * maxDim);
+        targetW = maxDim;
+      } else {
+        targetW = Math.round((targetW / targetH) * maxDim);
+        targetH = maxDim;
+      }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return imageSrc;
+
+    if (rotationDeg !== 0) {
+      ctx.translate(targetW / 2, targetH / 2);
+      ctx.rotate((rotationDeg * Math.PI) / 180);
+      ctx.drawImage(img, sx, sy, sWidth, sHeight, -targetW / 2, -targetH / 2, targetW, targetH);
+    } else {
+      ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, targetW, targetH);
+    }
+
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+    return dataUrl.slice(dataUrl.indexOf(',') + 1);
+  }
+
+  /**
+   * 取得當前指派用於「影像顯影分析 (Vision)」之雲端引擎與模型名稱 (同步讀取 LocalStorage)
    */
   public static getActiveModelInfo(): { provider: string; modelId: string } {
     const roles = AiEngineFactory.getTaskRoles();
-    const provider = roles.vision.provider || 'gemini';
-    // 若為 Gemini 且未手動指定，優先採用最極速穩定且幾乎無 503 佇列的 flash-lite 模型
-    const defaultModel = provider === 'gemini' ? 'gemini-flash-lite-latest' : 'llama-3.2-11b-vision-preview';
+    const provider = roles.vision.provider;
+    const defaultModel = provider === 'groq' ? 'llama-3.2-11b-vision-preview' : 'gemini-2.5-flash';
     const modelId = roles.vision.modelId || defaultModel;
     return { provider, modelId };
   }
 
   /**
+   * 取得當前指派用於「影像顯影分析 (Vision)」之雲端引擎與模型名稱 (相容非同步別名)
+   */
+  public static async getActiveVisionRole(): Promise<{ provider: string; modelId: string }> {
+    return this.getActiveModelInfo();
+  }
+
+  /**
    * 執行場景分析決策：
    * 1. 100% 執行雲端多模態神經推論，具備「智慧自動重試（Auto-retry）」抗尖峰壅塞 (503/429)。
-   * 2. 支援隨時手動中斷（AbortSignal），中止時立即掐斷連線與等待。
-   * 3. 若未配置 API 金鑰，直接拋出錯誤提示使用者配置，不進行任何本地偽裝或兜底。
+   * 2. 支援分階段解耦管線 (Staged Pipeline)：幾何構圖先行與視角重投影，再進行中性測光與色彩風格分級。
+   * 3. 支援隨時手動中斷（AbortSignal），中止時立即掐斷連線與等待。
    */
   public static async analyzeScene(
     imagePayload1024pxBase64: string,
@@ -212,17 +255,178 @@ export class AiSceneService {
       }
 
       try {
-        const decision = await strategy.analyzePhoto({
-          apiKey,
-          modelId,
-          imagePayload1024pxBase64: cleanBase64,
-          exif,
-          signal: options?.signal,
-          stylePreset: options?.stylePreset,
-          styleKeywords: options?.styleKeywords,
-          customStylePrompt: options?.customStylePrompt,
-          timeoutMs: 180000 // 提供寬裕的 Socket 守護
-        });
+        let decision: AiSceneDecision;
+        const scope = options?.scope;
+        const needGeometry = !scope || scope.crop || scope.keystone;
+        const needColor = !scope || scope.tone || scope.whiteBalance || scope.lutProfile;
+
+        // 【分階段智慧排程管線】
+        // 若使用者指派了 scope，且幾何與調色同時需要，由 strategy 分步推論
+        if (scope && needGeometry && needColor && strategy.analyzeGeometry && strategy.analyzeColorGrade) {
+          if (options?.onLog) {
+            await options.onLog(`> [PIPELINE: 1/2] 啟動空間幾何與構圖分析 (Stage 1)...`);
+          }
+
+          const geoDecision = await strategy.analyzeGeometry({
+            apiKey,
+            modelId,
+            imagePayload1024pxBase64: cleanBase64,
+            exif,
+            signal: options?.signal,
+            scope,
+            stage: 'geometry',
+          });
+
+          const cropBox = geoDecision.crop_box || [0.0, 0.0, 1.0, 1.0];
+          const isFull = cropBox[0] <= 0.01 && cropBox[1] <= 0.01 && cropBox[2] >= 0.99 && cropBox[3] >= 0.99;
+          const rotDeg = geoDecision.rotation_deg || 0.0;
+
+          if (options?.onLog) {
+            const rotText = rotDeg !== 0 ? `，旋轉 ${rotDeg > 0 ? '+' : ''}${rotDeg.toFixed(1)}°` : '';
+            const cropText = !isFull ? `，裁切至 [${cropBox.map((v) => v.toFixed(2)).join(', ')}]` : '，維持全景視野';
+            await options.onLog(`> [PIPELINE: 1/2] 幾何分析就緒：${geoDecision.crop_rationale || '邊界校正'}${cropText}${rotText}`);
+          }
+
+          // 若有非全幅裁切或顯著傾斜，產生裁切重投影縮圖作為 Stage 2 的純淨基底
+          let colorInputBase64 = cleanBase64;
+          if (!isFull || Math.abs(rotDeg) > 0.5) {
+            try {
+              colorInputBase64 = await this.cropAndRotateBase64(cleanBase64, cropBox, rotDeg);
+              if (options?.onLog) {
+                await options.onLog(`> [PIPELINE] 視野重投影完成，以新構圖視野動態執行測光與風格分級 (Stage 2)...`);
+              }
+            } catch (cropErr) {
+              console.warn('[PIPELINE] 縮圖裁切失敗，使用原圖進行調色：', cropErr);
+            }
+          } else {
+            if (options?.onLog) {
+              await options.onLog(`> [PIPELINE: 2/2] 啟動物理測光與色彩風格分級 (Stage 2)...`);
+            }
+          }
+
+          const colorDecision = await strategy.analyzeColorGrade({
+            apiKey,
+            modelId,
+            imagePayload1024pxBase64: colorInputBase64,
+            exif,
+            signal: options?.signal,
+            stylePreset: options?.stylePreset,
+            styleKeywords: options?.styleKeywords,
+            customStylePrompt: options?.customStylePrompt,
+            scope,
+            stage: 'colorGrade',
+          });
+
+          decision = {
+            scene_type: colorDecision.scene_type || 'outdoor_street',
+            scene_title: colorDecision.scene_title || '光影畫面顯影',
+            style_insight: colorDecision.style_insight || 'AI 已完成分步幾何構圖與階調調校。',
+            recommended_mood: colorDecision.recommended_mood || '底片氛圍調性',
+            recommended_profile: colorDecision.recommended_profile || 'Profile_00_StandardNatural',
+            exposure_compensation: typeof colorDecision.exposure_compensation === 'number' ? colorDecision.exposure_compensation : 0.0,
+            contrast: typeof colorDecision.contrast === 'number' ? colorDecision.contrast : 0.0,
+            color_temp: typeof colorDecision.color_temp === 'number' ? colorDecision.color_temp : 5500,
+            tint: typeof colorDecision.tint === 'number' ? colorDecision.tint : 0.0,
+            lift_shadows: typeof colorDecision.lift_shadows === 'number' ? colorDecision.lift_shadows : 0.0,
+            lut_intensity: typeof colorDecision.lut_intensity === 'number' ? colorDecision.lut_intensity : 0.85,
+            clarity: typeof colorDecision.clarity === 'number' ? colorDecision.clarity : 0.0,
+            sharpness: typeof colorDecision.sharpness === 'number' ? colorDecision.sharpness : 0.0,
+            tags: colorDecision.tags || ['光影顯影', '底片氛圍'],
+            isFallback: false,
+            providerUsed: strategy.providerId as any,
+            modelUsed: modelId,
+            crop_box: cropBox,
+            rotation_deg: rotDeg,
+            keystone_v: geoDecision.keystone_v || 0.0,
+            aspect_ratio: geoDecision.aspect_ratio || 'original',
+            crop_rationale: geoDecision.crop_rationale || '',
+          };
+        } else if (scope && needGeometry && !needColor && strategy.analyzeGeometry) {
+          // 僅需要幾何分析
+          if (options?.onLog) {
+            await options.onLog(`> [PIPELINE] 僅執行空間幾何與構圖分析 (Stage 1)...`);
+          }
+          const geoDecision = await strategy.analyzeGeometry({
+            apiKey,
+            modelId,
+            imagePayload1024pxBase64: cleanBase64,
+            exif,
+            signal: options?.signal,
+            scope,
+            stage: 'geometry',
+          });
+          decision = {
+            scene_type: 'geometry_only',
+            scene_title: '幾何構圖校正',
+            style_insight: geoDecision.crop_rationale || '已完成構圖水平與透視校正。',
+            recommended_profile: 'Profile_00_StandardNatural',
+            exposure_compensation: 0.0,
+            lift_shadows: 0.0,
+            lut_intensity: 0.0,
+            isFallback: false,
+            providerUsed: strategy.providerId as any,
+            modelUsed: modelId,
+            crop_box: geoDecision.crop_box || [0.0, 0.0, 1.0, 1.0],
+            rotation_deg: geoDecision.rotation_deg || 0.0,
+            keystone_v: geoDecision.keystone_v || 0.0,
+            aspect_ratio: geoDecision.aspect_ratio || 'original',
+            crop_rationale: geoDecision.crop_rationale || '',
+          };
+        } else if (scope && !needGeometry && needColor && strategy.analyzeColorGrade) {
+          // 僅需要色彩與光影分析
+          if (options?.onLog) {
+            await options.onLog(`> [PIPELINE] 鎖定幾何構圖，專注執行測光與色彩階調分級 (Stage 2)...`);
+          }
+          const colorDecision = await strategy.analyzeColorGrade({
+            apiKey,
+            modelId,
+            imagePayload1024pxBase64: cleanBase64,
+            exif,
+            signal: options?.signal,
+            stylePreset: options?.stylePreset,
+            styleKeywords: options?.styleKeywords,
+            customStylePrompt: options?.customStylePrompt,
+            scope,
+            stage: 'colorGrade',
+          });
+          decision = {
+            scene_type: colorDecision.scene_type || 'outdoor_street',
+            scene_title: colorDecision.scene_title || '光影畫面顯影',
+            style_insight: colorDecision.style_insight || 'AI 已完成光影與色調分級。',
+            recommended_mood: colorDecision.recommended_mood || '底片氛圍調性',
+            recommended_profile: colorDecision.recommended_profile || 'Profile_00_StandardNatural',
+            exposure_compensation: typeof colorDecision.exposure_compensation === 'number' ? colorDecision.exposure_compensation : 0.0,
+            contrast: typeof colorDecision.contrast === 'number' ? colorDecision.contrast : 0.0,
+            color_temp: typeof colorDecision.color_temp === 'number' ? colorDecision.color_temp : 5500,
+            tint: typeof colorDecision.tint === 'number' ? colorDecision.tint : 0.0,
+            lift_shadows: typeof colorDecision.lift_shadows === 'number' ? colorDecision.lift_shadows : 0.0,
+            lut_intensity: typeof colorDecision.lut_intensity === 'number' ? colorDecision.lut_intensity : 0.85,
+            clarity: typeof colorDecision.clarity === 'number' ? colorDecision.clarity : 0.0,
+            sharpness: typeof colorDecision.sharpness === 'number' ? colorDecision.sharpness : 0.0,
+            tags: colorDecision.tags || ['光影顯影', '底片氛圍'],
+            isFallback: false,
+            providerUsed: strategy.providerId as any,
+            modelUsed: modelId,
+            crop_box: [0.0, 0.0, 1.0, 1.0],
+            rotation_deg: 0.0,
+            keystone_v: 0.0,
+            aspect_ratio: 'original',
+            crop_rationale: '',
+          };
+        } else {
+          // 全量單次相容推論
+          decision = await strategy.analyzePhoto({
+            apiKey,
+            modelId,
+            imagePayload1024pxBase64: cleanBase64,
+            exif,
+            signal: options?.signal,
+            stylePreset: options?.stylePreset,
+            styleKeywords: options?.styleKeywords,
+            customStylePrompt: options?.customStylePrompt,
+            timeoutMs: 180000,
+          });
+        }
 
         // Pass 1 視覺分析完成，即時輸出初判成果與風格洞見
         if (options?.onLog) {
@@ -249,7 +453,7 @@ export class AiSceneService {
             if (options.onLog) {
               await options.onLog(`> [AI_CRITIC] 啟動雙圖閉環覆審 (${criticEngine.modelId || criticEngine.strategy.providerName})...`);
             }
-            // 傳入已輕量化至 1024px 之純淨 Base64 進行渲染，確保成果圖體積約 120KB-250KB，杜絕龐大 Base64 阻塞網路
+            // 傳入已輕量化至 1024px 之純淨 Base64 進行渲染
             const previewInput = `data:image/jpeg;base64,${cleanBase64}`;
             const renderedBase64 = await options.renderPreview(previewInput, decision);
             if (!renderedBase64 || renderedBase64.trim() === '') {
@@ -270,7 +474,7 @@ export class AiSceneService {
                 signal: options.signal,
                 stylePreset: options.stylePreset,
                 styleKeywords: options.styleKeywords,
-                customStylePrompt: options.customStylePrompt
+                customStylePrompt: options.customStylePrompt,
               });
 
               // 記錄 Pass 1 原始基準值以供差值對照紀錄
@@ -309,14 +513,14 @@ export class AiSceneService {
                   return `${sign}${delta.toFixed(decimals)}${unit}`;
                 };
 
-                if (Math.abs(refinement.exposure_delta) >= 0.01) {
-                  diffLogs.push(`  • 曝光補償: ${formatDelta(refinement.exposure_delta, ' EV')} (${prevExposure >= 0 ? '+' : ''}${prevExposure.toFixed(2)} → ${decision.exposure_compensation >= 0 ? '+' : ''}${decision.exposure_compensation.toFixed(2)})`);
+                if (Math.abs(refinement.exposure_delta) >= 0.05) {
+                  diffLogs.push(`  • 曝光: ${formatDelta(refinement.exposure_delta, ' EV')} (${prevExposure.toFixed(2)} → ${decision.exposure_compensation.toFixed(2)})`);
                 }
-                if (Math.abs(refinement.lift_shadows_delta) >= 0.01) {
-                  diffLogs.push(`  • 暗部抬升: ${formatDelta(refinement.lift_shadows_delta)} (${prevShadow >= 0 ? '+' : ''}${prevShadow.toFixed(2)} → ${decision.lift_shadows >= 0 ? '+' : ''}${decision.lift_shadows.toFixed(2)})`);
+                if (Math.abs(refinement.lift_shadows_delta) >= 0.05) {
+                  diffLogs.push(`  • 暗部: ${formatDelta(refinement.lift_shadows_delta)} (${prevShadow.toFixed(2)} → ${decision.lift_shadows.toFixed(2)})`);
                 }
-                if (Math.abs(refinement.contrast_delta) >= 0.01) {
-                  diffLogs.push(`  • 對比度: ${formatDelta(refinement.contrast_delta)} (${prevContrast >= 0 ? '+' : ''}${prevContrast.toFixed(2)} → ${decision.contrast >= 0 ? '+' : ''}${decision.contrast.toFixed(2)})`);
+                if (Math.abs(refinement.contrast_delta) >= 0.05) {
+                  diffLogs.push(`  • 對比: ${formatDelta(refinement.contrast_delta)} (${prevContrast.toFixed(2)} → ${decision.contrast.toFixed(2)})`);
                 }
                 if (Math.abs(refinement.color_temp_delta) >= 10) {
                   diffLogs.push(`  • 色溫: ${refinement.color_temp_delta > 0 ? '+' : ''}${refinement.color_temp_delta} K (${prevTemp}K → ${decision.color_temp}K)`);
@@ -404,10 +608,7 @@ export class AiSceneService {
       apiKey,
       modelId,
       payload,
-      timeoutMs: 15000
+      timeoutMs: 15000,
     });
   }
 }
-
-
-

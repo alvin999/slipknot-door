@@ -1168,6 +1168,7 @@
         // 方案 1：按住 Space 顯示原始本相（避免按鍵長按自動重複 repeat 重複觸發）
         if (!e.repeat) {
           showABComparison = true;
+          darkroomState.showABComparison = true;
         }
       } else if (e.key === "Enter") {
         e.preventDefault();
@@ -1193,23 +1194,29 @@
   function handleRetouchKeyup(e: KeyboardEvent) {
     // 放開 Space 鍵時瞬間恢復調色本態
     if (e.key === " " || e.code === "Space") {
-      if (showABComparison) {
+      if (showABComparison || darkroomState.showABComparison) {
         e.preventDefault();
         showABComparison = false;
+        darkroomState.showABComparison = false;
       }
     }
   }
 
   function handleWindowBlur() {
     // 視窗失去焦點時安全復原比對狀態，避免放開事件遺失而卡在原圖
-    if (showABComparison) {
-      showABComparison = false;
-    }
+    showABComparison = false;
+    darkroomState.showABComparison = false;
   }
 
   function applyProfile(profileId: string) {
     if (!activePhoto) return;
     activePhoto.appliedProfile = profileId;
+    if (photoLibrary.activePhoto) {
+      photoLibrary.activePhoto.appliedProfile = profileId;
+    }
+    photoPlates = photoPlates.map((p) =>
+      p.id === activePhoto!.id ? { ...p, appliedProfile: profileId } : p
+    );
     const found = profiles.find((p) => p.id === profileId);
     if (found) {
       exposure = found.evDefault;
@@ -2315,6 +2322,7 @@
             await appendAiLog(msg, 15);
           },
           renderPreview: renderPass1PreviewForCritic,
+          scope: aiScope,
         },
       );
 
@@ -2653,6 +2661,7 @@
           focalLength: activePhoto.focalLength,
         },
         {
+          scope: { crop: true, keystone: true, tone: false, whiteBalance: false, lutProfile: false },
         },
       );
       if (decision.crop_box) {
@@ -2708,6 +2717,9 @@
           apertureValue: activePhoto.aperture,
           focalLength: activePhoto.focalLength,
         },
+        {
+          scope: { crop: false, keystone: true, tone: false, whiteBalance: false, lutProfile: false },
+        },
       );
       cropRotation =
         typeof decision.rotation_deg === "number" ? decision.rotation_deg : 0.0;
@@ -2742,6 +2754,9 @@
           shutterSpeed: activePhoto.shutter,
           apertureValue: activePhoto.aperture,
           focalLength: activePhoto.focalLength,
+        },
+        {
+          scope: { crop: false, keystone: false, tone: false, whiteBalance: true, lutProfile: false },
         },
       );
       animateAdjustmentValues(
@@ -2778,6 +2793,9 @@
           shutterSpeed: activePhoto.shutter,
           apertureValue: activePhoto.aperture,
           focalLength: activePhoto.focalLength,
+        },
+        {
+          scope: { crop: false, keystone: false, tone: true, whiteBalance: false, lutProfile: false },
         },
       );
       animateAdjustmentValues(
@@ -2824,6 +2842,10 @@
           shutterSpeed: activePhoto.shutter,
           apertureValue: activePhoto.aperture,
           focalLength: activePhoto.focalLength,
+        },
+        {
+          scope: { crop: false, keystone: false, tone: false, whiteBalance: false, lutProfile: true },
+          stylePreset: activeStylePreset,
         },
       );
       applyProfile(decision.recommended_profile);
@@ -3361,6 +3383,7 @@
           photos={photoPlates}
           {activeQueue}
           {exportNotice}
+          {showABComparison}
           {previewHoverProfileId}
           onSelectPhoto={(p) => selectPhoto(p as any)}
           onOpenQuickExport={() => (isQuickExportOpen = true)}
@@ -3419,6 +3442,8 @@
             {styleGradingPresets}
             {hasAiBaseline}
             {isModifiedFromAi}
+            {activePhoto}
+            activeProfileId={activePhoto?.appliedProfile}
             onRestoreAiTuning={restoreAiTuning}
             onQuickAiTone={quickAiTone}
             onQuickAiWhiteBalance={quickAiWhiteBalance}

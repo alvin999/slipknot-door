@@ -14,7 +14,8 @@
  * 僅客观描述各個 .cube 檔案的色彩科學特性，不干預或強制指定 AI 的具體參數調整方向。
  */
 
-import type { StylePresetKey, StyleKeywordId } from './types';
+import type { StylePresetKey, StyleKeywordId, VisionInferenceOptions } from './types';
+import type { ExifOpticalData, AiScopePreferences } from '../../types/photo';
 import type { AiSceneDecision } from '../aiSceneService';
 
 export interface StyleKeywordEntry {
@@ -340,4 +341,95 @@ export function parseAiJsonString<T = any>(raw: string): T {
   // 移除在冒號、逗號或中括號後面的非法正號 (例如 : +100 -> : 100, : +0.15 -> : 0.15)
   cleaned = cleaned.replace(/(:\s*|\[\s*|,\s*)\+(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, '$1$2');
   return JSON.parse(cleaned);
+}
+
+
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ * 【分階段中性 Prompt 構建器 (Staged Neutral Prompt Builders)】
+ * 嚴格恪守 Prompt Neutrality Guidelines：
+ * 1. 幾何空間與光學色彩完全解耦，防止 Attention 互相稀釋與直方圖因果倒置。
+ * 2. 僅提供純物理邊界、型別規範與光學坐標系，不使用任何主觀情緒化修飾詞。
+ * 3. 依據使用者指派之 AiScope 動態隱藏/關閉非目標通道，杜絕無謂漂移。
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * 構建 Stage 1: 空間幾何與構圖分析之客觀中性 Prompt
+ */
+export function buildGeometryInstructionPrompt(exif: ExifOpticalData): string {
+  return `You are an optical geometry and spatial composition analyzer.
+Analyze this photographic image and optical EXIF (Lens/Focal: ${exif.focalLength || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}).
+
+Evaluate horizon alignment, architectural vertical perspective convergence, perimeter dead-space, and compositional balance.
+
+Physical Geometric Channel Specifications:
+1. crop_box: Normalized bounding box [ymin, xmin, ymax, xmax] within 0.0 to 1.0. Baseline uncropped full frame is [0.0, 0.0, 1.0, 1.0].
+   - Consolidate boundaries inwards when frame edges contain disruptive tangential cuts or unbalanced dead space.
+   - Maintain [0.0, 0.0, 1.0, 1.0] when contextual breathing room or environmental scale reinforces the subject.
+2. rotation_deg: Roll axis tilt compensation in degrees (-45.0 to +45.0). 0.0 denotes perfectly level.
+3. keystone_v: Vertical perspective convergence compensation (-45.0 to +45.0). 0.0 denotes parallel verticals.
+4. aspect_ratio: Framing ratio ("original" | "1:1" | "4:5" | "16:9" | "9:16" | "free").
+
+Respond ONLY with raw JSON matching this schema:
+{
+  "crop_box": [ymin, xmin, ymax, xmax],
+  "rotation_deg": number between -45.0 and +45.0,
+  "keystone_v": number between -45.0 and +45.0,
+  "aspect_ratio": "original | 1:1 | 4:5 | 16:9 | 9:16 | free",
+  "crop_rationale": "string (Concise technical rationale in Traditional Chinese, or empty string if unchanged)"
+}`;
+}
+
+/**
+ * 構建 Stage 2: 物理測光、色彩分級與微反差之客觀中性 Prompt
+ * 幾何視角已由前置階段或使用者手動固定，專注於物理動態範圍與色調曲線
+ */
+export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions): string {
+  const { exif, stylePreset, styleKeywords, customStylePrompt, scope } = options;
+
+  const { instructionBlock, recommendedProfileSchemaHint } = buildStyleInstructionBlock(
+    stylePreset,
+    styleKeywords,
+    customStylePrompt
+  );
+
+  // 根據 AiScope 偏好決定啟用的物理通道，若未傳入 scope 則預設全開
+  const enableTone = !scope || scope.tone;
+  const enableWb = !scope || scope.whiteBalance;
+  const enableLut = !scope || scope.lutProfile;
+
+  const channels: string[] = [];
+  if (enableTone) {
+    channels.push('1. exposure_compensation: Global luminance scaling (-2.0 to +2.0 EV). Target linear mid-tone placement while protecting organic highlight headroom.');
+    channels.push('2. contrast: Global linear tonal slope (-0.5 to +0.5).');
+    channels.push('3. lift_shadows: Shadow toe adjustment (-0.5 to +0.5). Negative deepens blacks; positive lifts darkest 40% luminance.');
+    channels.push('4. clarity & sharpness [-1.0 to +1.0, baseline: 0.0]: High-frequency spatial frequency control. Negative attenuates contrast for optical diffusion; positive amplifies tactile structural texture.');
+  }
+  if (enableWb) {
+    channels.push('5. color_temp & tint: Pre-LUT white balance (color_temp: integer 2500 to 10000, 5500 baseline; tint: -30.0 to +30.0). Neutralize unintended environmental chromatic cast.');
+  }
+  if (enableLut) {
+    channels.push('6. recommended_profile & lut_intensity: 3D film volumetric emulation (lut_intensity: 0.0 to 1.0).');
+  }
+
+  return `You are a radiometric calibration and volumetric color grading specialist.
+The geometric frame and perspective have already been stabilized. Analyze the optical luminance distribution and chromatic harmony of this image.
+EXIF: ISO ${exif.iso || 'N/A'}, Shutter ${exif.shutterSpeed || 'N/A'}, Aperture ${exif.apertureValue || 'N/A'}, Focal ${exif.focalLength || 'N/A'}.
+
+Note: The image is a 1024px preview proxy downscaled from high-resolution capture; native optical sharpness is optimal at baseline 0.0. Do not add clarity or sharpness to compensate for proxy resolution; evaluate strictly for intended artistic character.
+
+${instructionBlock}
+
+Active Control Channels:
+${channels.join('\n')}
+
+Respond ONLY with raw JSON matching this schema:
+{
+  "scene_title": "string (4-8 chars in Traditional Chinese)",
+  "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
+  "style_insight": "string (1-2 sentences in Traditional Chinese)",
+  "recommended_mood": "string (short mood label in Traditional Chinese)",
+  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${enableLut ? `,\n  "recommended_profile": "${recommendedProfileSchemaHint}",\n  "lut_intensity": "number between 0.0 and 1.0"` : ''}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "contrast": "number between -0.5 and +0.5",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2500 and 10000",\n  "tint": "number between -30.0 and +30.0"` : ''}
+}`;
 }

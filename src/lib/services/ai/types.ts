@@ -4,7 +4,7 @@
  * Zero hardcoded model names.
  */
 
-import type { ExifOpticalData } from '../../types/photo';
+import type { ExifOpticalData, AiScopePreferences } from '../../types/photo';
 import type { AiSceneDecision, CopywritingPayload, CopywritingResult } from '../aiSceneService';
 
 export type StylePresetKey =
@@ -40,6 +40,33 @@ export interface VisionInferenceOptions {
   stylePreset?: StylePresetKey;
   styleKeywords?: StyleKeywordId[];
   customStylePrompt?: string;
+  scope?: AiScopePreferences;
+  stage?: 'all' | 'geometry' | 'colorGrade';
+}
+
+export interface GeometryDecision {
+  crop_box?: [number, number, number, number];
+  rotation_deg?: number;
+  keystone_v?: number;
+  aspect_ratio?: 'original' | '1:1' | '4:5' | '16:9' | '9:16' | 'free';
+  crop_rationale?: string;
+}
+
+export interface ColorGradeDecision {
+  scene_title?: string;
+  scene_type?: string;
+  style_insight?: string;
+  recommended_mood?: string;
+  recommended_profile?: string;
+  exposure_compensation?: number;
+  contrast?: number;
+  color_temp?: number;
+  tint?: number;
+  lift_shadows?: number;
+  lut_intensity?: number;
+  clarity?: number;
+  sharpness?: number;
+  tags?: string[];
 }
 
 export interface TextInferenceOptions {
@@ -82,6 +109,8 @@ export interface IVisionStrategy {
   readonly providerId: string;
   readonly providerName: string;
   analyzePhoto(options: VisionInferenceOptions): Promise<AiSceneDecision>;
+  analyzeGeometry?(options: VisionInferenceOptions): Promise<GeometryDecision>;
+  analyzeColorGrade?(options: VisionInferenceOptions): Promise<ColorGradeDecision>;
   refinePhoto?(options: RefinementInferenceOptions): Promise<RefinementDecision>;
   testConnection(apiKey: string, modelId: string): Promise<{ success: boolean; latencySec: number; error?: string }>;
 }
