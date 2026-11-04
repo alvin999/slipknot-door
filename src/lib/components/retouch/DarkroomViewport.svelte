@@ -34,6 +34,8 @@
     splitPosition?: number;
     showABComparison?: boolean;
     previewHoverProfileId?: string | null;
+    hasApiKey?: boolean;
+    onOpenVault?: () => void;
     onSelectPhoto: (p: PhotoPlateItem) => void;
     onOpenQuickExport?: () => void;
     onGoToCatalog?: () => void;
@@ -72,6 +74,8 @@
     splitPosition: propsSplitPosition,
     showABComparison: propsShowABComparison,
     previewHoverProfileId: propsPreviewHoverProfileId,
+    hasApiKey = false,
+    onOpenVault,
     onSelectPhoto,
     onOpenQuickExport,
     onGoToCatalog,
@@ -796,6 +800,21 @@
           </button>
         {/if}
       </div>
+
+      {#if !hasApiKey && onOpenVault}
+        <div class="key-vault-empty-banner hairline-all font-mono">
+          <div class="banner-left">
+            <span class="material-symbols-outlined banner-icon">vpn_key_alert</span>
+            <div class="banner-texts">
+              <span class="banner-title">尚未配置 AI 雲端金鑰</span>
+              <span class="banner-desc">可預先配置 Gemini / Groq API 金鑰，載入相片後隨即可享受 AI 智慧光學顯影</span>
+            </div>
+          </div>
+          <button type="button" class="banner-action-btn font-mono" onclick={onOpenVault}>
+            <span>立即配置 🔑</span>
+          </button>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -1294,6 +1313,68 @@
     font-weight: 600;
   }
 
+  /* KEY VAULT GUIDANCE BANNER */
+  .key-vault-empty-banner {
+    margin-top: 24px;
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(226, 157, 82, 0.08);
+    border: 1px dashed rgba(226, 157, 82, 0.35);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    text-align: left;
+    box-sizing: border-box;
+  }
+  .key-vault-empty-banner .banner-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  .key-vault-empty-banner .banner-icon {
+    font-size: 20px;
+    color: var(--amber-highlight);
+    flex-shrink: 0;
+  }
+  .key-vault-empty-banner .banner-texts {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .key-vault-empty-banner .banner-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--amber-highlight);
+    letter-spacing: 0.04em;
+  }
+  .key-vault-empty-banner .banner-desc {
+    font-size: 11px;
+    color: var(--parchment-muted);
+    line-height: 1.4;
+  }
+  .key-vault-empty-banner .banner-action-btn {
+    padding: 6px 12px;
+    background: var(--amber-highlight);
+    color: #121214;
+    border: none;
+    border-radius: var(--radius-xs);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .key-vault-empty-banner .banner-action-btn:hover {
+    background: #f0a855;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(226, 157, 82, 0.3);
+  }
+
   /* EMPTY STAGE & STRIP */
   .empty-stage-box {
     display: flex;
@@ -1651,6 +1732,18 @@
   }
   /* ── 行動端暗房觸控與排版優化 (Mobile Darkroom Responsive Layout) ── */
   @media (max-width: 768px) {
+    .key-vault-empty-banner {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      padding: 14px;
+    }
+    .key-vault-empty-banner .banner-action-btn {
+      width: 100%;
+      padding: 10px;
+      font-size: 12px;
+      text-align: center;
+    }
     .photo-stage-viewport {
       padding: 6px;
       overflow: hidden;

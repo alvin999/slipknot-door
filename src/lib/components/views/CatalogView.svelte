@@ -27,6 +27,8 @@
     onSelectPhoto: (p: CatalogPhotoItem) => void;
     onOpenRetouch: (p: CatalogPhotoItem) => void;
     onGoToRetouch?: () => void;
+    hasApiKey?: boolean;
+    onOpenVault?: () => void;
     onPickDirectory: () => void;
     onRefreshMounts: () => void;
     onToggleFlag?: (p: CatalogPhotoItem) => void;
@@ -36,6 +38,8 @@
     photos = [],
     activePhoto = null,
     isLoadingPhotos = false,
+    hasApiKey = false,
+    onOpenVault,
     onSelectPhoto,
     onOpenRetouch,
     onGoToRetouch,
@@ -54,28 +58,109 @@
   let hasDetectedPhysicalKeyboard = $state(false);
   const showKeyboardHints = $derived(!isCoarsePointer || hasDetectedPhysicalKeyboard);
 
-  // 觸控手勢：單擊標記 (Mark/Flag)，雙擊直接切入暗房精修 (Double-Tap to Retouch)
-  let lastTapTime = 0;
-  let lastTapPhotoId: string | null = null;
+  // ── 多選模式與批次選取狀態 (Multi-Select & Batch Action Mode) ──
+  let isMultiSelectMode = $state(false);
+  let selectedBatchIds = $state<string[]>([]);
 
-  function handlePhotoCardTouch(photo: CatalogPhotoItem, e: TouchEvent) {
-    const now = performance.now();
-    const isDoubleTap = lastTapPhotoId === photo.id && (now - lastTapTime < 340);
+  function toggleBatchSelect(photoId: string) {
+    if (selectedBatchIds.includes(photoId)) {
+      selectedBatchIds = selectedBatchIds.filter(id => id !== photoId);
+    } else {
+      selectedBatchIds = [...selectedBatchIds, photoId];
+    }
+  }
 
-    if (isDoubleTap) {
-      // 雙擊：直接進入暗房精修階段
-      lastTapTime = 0;
-      lastTapPhotoId = null;
+  function enterMultiSelect(photo: CatalogPhotoItem) {
+    isMultiSelectMode = true;
+    if (!selectedBatchIds.includes(photo.id)) {
+      selectedBatchIds = [...selectedBatchIds, photo.id];
+    }
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate(40); } catch (_) {}
+    }
+  }
+
+  function exitMultiSelect() {
+    isMultiSelectMode = false;
+    selectedBatchIds = [];
+  }
+
+  function selectAllBatch() {
+    selectedBatchIds = displayedPhotos.map(p => p.id);
+  }
+
+  function deselectAllBatch() {
+    selectedBatchIds = [];
+  }
+
+  function batchSetFlagged(flagVal: boolean) {
+    let changed = false;
+    photos.forEach(p => {
+      if (selectedBatchIds.includes(p.id)) {
+        if (p.flagged !== flagVal) {
+          p.flagged = flagVal;
+          changed = true;
+        }
+      }
+    });
+    if (changed && photos.length > 0) {
+      onToggleFlag?.(photos[0]);
+    }
+  }
+
+  // 觸控手勢管理：長按進入多選模式，單擊直接進入精修 (或在多選模式下切換選取)
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let didTriggerLongPress = false;
+
+  function handleTouchStart(photo: CatalogPhotoItem, e: TouchEvent) {
+    if (!isCoarsePointer) return;
+    didTriggerLongPress = false;
+    if (e.touches.length > 0) {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+    }
+    // Why: 420ms 符合行動裝置慣例長按判定閥值，既能與快速滑動區分，又不會有過長的等待感
+    longPressTimer = setTimeout(() => {
+      didTriggerLongPress = true;
+      enterMultiSelect(photo);
+    }, 420);
+  }
+
+  function handleTouchMove(e: TouchEvent) {
+    if (!longPressTimer) return;
+    if (e.touches.length > 0) {
+      const diffX = Math.abs(e.touches[0].clientX - touchStartX);
+      const diffY = Math.abs(e.touches[0].clientY - touchStartY);
+      // 移動超過 10px 視為滑動捲動頁面，立即取消長按定時器
+      if (diffX > 10 || diffY > 10) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }
+  }
+
+  function handleTouchEnd(photo: CatalogPhotoItem, e: TouchEvent) {
+    if (!isCoarsePointer) return;
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    if (didTriggerLongPress) {
+      e.preventDefault();
+      return;
+    }
+
+    if (isMultiSelectMode) {
+      toggleBatchSelect(photo.id);
+    } else {
+      // 單擊：零延遲直接進入暗房精修
       onSelectPhoto(photo);
       onOpenRetouch(photo);
-      e.preventDefault();
-    } else {
-      // 單擊：立即切換標記狀態 (Mark/Flag) 並更新作用中選取相片
-      lastTapTime = now;
-      lastTapPhotoId = photo.id;
-      onSelectPhoto(photo);
-      photo.flagged = !photo.flagged;
-      onToggleFlag?.(photo);
     }
   }
 
@@ -391,6 +476,18 @@
         <span>{isLoadingPhotos ? '解析中...' : '載入目錄'}</span>
       </button>
 
+      {#if !hasApiKey && onOpenVault}
+        <button
+          type="button"
+          class="tool-btn key-guide-badge"
+          onclick={onOpenVault}
+          title="尚未配置 AI 雲端金鑰，點擊前往保險庫設定"
+        >
+          <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">vpn_key_alert</span>
+          <span class="badge-text amber">未配置金鑰</span>
+        </button>
+      {/if}
+
       <!-- SEQUENTIAL STEP 1 ACTION: ONE-CLICK ENTER RETOUCH -->
       {#if photos.length > 0}
         <button 
@@ -427,6 +524,7 @@
             id={`film-card-${photo.id}`}
             class="film-card hairline-all" 
             class:selected={activePhoto?.id === photo.id}
+            class:batch-selected={selectedBatchIds.includes(photo.id)}
             class:flagged={photo.flagged}
             role="gridcell"
             tabindex="0"
@@ -435,12 +533,13 @@
               (e.currentTarget as HTMLElement).blur();
               onSelectPhoto(photo);
             }}
-            ontouchend={(e) => {
-              if (isCoarsePointer) {
-                handlePhotoCardTouch(photo, e);
-              }
+            ontouchstart={(e) => handleTouchStart(photo, e)}
+            ontouchmove={handleTouchMove}
+            ontouchend={(e) => handleTouchEnd(photo, e)}
+            ondblclick={() => {
+              if (isCoarsePointer) return;
+              onOpenRetouch(photo);
             }}
-            ondblclick={() => onOpenRetouch(photo)}
             onkeydown={(e) => {
               if (e.key === 'Enter') onOpenRetouch(photo);
             }}
@@ -459,6 +558,15 @@
             <div class="film-card-image-wrap">
               <img src={photo.gradedThumbnail || photo.thumbnail} alt={photo.filename} class="film-thumb-img" loading="lazy" />
               
+              <!-- Multi-Select Checkbox Floating on Top-Left -->
+              {#if isMultiSelectMode}
+                <div class="batch-checkbox" class:checked={selectedBatchIds.includes(photo.id)}>
+                  <span class="material-symbols-outlined">
+                    {selectedBatchIds.includes(photo.id) ? 'check_circle' : 'radio_button_unchecked'}
+                  </span>
+                </div>
+              {/if}
+
               <!-- Quick Flag Button Floating on Top-Right -->
               <button 
                 type="button" 
@@ -497,9 +605,13 @@
               <span class="filename-text truncate">{photo.filename}</span>
               {#if showKeyboardHints}
                 <span class="hint-dblclick">雙擊精修 ↵</span>
+              {:else if isMultiSelectMode}
+                <span class="hint-dblclick" class:amber={selectedBatchIds.includes(photo.id)}>
+                  {selectedBatchIds.includes(photo.id) ? '已選取 ✓' : '輕點選取'}
+                </span>
               {:else}
                 <span class="hint-dblclick" class:amber={photo.flagged}>
-                  {photo.flagged ? '已挑選 🔖' : '輕點標記'}
+                  {photo.flagged ? '已挑選 🔖' : '輕點精修 · 長按多選'}
                 </span>
               {/if}
             </div>
@@ -533,9 +645,73 @@
             <span>重新偵測隨插即讀設備</span>
           </button>
         </div>
+
+        {#if !hasApiKey && onOpenVault}
+          <div class="key-vault-empty-banner hairline-all font-mono">
+            <div class="banner-left">
+              <span class="material-symbols-outlined banner-icon">vpn_key_alert</span>
+              <div class="banner-texts">
+                <span class="banner-title">尚未配置 AI 雲端金鑰</span>
+                <span class="banner-desc">可預先配置 Gemini / Groq API 金鑰，載入相片後隨即可享受 AI 智慧光學顯影</span>
+              </div>
+            </div>
+            <button type="button" class="banner-action-btn font-mono" onclick={onOpenVault}>
+              <span>立即配置 🔑</span>
+            </button>
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
+
+  <!-- Floating Multi-Select Batch Action Bar -->
+  {#if isMultiSelectMode}
+    <div class="batch-action-bar hairline-all font-mono">
+      <div class="batch-bar-left">
+        <span class="material-symbols-outlined batch-icon">checklist</span>
+        <span class="batch-count-label">已選取 <strong>{selectedBatchIds.length}</strong> 幀</span>
+      </div>
+      <div class="batch-bar-actions">
+        <button 
+          type="button" 
+          class="batch-tool-btn primary" 
+          onclick={() => batchSetFlagged(true)} 
+          disabled={selectedBatchIds.length === 0}
+          title="將所選相片批次標記為挑選"
+        >
+          <span class="material-symbols-outlined">bookmark</span>
+          <span>批次標記</span>
+        </button>
+        <button 
+          type="button" 
+          class="batch-tool-btn" 
+          onclick={() => batchSetFlagged(false)} 
+          disabled={selectedBatchIds.length === 0}
+          title="取消所選相片的標記"
+        >
+          <span class="material-symbols-outlined">bookmark_remove</span>
+          <span>取消標記</span>
+        </button>
+        <button 
+          type="button" 
+          class="batch-tool-btn" 
+          onclick={selectedBatchIds.length === displayedPhotos.length ? deselectAllBatch : selectAllBatch}
+        >
+          <span class="material-symbols-outlined">
+            {selectedBatchIds.length === displayedPhotos.length ? 'deselect' : 'select_all'}
+          </span>
+          <span>{selectedBatchIds.length === displayedPhotos.length ? '取消全選' : '全選'}</span>
+        </button>
+        <button 
+          type="button" 
+          class="batch-done-btn" 
+          onclick={exitMultiSelect}
+        >
+          <span>完成</span>
+        </button>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <!-- Quick Look Instant Fullscreen Preview Modal -->
@@ -769,6 +945,151 @@
     border-left: 3px solid var(--amber-highlight);
   }
 
+  .film-card.batch-selected {
+    border-color: var(--amber-highlight) !important;
+    box-shadow: 0 0 0 2px var(--amber-highlight), 0 8px 24px rgba(0, 0, 0, 0.7);
+  }
+
+  /* MULTI-SELECT CHECKBOX & FLOATING BATCH BAR */
+  .batch-checkbox {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background-color: rgba(18, 19, 22, 0.85);
+    border: 1px solid var(--hairline-slate);
+    color: var(--parchment-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3;
+    transition: all 0.15s ease;
+    pointer-events: none;
+  }
+
+  .batch-checkbox.checked {
+    background-color: var(--amber-highlight);
+    color: var(--canvas-base);
+    border-color: var(--amber-highlight);
+  }
+
+  .batch-checkbox span {
+    font-size: 20px;
+  }
+
+  .batch-action-bar {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background-color: rgba(22, 24, 29, 0.96);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--amber-highlight);
+    border-radius: var(--radius-md);
+    padding: 8px 14px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(226, 157, 82, 0.3);
+    width: min(94%, 580px);
+    animation: slideUpBatch 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes slideUpBatch {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 20px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+  }
+
+  .batch-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--parchment-bright);
+    white-space: nowrap;
+  }
+
+  .batch-bar-left .batch-icon {
+    font-size: 18px;
+    color: var(--amber-highlight);
+  }
+
+  .batch-bar-left strong {
+    color: var(--amber-highlight);
+  }
+
+  .batch-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .batch-tool-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--surface-overlay);
+    border: 1px solid var(--hairline-slate);
+    color: var(--parchment-dim);
+    padding: 6px 10px;
+    border-radius: var(--radius-xs);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .batch-tool-btn span.material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  .batch-tool-btn:hover:not(:disabled) {
+    background: rgba(226, 157, 82, 0.15);
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+  }
+
+  .batch-tool-btn.primary:not(:disabled) {
+    background: rgba(226, 157, 82, 0.2);
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+  }
+
+  .batch-tool-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .batch-done-btn {
+    background: var(--amber-highlight);
+    border: none;
+    color: var(--canvas-base);
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: var(--radius-xs);
+    font-size: 12px;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .batch-done-btn:hover {
+    opacity: 0.9;
+  }
+
   /* 35MM SPROCKET STRIP */
   .sprocket-strip {
     height: 18px;
@@ -955,8 +1276,94 @@
     font-weight: 600;
   }
 
+  /* KEY VAULT GUIDANCE BANNER & TOOLBAR BADGE */
+  .key-vault-empty-banner {
+    margin-top: 24px;
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(226, 157, 82, 0.08);
+    border: 1px dashed rgba(226, 157, 82, 0.35);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    text-align: left;
+    box-sizing: border-box;
+  }
+  .key-vault-empty-banner .banner-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  .key-vault-empty-banner .banner-icon {
+    font-size: 20px;
+    color: var(--amber-highlight);
+    flex-shrink: 0;
+  }
+  .key-vault-empty-banner .banner-texts {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .key-vault-empty-banner .banner-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--amber-highlight);
+    letter-spacing: 0.04em;
+  }
+  .key-vault-empty-banner .banner-desc {
+    font-size: 11px;
+    color: var(--parchment-muted);
+    line-height: 1.4;
+  }
+  .key-vault-empty-banner .banner-action-btn {
+    padding: 6px 12px;
+    background: var(--amber-highlight);
+    color: #121214;
+    border: none;
+    border-radius: var(--radius-xs);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .key-vault-empty-banner .banner-action-btn:hover {
+    background: #f0a855;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(226, 157, 82, 0.3);
+  }
+  .tool-btn.key-guide-badge {
+    border-color: rgba(226, 157, 82, 0.4);
+    background: rgba(226, 157, 82, 0.08);
+  }
+  .tool-btn.key-guide-badge:hover {
+    border-color: var(--amber-highlight);
+    background: rgba(226, 157, 82, 0.16);
+  }
+  .tool-btn.key-guide-badge .badge-text.amber {
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+
   /* ── 觸控設備與行動端專屬佈局 (Mobile & Coarse Pointer Layout) ── */
   @media (pointer: coarse), (max-width: 768px) {
+    .key-vault-empty-banner {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      padding: 14px;
+    }
+    .key-vault-empty-banner .banner-action-btn {
+      width: 100%;
+      padding: 10px;
+      font-size: 12px;
+      text-align: center;
+    }
     .catalog-toolbar {
       padding: 6px 10px;
       flex-wrap: wrap;
@@ -983,6 +1390,31 @@
     .film-card {
       -webkit-touch-callout: none;
       touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .flag-btn {
+      width: 36px;
+      height: 36px;
+      top: 4px;
+      right: 4px;
+    }
+
+    .batch-action-bar {
+      padding: 6px 10px;
+      gap: 6px;
+      bottom: 12px;
+    }
+
+    .batch-tool-btn {
+      padding: 5px 8px;
+      font-size: 11px;
+    }
+
+    .batch-done-btn {
+      padding: 5px 10px;
+      font-size: 11px;
     }
 
     .sprocket-strip {

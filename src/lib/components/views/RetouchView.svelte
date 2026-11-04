@@ -36,6 +36,8 @@
     splitPosition?: number;
     showABComparison?: boolean;
     previewHoverProfileId?: string | null;
+    hasApiKey?: boolean;
+    onOpenVault?: () => void;
     onSelectPhoto: (p: any) => void;
     onOpenQuickExport?: () => void;
     onGoToCatalog?: () => void;
@@ -74,6 +76,8 @@
     splitPosition,
     showABComparison,
     previewHoverProfileId,
+    hasApiKey = false,
+    onOpenVault,
     onSelectPhoto,
     onOpenQuickExport,
     onGoToCatalog,
@@ -125,6 +129,8 @@
   {splitPosition}
   {showABComparison}
   {previewHoverProfileId}
+  {hasApiKey}
+  {onOpenVault}
   {onSelectPhoto}
   {onOpenQuickExport}
   {onGoToCatalog}

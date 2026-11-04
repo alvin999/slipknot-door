@@ -51,6 +51,7 @@
     exists: false,
     mode: null,
   });
+  let hasKey = $state<boolean>(false);
 
   // Hardware Ingestion State
   let cameraMounts = $state<CameraMountInfo[]>([]);
@@ -65,6 +66,7 @@
   function refreshKeyStatus() {
     const s = KeyVaultService.getKeyStatus("gemini");
     geminiKeyStatus = { exists: s.exists, mode: s.mode };
+    hasKey = hasActiveApiKey();
   }
 
   function hasActiveApiKey(): boolean {
@@ -3370,6 +3372,8 @@
           photos={photoPlates}
           {activePhoto}
           {isLoadingPhotos}
+          hasApiKey={hasKey}
+          onOpenVault={() => (isVaultOpen = true)}
           onSelectPhoto={(p) => selectPhoto(p)}
           onOpenRetouch={(p) => openRetouchForPhoto(p)}
           onGoToRetouch={goToRetouch}
@@ -3387,6 +3391,8 @@
           {exportNotice}
           {showABComparison}
           {previewHoverProfileId}
+          hasApiKey={hasKey}
+          onOpenVault={() => (isVaultOpen = true)}
           onSelectPhoto={(p) => selectPhoto(p as any)}
           onOpenQuickExport={() => (isQuickExportOpen = true)}
           onGoToCatalog={goToCatalog}
@@ -3694,7 +3700,7 @@
       position: fixed;
       left: 0;
       right: 0;
-      bottom: 50px;
+      bottom: 0;
       width: 100% !important;
       max-height: 72vh;
       z-index: 1000;
@@ -3702,15 +3708,22 @@
       border-radius: 18px 18px 0 0;
       box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.85);
       border-top: 1px solid var(--hairline-slate);
-      transform: translateY(120%);
-      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+      transform: translateY(100%);
+      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease, visibility 0.28s;
       padding: 10px 14px 20px;
       display: flex;
+      visibility: hidden;
+      pointer-events: none;
+      opacity: 0;
     }
 
     .left-sidebar.drawer-open,
     .right-telemetry.drawer-open {
+      bottom: 50px;
       transform: translateY(0);
+      visibility: visible;
+      pointer-events: auto;
+      opacity: 1;
     }
 
     /* 行動端抽屜收合把手 */
