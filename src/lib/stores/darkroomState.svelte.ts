@@ -7,6 +7,7 @@
 import type { CropGeometry, TuningParameters } from "$lib/types/photo";
 import type { PhotoPlateItem } from "./photoLibrary.svelte";
 import type { StyleKeywordId } from "$lib/services/ai/types";
+import { composeStyleKeywordPrompt, STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
 
 export type DiffMode = "off" | "split" | "sideBySide";
 export type CropRatioPreset = "original" | "1:1" | "4:5" | "16:9" | "9:16" | "free";
@@ -86,6 +87,8 @@ export class DarkroomStateStore {
   activeStylePreset = $state<string>("auto");
   previewHoverProfileId = $state<string | null>(null);
   selectedStyleKeywords = $state<StyleKeywordId[]>([]);
+  keywordOverrides = $state<Record<string, string>>({});
+  editingKeywordId = $state<string | null>(null);
   customStylePrompt = $state<string>("");
 
   /**
@@ -106,21 +109,92 @@ export class DarkroomStateStore {
   }
 
   /**
-   * 切換意境風格關鍵字晶片
+   * 切換意境風格關鍵字晶片（Textbox 留給使用者，不再連動改寫）
    */
   toggleStyleKeyword(id: StyleKeywordId): void {
     if (this.selectedStyleKeywords.includes(id)) {
       this.selectedStyleKeywords = this.selectedStyleKeywords.filter((k) => k !== id);
+      if (this.editingKeywordId === id) {
+        this.editingKeywordId = null;
+      }
     } else {
       this.selectedStyleKeywords = [...this.selectedStyleKeywords, id];
     }
   }
 
   /**
-   * 清除意境風格關鍵字
+   * 移除單一已選取的風格標籤
+   */
+  removeStyleKeyword(id: StyleKeywordId): void {
+    this.selectedStyleKeywords = this.selectedStyleKeywords.filter((k) => k !== id);
+    if (this.editingKeywordId === id) {
+      this.editingKeywordId = null;
+    }
+  }
+
+  /**
+   * 開始編輯指定標籤的指令內容
+   */
+  startEditingKeyword(id: StyleKeywordId): void {
+    if (!this.keywordOverrides[id]) {
+      const entry = STYLE_KEYWORD_ENTRIES.find((k) => k.id === id);
+      if (entry?.promptEnglish) {
+        this.keywordOverrides[id] = entry.promptEnglish;
+      }
+    }
+    this.editingKeywordId = id;
+  }
+
+  /**
+   * 完成編輯指定標籤
+   */
+  stopEditingKeyword(): void {
+    this.editingKeywordId = null;
+  }
+
+  /**
+   * 更新指定標籤的自訂指令
+   */
+  updateKeywordOverride(id: StyleKeywordId, text: string): void {
+    this.keywordOverrides[id] = text;
+  }
+
+  /**
+   * 還原指定標籤為預設指令
+   */
+  resetKeywordOverride(id: StyleKeywordId): void {
+    const next = { ...this.keywordOverrides };
+    delete next[id];
+    this.keywordOverrides = next;
+  }
+
+  /**
+   * 取得指定標籤目前的生效指令
+   */
+  getKeywordDirective(id: StyleKeywordId): string {
+    if (this.keywordOverrides[id] !== undefined) {
+      return this.keywordOverrides[id];
+    }
+    const entry = STYLE_KEYWORD_ENTRIES.find((k) => k.id === id);
+    return entry?.promptEnglish || "";
+  }
+
+  /**
+   * 取得所有生效中的標籤指令清單
+   */
+  getActiveDirectives(): string[] {
+    return this.selectedStyleKeywords
+      .map((id) => this.getKeywordDirective(id))
+      .filter((d) => d.trim().length > 0);
+  }
+
+  /**
+   * 清除意境風格關鍵字與自訂輸入
    */
   clearStyleKeywords(): void {
     this.selectedStyleKeywords = [];
+    this.keywordOverrides = {};
+    this.editingKeywordId = null;
     this.customStylePrompt = "";
   }
 

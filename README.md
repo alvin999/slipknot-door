@@ -129,14 +129,13 @@ graph TD
 
 ## 3D LUT 色彩科學與開源致謝 / Acknowledgements
 
-本專案之膠片色彩科學與相機風格比對，底層 3D LUT 紋理與曲線參照並轉換自開源攝影與膠卷模擬社群之精確設定檔：
+本專案之直出膠片色彩科學與相機風格查找表，底層 3D LUT 核心架構採用開源色彩科學專案之精確設定檔：
 
-* **HaldCLUT Open Source Film Simulation Collection**：
-  * 專案來源：[cedeber/hald-clut](https://github.com/cedeber/hald-clut)（彙整 RawTherapee Film Simulation、Fuji XTrans III、PictureFX、Pixelmator 等底片預設）
-  * 授權條款：[GPL-3.0 License](https://github.com/cedeber/hald-clut/blob/master/LICENSE)
-  * 用途說明：本專案透過開源三線性插值演算法，將經典負片與黑白銀鹽 HaldCLUT（如 Kodak Portra 160、Kodak Tri-X 400、Fuji Acros、Teal & Orange 等）無損取樣轉換為標準 32×32×32 Adobe `.cube` 格式，供 WebGL 2.0 片段著色器進行硬體加速渲染。
-
-* **Fujifilm Camera Profiles (Classic Chrome、Velvia、Astia、Eterna、Classic Neg 等)**：
-  * 專案來源：[abpy/FujifilmCameraProfiles](https://github.com/abpy/FujifilmCameraProfiles/tree/master)
-  * 授權條款：[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
-  * 用途說明：用於本專案 WebGL 2.0 3D 紋理之真實原廠色彩科學曲線映射與解碼對齊。
+* **LUMIX Original Looks (OKLab Parametric Generation Pipeline)**：
+  * 專案來源：[t0saki/lumix-original-looks](https://github.com/t0saki/lumix-original-looks)
+  * 色彩科學特性：專為相機 **Standard 相片風格 + sRGB 基底** 設計的 10 款高品質 33-point `.cube` 3D LUT。不同於傳統商業 LUT 粗暴的取樣或曲線擬合，本系列全數透過 **OKLab 感知均勻色彩空間** 參數化數學模型純算生成。
+  * 核心光學優勢：
+    1. **長暗部漸進 (Long Toe)**：暗部細節深邃且透氣，杜絕數位死黑結塊。
+    2. **高光漸進軟滾降 (Highlight Compression)**：亮部過渡柔和自然，高光去飽和防止色斑硬切。
+    3. **場景純淨色彩分離**：針對街拍（`Fieldnote`）、人像膚色保護（`Heartland`）、晴天天光（`Meridian`）、夜景混光抗 LED 斷階（`NightMarket`）、暮色冷暖（`DuskTide`）等場景量身打造。
+  * 渲染整合：搭配本專案 WebGL 2.0 片段著色器之 **Filmic Soft Shoulder Roll-off** 與 **Luma-weighted 有機銀鹽微粒**，賦予 AI 一鍵直出無可挑剔的底片呼吸感。

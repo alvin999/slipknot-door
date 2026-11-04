@@ -9,6 +9,17 @@ import type { AiSceneDecision, CopywritingPayload, CopywritingResult } from '../
 
 export type StylePresetKey =
   | 'standard'
+  | 'fieldnote'
+  | 'heartland'
+  | 'meridian'
+  | 'matinee'
+  | 'postcard'
+  | 'skylight'
+  | 'night_market'
+  | 'dusk_tide'
+  | 'canopy'
+  | 'lowsun'
+  // Backward compatibility aliases
   | 'matte_shadow'
   | 'reala_tone'
   | 'tungsten_soft'

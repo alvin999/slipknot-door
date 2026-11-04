@@ -92,6 +92,28 @@ vec3 applyWhiteBalance(vec3 c, float kelvin, float tintVal) {
     return clamp(res, 0.0, 1.0);
 }
 
+// Filmic Soft Highlight Shoulder Roll-off (高光漸進軟滾降，避免數位死白硬截斷)
+vec3 applyFilmicRollOff(vec3 c) {
+    vec3 linearPart = min(c, vec3(0.70));
+    vec3 highPart = max(c - 0.70, vec3(0.0));
+    vec3 compressed = linearPart + 0.30 * (highPart / (highPart + 0.30));
+    return compressed;
+}
+
+// Organic Film Grain (亮度加權微粒，在中間調與暗部自然浮現，高光純淨乾淨)
+float hashGrain(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+vec3 applyOrganicFilmGrain(vec3 c, vec2 uv, vec2 texSize) {
+    float l = lumaOf(c);
+    float weight = clamp(4.0 * l * (1.0 - l), 0.0, 1.0);
+    float noise = (hashGrain(uv * texSize * 0.7) - 0.5) * 2.0;
+    return clamp(c + vec3(noise * 0.012 * weight), 0.0, 1.0);
+}
+
 void main() {
     vec4 src = texture(u_image, v_uv);
     if (src.a < 0.001) {
@@ -152,6 +174,11 @@ void main() {
         }
         color += vec3(detailCoarse * u_clarity * 1.25 * midMask);
     }
+
+    // 6. Filmic Soft Highlight Shoulder Roll-off & Organic Grain
+    color = applyFilmicRollOff(color);
+    vec2 renderTexSize = vec2(textureSize(u_image, 0));
+    color = applyOrganicFilmGrain(color, v_uv, renderTexSize);
 
     fragColor = vec4(clamp(color, 0.0, 1.0), src.a);
 }
@@ -395,17 +422,29 @@ export class WebglLutRenderer {
     this.registerLut('Profile_04_HighContrastMono', this.generateMonoSilverLut(), 33);
     this.registerLut('Profile_05_DocumentaryChrome', this.generateDocumentaryChromeLut(), 33);
 
-    // 2. 自動非同步升級載入真實 3D .cube 紋理 (來自 cedeber/hald-clut 與原廠色彩科學還原)
-    this.loadCubeFileIfAvailable('Profile_01_MatteShadow', '/luts/fuji_eterna.cube');
-    this.loadCubeFileIfAvailable('Profile_02_RealaTone', '/luts/fuji_reala_ace.cube');
-    this.loadCubeFileIfAvailable('Profile_03_TungstenSoft', '/luts/kodak_portra_160.cube');
-    this.loadCubeFileIfAvailable('Profile_04_HighContrastMono', '/luts/kodak_trix_400.cube');
-    this.loadCubeFileIfAvailable('Profile_05_DocumentaryChrome', '/luts/fuji_classic_chrome.cube');
-    this.loadCubeFileIfAvailable('Profile_06_ClassicNeg', '/luts/fuji_classic_neg.cube');
-    this.loadCubeFileIfAvailable('Profile_07_VelvetSlide', '/luts/fuji_velvia.cube');
-    this.loadCubeFileIfAvailable('Profile_08_WarmAstia', '/luts/fuji_astia.cube');
-    this.loadCubeFileIfAvailable('Profile_09_NostalgicNeg', '/luts/fuji_nostalgic_neg.cube');
-    this.loadCubeFileIfAvailable('Profile_10_PlatinumAcros', '/luts/fuji_acros.cube');
+    // 2. 自動非同步升級載入真實 3D .cube 紋理 (來自 t0saki/lumix-original-looks OKLab 空間純數學模型)
+    this.loadCubeFileIfAvailable('Profile_01_Fieldnote', '/luts/Fieldnote.cube');
+    this.loadCubeFileIfAvailable('Profile_02_Heartland', '/luts/Heartland.cube');
+    this.loadCubeFileIfAvailable('Profile_03_Meridian', '/luts/Meridian.cube');
+    this.loadCubeFileIfAvailable('Profile_04_Matinee', '/luts/Matinee.cube');
+    this.loadCubeFileIfAvailable('Profile_05_Postcard', '/luts/Postcard.cube');
+    this.loadCubeFileIfAvailable('Profile_06_Skylight', '/luts/Skylight.cube');
+    this.loadCubeFileIfAvailable('Profile_07_NightMarket', '/luts/NightMarket.cube');
+    this.loadCubeFileIfAvailable('Profile_08_DuskTide', '/luts/DuskTide.cube');
+    this.loadCubeFileIfAvailable('Profile_09_Canopy', '/luts/Canopy.cube');
+    this.loadCubeFileIfAvailable('Profile_10_Lowsun', '/luts/Lowsun.cube');
+
+    // 向下相容歷史 Profile ID 映射 (Backward compatibility alias)
+    this.loadCubeFileIfAvailable('Profile_01_MatteShadow', '/luts/Fieldnote.cube');
+    this.loadCubeFileIfAvailable('Profile_02_RealaTone', '/luts/Heartland.cube');
+    this.loadCubeFileIfAvailable('Profile_03_TungstenSoft', '/luts/Heartland.cube');
+    this.loadCubeFileIfAvailable('Profile_04_HighContrastMono', '/luts/Matinee.cube');
+    this.loadCubeFileIfAvailable('Profile_05_DocumentaryChrome', '/luts/Meridian.cube');
+    this.loadCubeFileIfAvailable('Profile_06_ClassicNeg', '/luts/Fieldnote.cube');
+    this.loadCubeFileIfAvailable('Profile_07_VelvetSlide', '/luts/Postcard.cube');
+    this.loadCubeFileIfAvailable('Profile_08_WarmAstia', '/luts/Heartland.cube');
+    this.loadCubeFileIfAvailable('Profile_09_NostalgicNeg', '/luts/Lowsun.cube');
+    this.loadCubeFileIfAvailable('Profile_10_PlatinumAcros', '/luts/Matinee.cube');
   }
 
   private async loadCubeFileIfAvailable(profileId: string, url: string) {

@@ -23,6 +23,7 @@ export interface StyleKeywordEntry {
   label: string;
   shortTag: string;
   tooltip: string;
+  promptEnglish: string;
 }
 
 /**
@@ -35,44 +36,73 @@ export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
     label: 'Film Like (Analog Film Aesthetic / 底片感)',
     shortTag: 'Film Like',
     tooltip: '有機高光滾降、暗部微抬啞光黑、柔和暈光與溫潤底片色調',
+    promptEnglish:
+      'Analog film aesthetic: prioritize emulsion diffusion and gentle optical roll-off (keep clarity & sharpness <= 0.0 to prevent algorithmic digital edge halos), lifted matte shadow toe, natural highlight chroma desaturation',
   },
   {
     id: 'lomo',
     label: 'LOMO (Lomography Toy Camera / LOMO 風)',
     shortTag: 'LOMO 風',
     tooltip: '玩具相機負沖感、鮮明高反差、大膽色偏與邊緣微柔化',
+    promptEnglish:
+      'Lomography toy camera: punchy cross-processed chromatic drift, high dynamic contrast, vignetted falloff, soft peripheral focus',
   },
   {
     id: 'airy_jp',
     label: 'Japanese Airy Style (日系空氣感)',
     shortTag: '日系空氣感',
     tooltip: '明亮微過曝、低反差、抬升暗部、清透偏冷青日光感',
+    promptEnglish:
+      'Japanese airy aesthetic: high-key gentle overexposure, soft low contrast, lifted airy shadows, pastel tonality, cool cyan-green daylight bias',
   },
   {
     id: 'cinematic',
     label: 'Cinematic Color Grade (電影感)',
     shortTag: '電影感',
     tooltip: '戲劇張力光比、冷暖色溫分離、深邃中間調立體感',
+    promptEnglish:
+      'Cinematic color grade: teal and orange complementary split-toning, deep rich midtones, controlled contrast ratio, preserved dynamic shadow texture',
   },
   {
     id: 'faded_vintage',
     label: 'Faded Vintage Print (復古褪色)',
     shortTag: '復古褪色',
     tooltip: '歲月泛黃暖調、強烈啞光抬黑、低反差懷舊老照片',
+    promptEnglish:
+      'Faded vintage print: warm nostalgic sepia-amber cast, heavily lifted matte black floor, compressed dynamic range, aged print patina',
   },
   {
     id: 'neon_wkw',
     label: 'Wong Kar-wai Hong Kong Neon (王家衛 · 霓虹夜色)',
     shortTag: '霓虹王家衛',
     tooltip: '90年代港片氛圍、濃烈鎢絲綠或琥珀洋紅偏移、迷離柔焦感',
+    promptEnglish:
+      'Wong Kar-wai Hong Kong neon: stylized tungsten green and amber-magenta chromatic drift, dreamy bloom diffusion, nocturnal moody atmosphere',
   },
   {
     id: 'gritty_mono',
     label: 'Daido Moriyama Gritty Monochrome (森山大道 · 粗粒子硬調)',
     shortTag: '粗粒子硬調',
     tooltip: '極致高反差黑白街拍、深沉黑階、強烈邊緣微反差與清晰度',
+    promptEnglish:
+      'Daido Moriyama gritty monochrome: extreme high-contrast black-and-white, crushed deep blacks, aggressive micro-contrast and tactile edge sharpness',
   },
 ];
+
+/**
+ * 依據選取的風格關鍵字清單，自動組合專業英文光學指令
+ */
+export function composeStyleKeywordPrompt(ids: StyleKeywordId[]): string {
+  if (!Array.isArray(ids) || ids.length === 0) return '';
+  const parts: string[] = [];
+  for (const id of ids) {
+    const entry = STYLE_KEYWORD_ENTRIES.find((k) => k.id === id);
+    if (entry && entry.promptEnglish) {
+      parts.push(entry.promptEnglish);
+    }
+  }
+  return parts.join('; ');
+}
 
 export interface LutDirectiveEntry {
   presetKey: Exclude<StylePresetKey, 'auto'>;
@@ -89,64 +119,64 @@ export const LUT_DIRECTIVE_ENTRIES: LutDirectiveEntry[] = [
     prototypeName: 'Optical Straight-Out-Of-Camera (Zero 3D LUT)',
   },
   {
-    presetKey: 'matte_shadow',
-    profileId: 'Profile_01_MatteShadow',
-    cubeFile: 'fuji_eterna.cube',
-    prototypeName: 'Fujifilm Eterna (Cinema Negative)',
+    presetKey: 'fieldnote',
+    profileId: 'Profile_01_Fieldnote',
+    cubeFile: 'Fieldnote.cube',
+    prototypeName: 'LUMIX Fieldnote (C-41 Daily Negative, Long Toe, Slate Shadows & Straw Highlights)',
   },
   {
-    presetKey: 'reala_tone',
-    profileId: 'Profile_02_RealaTone',
-    cubeFile: 'fuji_reala_ace.cube',
-    prototypeName: 'Fujifilm Reala Ace (Modern True-to-Life Color Negative)',
+    presetKey: 'heartland',
+    profileId: 'Profile_02_Heartland',
+    cubeFile: 'Heartland.cube',
+    prototypeName: 'LUMIX Heartland (Warm Portrait Negative, Natural Skin Tones & Warm Indoor Light)',
   },
   {
-    presetKey: 'tungsten_soft',
-    profileId: 'Profile_03_TungstenSoft',
-    cubeFile: 'kodak_portra_160.cube',
-    prototypeName: 'Kodak Portra 160 (Portrait Color Negative)',
+    presetKey: 'meridian',
+    profileId: 'Profile_03_Meridian',
+    cubeFile: 'Meridian.cube',
+    prototypeName: 'LUMIX Meridian (Honest Daylight Stock, Zero-Drift Measured-Neutral Gray Axis)',
   },
   {
-    presetKey: 'monochrome_hc',
-    profileId: 'Profile_04_HighContrastMono',
-    cubeFile: 'kodak_trix_400.cube',
-    prototypeName: 'Kodak Tri-X 400 (High-Contrast B&W Negative)',
+    presetKey: 'matinee',
+    profileId: 'Profile_04_Matinee',
+    cubeFile: 'Matinee.cube',
+    prototypeName: 'LUMIX Matinee (Cinema Print Density, Deep Readable Blacks & Subtle Expressive Tones)',
   },
   {
-    presetKey: 'classic_chrome_cc',
-    profileId: 'Profile_05_DocumentaryChrome',
-    cubeFile: 'fuji_classic_chrome.cube',
-    prototypeName: 'Fujifilm Classic Chrome (Documentary Reversal)',
+    presetKey: 'postcard',
+    profileId: 'Profile_05_Postcard',
+    cubeFile: 'Postcard.cube',
+    prototypeName: 'LUMIX Postcard (Reversal Slide Hue Purification & Micro-Density, Clean Saturation)',
   },
   {
-    presetKey: 'classic_neg',
-    profileId: 'Profile_06_ClassicNeg',
-    cubeFile: 'fuji_classic_neg.cube',
-    prototypeName: 'Fujifilm Classic Neg. (Street Color Negative)',
+    presetKey: 'skylight',
+    profileId: 'Profile_06_Skylight',
+    cubeFile: 'Skylight.cube',
+    prototypeName: 'LUMIX Skylight (Light-Ratio Restructure, Open Shadows & Smooth Highlight Compression)',
   },
   {
-    presetKey: 'velvet_slide',
-    profileId: 'Profile_07_VelvetSlide',
-    cubeFile: 'fuji_velvia.cube',
-    prototypeName: 'Fujifilm Velvia (High-Saturation Reversal Slide)',
+    presetKey: 'night_market',
+    profileId: 'Profile_07_NightMarket',
+    cubeFile: 'NightMarket.cube',
+    prototypeName: 'LUMIX NightMarket (Mixed-Light Night, Tungsten/Sodium to Gold, LED Anti-Posterization)',
   },
   {
-    presetKey: 'warm_astia',
-    profileId: 'Profile_08_WarmAstia',
-    cubeFile: 'fuji_astia.cube',
-    prototypeName: 'Fujifilm Astia (Soft Portrait Reversal Slide)',
+    presetKey: 'dusk_tide',
+    profileId: 'Profile_08_DuskTide',
+    cubeFile: 'DuskTide.cube',
+    prototypeName: 'LUMIX DuskTide (Blue Hour, Indigo Shadows vs Warm Golden City Lighting)',
   },
   {
-    presetKey: 'nostalgic_neg',
-    profileId: 'Profile_09_NostalgicNeg',
-    cubeFile: 'fuji_nostalgic_neg.cube',
-    prototypeName: 'Fujifilm Nostalgic Neg. (Amber Tonality Negative)',
+    presetKey: 'canopy',
+    profileId: 'Profile_09_Canopy',
+    cubeFile: 'Canopy.cube',
+    prototypeName: 'LUMIX Canopy (Foliage Lightness Hierarchy, Deep Cyan-Greens vs Lit Yellow-Greens)',
   },
   {
-    presetKey: 'platinum_acros',
-    profileId: 'Profile_10_PlatinumAcros',
-    cubeFile: 'fuji_acros.cube',
-    prototypeName: 'Fujifilm Neopan Acros 100 (Ultra-Fine Silver B&W)',
+    presetKey: 'lowsun',
+    profileId: 'Profile_10_Lowsun',
+    cubeFile: 'Lowsun.cube',
+    prototypeName: 'LUMIX Lowsun (Golden Hour, Golden-Amber Highlights vs Cool Blue Shadows)',
   },
 ];
 
@@ -192,16 +222,19 @@ ${manifest}`;
   }
 
   const targetAesthetics: string[] = [];
-  if (Array.isArray(styleKeywords) && styleKeywords.length > 0) {
+  const trimmedCustom = customStylePrompt?.trim() || '';
+
+  if (trimmedCustom) {
+    // 若已提供具體文字（無論是 Chips 自動填入的英文指令或使用者自訂內容），以此為主
+    targetAesthetics.push(trimmedCustom);
+  } else if (Array.isArray(styleKeywords) && styleKeywords.length > 0) {
+    // 若無具體文字，則 fallback 使用選中標籤的預設指示
     for (const kwId of styleKeywords) {
       const found = STYLE_KEYWORD_ENTRIES.find((k) => k.id === kwId);
-      if (found) targetAesthetics.push(found.label);
+      if (found) {
+        targetAesthetics.push(found.promptEnglish || found.label);
+      }
     }
-  }
-
-  const trimmedCustom = customStylePrompt?.trim() || '';
-  if (trimmedCustom) {
-    targetAesthetics.push(trimmedCustom);
   }
 
   if (targetAesthetics.length > 0) {
@@ -214,9 +247,9 @@ ${manifest}`;
 4. recommended_profile & lut_intensity: 3D film LUT volumetric emulation.
 5. contrast: Global linear tonal slope.
 6. clarity & sharpness [-1.0 to 1.0, Baseline: 0.0]: Spatial frequency unsharp masking (high-frequency detail control).
-   - Negative values (< 0.0) attenuate high-frequency contrast to produce optical halation, emulsion diffusion, and roll-off.
-   - Positive values (> 0.0) amplify mid-tone micro-contrast and edge steepness to accentuate tactile relief, structural texture, and grit.
-   - Modulate according to whether the target aesthetic prioritizes optical diffusion (negative) or tactile texture and grit (positive).
+   - Baseline 0.0 preserves native optical lens MTF.
+   - Negative values (<= 0.0) attenuate high-frequency edge steepness to model chemical emulsion diffusion, halation, and organic optical roll-off.
+   - Positive values (> 0.0) apply algorithmic edge-overshoot sharpening; use only when explicitly intending modern digital micro-contrast (not applicable for organic film emulation).
 7. FILMIC HIGHLIGHT PHILOSOPHY: Analog film prioritizes highlight roll-off over global brightness. Protect organic textures in bright skies, sunlit walls, and skin highlights; preserve highlight headroom rather than pushing exposure.
 8. composition & geometric framing (crop_box, rotation_deg, keystone_v):
    - Frame Boundary Consolidation vs. Environmental Negative Space:
@@ -264,15 +297,14 @@ export function buildCriticInstructionBlock(
 - Clarity: ${clarity >= 0 ? '+' : ''}${clarity.toFixed(2)}, Sharpness: ${sharpness >= 0 ? '+' : ''}${sharpness.toFixed(2)}\n\n`;
   }
   const targetAesthetics: string[] = [];
-  if (Array.isArray(styleKeywords) && styleKeywords.length > 0) {
-    for (const kwId of styleKeywords) {
-      const found = STYLE_KEYWORD_ENTRIES.find((k) => k.id === kwId);
-      if (found) targetAesthetics.push(found.label);
-    }
-  }
   const trimmedCustom = customStylePrompt?.trim() || '';
   if (trimmedCustom) {
     targetAesthetics.push(trimmedCustom);
+  } else if (Array.isArray(styleKeywords) && styleKeywords.length > 0) {
+    for (const kwId of styleKeywords) {
+      const found = STYLE_KEYWORD_ENTRIES.find((k) => k.id === kwId);
+      if (found) targetAesthetics.push(found.promptEnglish || found.label);
+    }
   }
 
   const aestheticLine = targetAesthetics.length > 0
@@ -304,8 +336,8 @@ ${aestheticLine}- Since you have Image 2 (rendered actual result) as concrete gr
   5. 3D LUT INTENSITY (lut_intensity_delta, optional, valid range: -1.0 to 1.0):
      - Modulate the 3D LUT's volumetric influence within [-1.0, 1.0] if a more subtle or distinct profile presence is desired.
   6. OPTICAL TEXTURE & ACUTANCE (clarity_delta & sharpness_delta, optional, valid range: -0.5 to 0.5):
-     - Supply a negative delta if Image 2 benefits from softer optical diffusion, emulsion bloom, and roll-off.
-     - Supply a positive delta if the target aesthetic demands tactile relief, structural texture, and grit.
+     - Supply a negative delta if Image 2 exhibits unnatural digital edge hardness or to enhance analog emulsion diffusion and roll-off.
+     - Supply a positive delta only when the scene specifically requires modern high-frequency digital edge accentuation (not recommended for analog film aesthetics).
 
 Respond ONLY with raw JSON matching this schema:
 {
@@ -404,7 +436,7 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
     channels.push('1. exposure_compensation: Global luminance scaling (-2.0 to +2.0 EV). Target linear mid-tone placement while protecting organic highlight headroom.');
     channels.push('2. contrast: Global linear tonal slope (-0.5 to +0.5).');
     channels.push('3. lift_shadows: Shadow toe adjustment (-0.5 to +0.5). Negative deepens blacks; positive lifts darkest 40% luminance.');
-    channels.push('4. clarity & sharpness [-1.0 to +1.0, baseline: 0.0]: High-frequency spatial frequency control. Negative attenuates contrast for optical diffusion; positive amplifies tactile structural texture.');
+    channels.push('4. clarity & sharpness [-1.0 to +1.0, baseline: 0.0]: Spatial frequency control. Baseline 0.0 preserves native lens MTF. Negative values (<= 0.0) attenuate edge contrast to model organic emulsion diffusion; positive values (> 0.0) apply algorithmic digital sharpening.');
   }
   if (enableWb) {
     channels.push('5. color_temp & tint: Pre-LUT white balance (color_temp: integer 2500 to 10000, 5500 baseline; tint: -30.0 to +30.0). Neutralize unintended environmental chromatic cast.');

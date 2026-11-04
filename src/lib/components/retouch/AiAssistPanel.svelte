@@ -368,7 +368,7 @@
             >
               flare
             </span>
-            <span>調色意境關鍵字（點選加入 Prompt）</span>
+            <span>調色意境關鍵字</span>
           </div>
           {#if darkroomState.selectedStyleKeywords.length > 0 || darkroomState.customStylePrompt.trim()}
             <button
@@ -398,12 +398,89 @@
           {/each}
         </div>
 
-        <input
-          type="text"
+        {#if darkroomState.selectedStyleKeywords.length > 0}
+          <div class="style-labels-list">
+            {#each darkroomState.selectedStyleKeywords as kwId}
+              {@const entry = STYLE_KEYWORD_ENTRIES.find((k) => k.id === kwId)}
+              {@const isEditing = darkroomState.editingKeywordId === kwId}
+              {@const isOverridden = darkroomState.keywordOverrides[kwId] !== undefined}
+              {#if entry}
+                <div class="style-label-card" class:is-editing={isEditing}>
+                  <div class="label-card-head font-mono">
+                    <div class="label-badge-group">
+                      <span class="label-card-badge">{entry.shortTag}</span>
+                      {#if isOverridden}
+                        <span class="label-custom-indicator">已修改</span>
+                      {/if}
+                    </div>
+                    <div class="label-card-actions">
+                      {#if isEditing}
+                        <button
+                          type="button"
+                          class="label-action-btn primary font-mono"
+                          onclick={() => darkroomState.stopEditingKeyword()}
+                        >
+                          完成
+                        </button>
+                        <button
+                          type="button"
+                          class="label-action-btn font-mono"
+                          onclick={() => darkroomState.resetKeywordOverride(kwId)}
+                        >
+                          還原
+                        </button>
+                      {:else}
+                        <button
+                          type="button"
+                          class="label-action-btn font-mono"
+                          onclick={() => darkroomState.startEditingKeyword(kwId)}
+                        >
+                          編輯
+                        </button>
+                        {#if isOverridden}
+                          <button
+                            type="button"
+                            class="label-action-btn font-mono"
+                            onclick={() => darkroomState.resetKeywordOverride(kwId)}
+                          >
+                            還原
+                          </button>
+                        {/if}
+                        <button
+                          type="button"
+                          class="label-action-btn remove font-mono"
+                          onclick={() => darkroomState.removeStyleKeyword(kwId)}
+                          title="移除此標籤"
+                        >
+                          ✕
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+                  {#if isEditing}
+                    <textarea
+                      class="label-edit-textarea font-mono"
+                      rows="3"
+                      value={darkroomState.getKeywordDirective(kwId)}
+                      oninput={(e) => darkroomState.updateKeywordOverride(kwId, (e.target as HTMLTextAreaElement).value)}
+                    ></textarea>
+                  {:else}
+                    <div class="label-directive-display font-mono">
+                      {darkroomState.getKeywordDirective(kwId)}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+            {/each}
+          </div>
+        {/if}
+
+        <textarea
           class="vibe-custom-input font-mono"
-          placeholder="+ 自訂調色關鍵字 (例：偏暖、底片顆粒感)..."
+          rows="2"
+          placeholder="+ 自訂關鍵字..."
           bind:value={darkroomState.customStylePrompt}
-        />
+        ></textarea>
       </div>
 
       {#if onRunAiAnalysis}
@@ -901,16 +978,108 @@
     background: var(--amber-highlight);
     box-shadow: 0 0 6px var(--amber-highlight);
   }
+  .style-labels-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+  }
+  .style-label-card {
+    background: rgba(0, 0, 0, 0.38);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 3px;
+    padding: 5px 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: border-color 0.15s ease;
+  }
+  .style-label-card.is-editing {
+    border-color: var(--amber-highlight);
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .label-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 8.5px;
+  }
+  .label-badge-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .label-card-badge {
+    color: var(--amber-highlight);
+    font-weight: 600;
+    font-size: 9px;
+  }
+  .label-custom-indicator {
+    color: var(--parchment-dim);
+    font-size: 8px;
+  }
+  .label-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .label-action-btn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 2px;
+    padding: 1px 4px;
+    font-size: 8px;
+    color: var(--parchment-bright);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .label-action-btn:hover {
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+  }
+  .label-action-btn.primary {
+    background: rgba(255, 179, 0, 0.15);
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+  }
+  .label-action-btn.remove:hover {
+    border-color: #e57373;
+    color: #e57373;
+  }
+  .label-directive-display {
+    font-size: 9.5px;
+    line-height: 1.45;
+    color: var(--parchment-bright);
+    word-break: break-word;
+    white-space: pre-wrap;
+    user-select: text;
+  }
+  .label-edit-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--amber-highlight);
+    border-radius: 2px;
+    padding: 4px 6px;
+    font-size: 9.5px;
+    line-height: 1.4;
+    color: var(--parchment-bright);
+    outline: none;
+    resize: vertical;
+  }
   .vibe-custom-input {
     width: 100%;
     box-sizing: border-box;
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 3px;
-    padding: 4px 7px;
+    padding: 5px 7px;
     font-size: 9.5px;
+    line-height: 1.45;
     color: var(--parchment-bright);
     outline: none;
+    resize: vertical;
+    min-height: 38px;
     transition: border-color 0.15s ease;
   }
   .vibe-custom-input::placeholder {

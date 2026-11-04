@@ -120,6 +120,22 @@
   const currentIsCropMode = $derived(propsIsCropMode ?? darkroomState.isCropMode);
   const currentAiCropRationale = $derived(propsAiCropRationale ?? darkroomState.aiCropRationale);
 
+  // 組合幾何變換樣式（包含 3D 透視梯形校正 Keystone V/H、翻轉與旋轉）
+  const viewportImageTransform = $derived.by(() => {
+    const flipX = currentFlipH ? -1 : 1;
+    const flipY = currentFlipV ? -1 : 1;
+    const rot = currentCropRotation;
+    const kv = currentKeystoneV;
+    const kh = currentKeystoneH;
+
+    if (!kv && !kh) {
+      return `scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg)`;
+    }
+
+    // 垂直透視校正：負 rotateX 使頂部往觀察者拉近（拉寬）、底部遠離（縮窄），補償仰拍產生的上窄下寬
+    return `perspective(1000px) rotateX(${-kv}deg) rotateY(${kh}deg) scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg)`;
+  });
+
   const currentDiffMode = $derived(propsDiffMode ?? darkroomState.diffMode);
   const currentSplitPosition = $derived(propsSplitPosition ?? darkroomState.splitPosition);
   const currentShowABComparison = $derived(propsShowABComparison ?? darkroomState.showABComparison);
@@ -471,7 +487,7 @@
           bind:this={webglCanvas}
           class="plate-render-canvas"
           class:canvas-hidden={!hasRenderedFirstFrame}
-          style:transform={`scaleX(${currentFlipH ? -1 : 1}) scaleY(${currentFlipV ? -1 : 1}) rotate(${currentCropRotation}deg)`}
+          style:transform={viewportImageTransform}
         ></canvas>
 
         <!-- 零延遲預載入／回退底圖：在 WebGL 首幀著色完成前立即顯示原圖，杜絕死黑 -->
@@ -480,7 +496,7 @@
             src={activePhoto.thumbnail}
             alt={activePhoto.filename}
             class="plate-render-img"
-            style:transform={`scaleX(${currentFlipH ? -1 : 1}) scaleY(${currentFlipV ? -1 : 1}) rotate(${currentCropRotation}deg)`}
+            style:transform={viewportImageTransform}
           />
         {/if}
 
@@ -490,7 +506,7 @@
             class="split-original-layer"
             style:clip-path={`polygon(0 0, ${currentSplitPosition}% 0, ${currentSplitPosition}% 100%, 0 100%)`}
           >
-            <img src={activePhoto.thumbnail} alt="Original RAW" class="plate-render-img" />
+            <img src={activePhoto.thumbnail} alt="Original RAW" class="plate-render-img" style:transform={viewportImageTransform} />
             <div class="split-label original font-mono">ORIGINAL 本相</div>
           </div>
           <div class="split-label graded font-mono">GRADED 顯影</div>
