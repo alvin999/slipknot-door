@@ -164,11 +164,18 @@
         title="步驟一動作：一鍵進入暗房精修（若有選取則僅精修選取幀，未選取則精修全部）"
       >
         <span class="material-symbols-outlined" style="font-size: 16px;">tonality</span>
-        <span>
+        <span class="btn-text-full">
           {#if flaggedCount > 0}
             一鍵精修 ({flaggedCount} 幀) →
           {:else}
             一鍵精修 (全部) →
+          {/if}
+        </span>
+        <span class="btn-text-short">
+          {#if flaggedCount > 0}
+            精修 ({flaggedCount}) →
+          {:else}
+            精修 (全) →
           {/if}
         </span>
       </button>
@@ -177,10 +184,11 @@
         class="archival-btn-secondary"
         onclick={onOpenQuickExport}
         title="單張即時出圖 (⌘E)"
-        style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-xs); border: 1px solid var(--hairline-slate); background: var(--surface-panel); color: var(--amber-highlight); cursor: pointer; font-size: 11px;"
+        style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-xs); border: 1px solid var(--hairline-slate); background: var(--surface-panel); color: var(--amber-highlight); cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;"
       >
         <span class="material-symbols-outlined" style="font-size: 15px;">bolt</span>
-        <span>即時出圖 (⌘E)</span>
+        <span class="btn-text-full">即時出圖 (⌘E)</span>
+        <span class="btn-text-short">即時出圖</span>
       </button>
       <!-- STEP 2 PRIMARY ACTION -->
       <button
@@ -189,7 +197,8 @@
         title="步驟二動作：完成調色，前往批次導出"
       >
         <span class="material-symbols-outlined" style="font-size: 16px;">output_circle</span>
-        <span>完成精修，前往導出 ({activeQueueLength} 幀) →</span>
+        <span class="btn-text-full">完成精修，前往導出 ({activeQueueLength} 幀) →</span>
+        <span class="btn-text-short">導出 ({activeQueueLength}) →</span>
       </button>
     {:else}
       <!-- STEP 3 PRIMARY ACTION -->
@@ -202,7 +211,8 @@
         <span class="material-symbols-outlined" style="font-size: 16px;">
           {exportMode === 'modeA' ? 'bolt' : 'hd'}
         </span>
-        <span>{isExporting ? '匯出中...' : `批次導出 (${activeQueueLength} 幀) ⚡`}</span>
+        <span class="btn-text-full">{isExporting ? '匯出中...' : `批次導出 (${activeQueueLength} 幀) ⚡`}</span>
+        <span class="btn-text-short">{isExporting ? '匯出中' : `導出 (${activeQueueLength}) ⚡`}</span>
       </button>
     {/if}
 
@@ -234,6 +244,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-shrink: 0;
   }
   .brand-icon-img {
     width: 24px;
@@ -246,12 +257,14 @@
   .brand-titles {
     display: flex;
     flex-direction: column;
+    white-space: nowrap;
   }
   .brand-title {
     font-size: 15px;
     font-weight: 600;
     line-height: 1.1;
     letter-spacing: 0.05em;
+    white-space: nowrap;
   }
   .brand-sub {
     font-size: 9px;
@@ -411,6 +424,16 @@
     opacity: 0.6;
   }
 
+  /* 按鈕長短文案切換（預設桌面版顯示完整文案） */
+  .btn-text-full {
+    display: inline;
+    white-space: nowrap;
+  }
+  .btn-text-short {
+    display: none;
+    white-space: nowrap;
+  }
+
   /* STEPPER CTA HIGHLIGHTS */
   .stepper-cta {
     display: inline-flex;
@@ -418,6 +441,8 @@
     gap: 6px;
     font-weight: 600;
     cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
     transition: all 0.2s ease;
   }
 
@@ -456,8 +481,13 @@
     .device-metric,
     .divider,
     .stepper-pipeline,
-    .archival-chip {
+    .archival-chip,
+    .btn-text-full {
       display: none;
+    }
+
+    .btn-text-short {
+      display: inline;
     }
 
     .brand-title {
@@ -467,7 +497,7 @@
     .device-telemetry {
       padding: 4px 8px;
       font-size: 10px;
-      max-width: 140px;
+      max-width: 130px;
     }
 
     .device-name {
@@ -478,6 +508,36 @@
 
     .top-actions {
       gap: 6px;
+      flex-shrink: 0;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .top-nav {
+      padding: 0 8px;
+    }
+
+    .brand-block {
+      gap: 6px;
+    }
+
+    .brand-title {
+      font-size: 13px;
+    }
+
+    .device-telemetry {
+      max-width: 72px;
+      padding: 3px 6px;
+      font-size: 9px;
+    }
+
+    .help-trigger-btn {
+      width: 28px;
+      height: 28px;
+    }
+
+    .help-trigger-btn .icon {
+      font-size: 16px;
     }
   }
 </style>
