@@ -38,6 +38,10 @@
   let activeTab = $state<ModuleTab>("catalog"); // Default to catalog on fresh load for curatorial overview
   let retouchViewRef = $state<any>(null);
 
+  // Mobile Bottom Drawer State (行動端抽屜狀態)
+  type MobileDrawer = "none" | "ai" | "tuning";
+  let activeMobileDrawer = $state<MobileDrawer>("none");
+
   // Key Vault & Help Modal State
   let isVaultOpen = $state<boolean>(false);
   let isHelpOpen = $state<boolean>(false);
@@ -3293,16 +3297,31 @@
   <!-- MAIN CURATORIAL WORKSPACE -->
   <main class="main-body">
     <!-- LEFT SIDEBAR: WORKFLOW MODULES -->
-    <aside class="left-sidebar hairline-r">
-      <WorkflowSidebar
-        {activeTab}
-        totalPhotos={photoPlates.length}
-        {flaggedCount}
-        activeQueueLength={activeQueue.length}
-        profilesCount={profiles.length}
-        onTabChange={(tab) => (activeTab = tab)}
-        onOpenHelp={() => (isHelpOpen = true)}
-      />
+    <aside class="left-sidebar hairline-r" class:drawer-open={activeMobileDrawer === "ai"}>
+      <!-- 行動端抽屜收合把手 (Mobile Drawer Handle) -->
+      <div class="mobile-drawer-handle-bar">
+        <div class="drawer-drag-pill"></div>
+        <button
+          type="button"
+          class="drawer-close-btn font-mono"
+          onclick={() => (activeMobileDrawer = "none")}
+        >
+          <span>收合面板</span>
+          <span class="material-symbols-outlined" style="font-size: 14px;">keyboard_arrow_down</span>
+        </button>
+      </div>
+      <!-- 電腦版桌面側邊選單：在手機版抽屜中隱藏，使抽屜僅呈現純粹 AI 風格面板 -->
+      <div class="desktop-workflow-nav">
+        <WorkflowSidebar
+          {activeTab}
+          totalPhotos={photoPlates.length}
+          {flaggedCount}
+          activeQueueLength={activeQueue.length}
+          profilesCount={profiles.length}
+          onTabChange={(tab) => (activeTab = tab)}
+          onOpenHelp={() => (isHelpOpen = true)}
+        />
+      </div>
 
       <!-- AI Scene Assistant Quick Dock (Step 2: 單張暗房精修專屬) -->
       {#if activeTab === "retouch"}
@@ -3418,7 +3437,19 @@
 
     {#if activeTab === "retouch" || activeTab === "catalog"}
       <!-- RIGHT SIDEBAR: RETOUCH COLOR DOCK OR CATALOG SELECTION RACK -->
-      <aside class="right-telemetry hairline-l">
+      <aside class="right-telemetry hairline-l" class:drawer-open={activeMobileDrawer === "tuning"}>
+        <!-- 行動端抽屜收合把手 (Mobile Drawer Handle) -->
+        <div class="mobile-drawer-handle-bar">
+          <div class="drawer-drag-pill"></div>
+          <button
+            type="button"
+            class="drawer-close-btn font-mono"
+            onclick={() => (activeMobileDrawer = "none")}
+          >
+            <span>收合面板</span>
+            <span class="material-symbols-outlined" style="font-size: 14px;">keyboard_arrow_down</span>
+          </button>
+        </div>
         {#if activeTab === "retouch"}
           <TuningPanel
             {profiles}
@@ -3459,6 +3490,108 @@
     {/if}
   </main>
 
+  {#if activeMobileDrawer !== "none"}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="mobile-drawer-backdrop"
+      onclick={() => (activeMobileDrawer = "none")}
+    ></div>
+  {/if}
+
+  {#if activeTab === "retouch"}
+    <!-- 行動端暗房操作工具列：固定置於底欄上方，絕不遮擋相片畫布與 EXIF 遙測資訊 -->
+    <div class="mobile-retouch-action-bar hairline-t font-mono">
+      <button
+        type="button"
+        class="retouch-action-pill"
+        class:active={activeMobileDrawer === "ai"}
+        onclick={() =>
+          (activeMobileDrawer = activeMobileDrawer === "ai" ? "none" : "ai")}
+      >
+        <span class="material-symbols-outlined" style="font-size: 16px;">auto_awesome</span>
+        <span>AI 風格建議</span>
+      </button>
+      <button
+        type="button"
+        class="retouch-action-pill"
+        class:active={activeMobileDrawer === "tuning"}
+        onclick={() =>
+          (activeMobileDrawer = activeMobileDrawer === "tuning" ? "none" : "tuning")}
+      >
+        <span class="material-symbols-outlined" style="font-size: 16px;">tune</span>
+        <span>參數微調</span>
+      </button>
+    </div>
+  {/if}
+
+  <!-- 行動端底部導航列 (Mobile Bottom Navigation Bar) -->
+  <nav class="mobile-bottom-nav hairline-t font-mono">
+    <button
+      type="button"
+      class="mobile-nav-item"
+      class:active={activeTab === "catalog"}
+      onclick={() => {
+        activeTab = "catalog";
+        activeMobileDrawer = "none";
+      }}
+    >
+      <span class="material-symbols-outlined">grid_view</span>
+      <span class="nav-text">挑圖</span>
+      {#if flaggedCount > 0}
+        <span class="nav-badge">{flaggedCount}</span>
+      {/if}
+    </button>
+    <button
+      type="button"
+      class="mobile-nav-item"
+      class:active={activeTab === "retouch"}
+      onclick={() => {
+        activeTab = "retouch";
+        activeMobileDrawer = "none";
+      }}
+    >
+      <span class="material-symbols-outlined">photo_filter</span>
+      <span class="nav-text">精修</span>
+    </button>
+    <button
+      type="button"
+      class="mobile-nav-item"
+      class:active={activeTab === "profiles"}
+      onclick={() => {
+        activeTab = "profiles";
+        activeMobileDrawer = "none";
+      }}
+    >
+      <span class="material-symbols-outlined">palette</span>
+      <span class="nav-text">風格庫</span>
+    </button>
+    <button
+      type="button"
+      class="mobile-nav-item"
+      class:active={activeTab === "export"}
+      onclick={() => {
+        activeTab = "export";
+        activeMobileDrawer = "none";
+      }}
+    >
+      <span class="material-symbols-outlined">ios_share</span>
+      <span class="nav-text">導出/分享</span>
+    </button>
+    <button
+      type="button"
+      class="mobile-nav-item"
+      class:active={activeTab === "devices"}
+      onclick={() => {
+        activeTab = "devices";
+        activeMobileDrawer = "none";
+      }}
+    >
+      <span class="material-symbols-outlined">cable</span>
+      <span class="nav-text">相機</span>
+    </button>
+  </nav>
+
   <!-- 未配置金鑰引導確認 Modal (API Key Required Prompt) -->
   <KeyPromptModal
     bind:isOpen={isKeyPromptModalOpen}
@@ -3489,6 +3622,7 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh;
     width: 100vw;
     background-color: var(--canvas-base);
     color: var(--parchment-bright);
@@ -3500,6 +3634,7 @@
     display: flex;
     flex: 1;
     overflow: hidden;
+    position: relative;
   }
 
   /* LEFT SIDEBAR */
@@ -3537,5 +3672,176 @@
     overflow-x: hidden;
     scrollbar-gutter: stable;
     flex-shrink: 0;
+  }
+
+  /* 桌面端預設隱藏手機專屬抽屜與底欄元件 */
+  .mobile-drawer-handle-bar,
+  .mobile-retouch-action-bar,
+  .mobile-bottom-nav,
+  .mobile-drawer-backdrop {
+    display: none;
+  }
+
+  /* ── 行動端暗房佈局與抽屜動效 (Mobile Darkroom Responsive Layout & Bottom Sheet) ── */
+  @media (max-width: 768px) {
+    /* 手機抽屜展開時，隱藏電腦版工作流側邊導航，僅呈現純粹 AI 風格面板 */
+    .desktop-workflow-nav {
+      display: none !important;
+    }
+
+    .left-sidebar,
+    .right-telemetry {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 50px;
+      width: 100% !important;
+      max-height: 72vh;
+      z-index: 1000;
+      background-color: var(--surface-panel);
+      border-radius: 18px 18px 0 0;
+      box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.85);
+      border-top: 1px solid var(--hairline-slate);
+      transform: translateY(120%);
+      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+      padding: 10px 14px 20px;
+      display: flex;
+    }
+
+    .left-sidebar.drawer-open,
+    .right-telemetry.drawer-open {
+      transform: translateY(0);
+    }
+
+    /* 行動端抽屜收合把手 */
+    .mobile-drawer-handle-bar {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-bottom: 8px;
+      margin-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      position: sticky;
+      top: 0;
+      background-color: var(--surface-panel);
+      z-index: 10;
+    }
+
+    .drawer-drag-pill {
+      width: 36px;
+      height: 4px;
+      background-color: rgba(255, 255, 255, 0.25);
+      border-radius: 2px;
+      margin-bottom: 6px;
+    }
+
+    .drawer-close-btn {
+      background: none;
+      border: none;
+      color: var(--parchment-dim);
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+
+    .drawer-close-btn:hover {
+      color: var(--amber-highlight);
+    }
+
+    /* 抽屜全螢幕暗色遮罩 */
+    .mobile-drawer-backdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(3px);
+      z-index: 999;
+    }
+
+    /* 行動端精修專屬操作固定工具列：置於底欄上方，絕不遮蔽相片畫布與 EXIF 遙測條 */
+    .mobile-retouch-action-bar {
+      display: flex;
+      height: 44px;
+      background-color: var(--surface-panel);
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      z-index: 890;
+      border-top: 1px solid var(--hairline-slate);
+      flex-shrink: 0;
+    }
+
+    .retouch-action-pill {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--hairline-slate);
+      border-radius: 20px;
+      padding: 6px 16px;
+      font-size: 12px;
+      color: var(--parchment-bright);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .retouch-action-pill.active {
+      background: rgba(212, 163, 115, 0.15);
+      border-color: var(--amber-highlight);
+      color: var(--amber-highlight);
+    }
+
+    /* 行動端底部導航列 */
+    .mobile-bottom-nav {
+      display: flex;
+      height: 52px;
+      background-color: var(--surface-panel);
+      z-index: 900;
+      align-items: center;
+      justify-content: space-around;
+      padding: 0 6px;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      flex-shrink: 0;
+    }
+
+    .mobile-nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      color: var(--parchment-dim);
+      padding: 4px 10px;
+      cursor: pointer;
+      position: relative;
+      font-size: 10px;
+      gap: 2px;
+      transition: color 0.15s ease;
+    }
+
+    .mobile-nav-item .material-symbols-outlined {
+      font-size: 20px;
+    }
+
+    .mobile-nav-item.active {
+      color: var(--amber-highlight);
+    }
+
+    .nav-badge {
+      position: absolute;
+      top: 2px;
+      right: 6px;
+      background-color: var(--amber-highlight);
+      color: #121316;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 0 4px;
+      border-radius: 8px;
+    }
   }
 </style>

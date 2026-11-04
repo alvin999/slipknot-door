@@ -49,6 +49,36 @@
   let filterFlaggedOnly = $state<boolean>(false);
   let isQuickLookOpen = $state<boolean>(false);
 
+  // ── 裝置與指標能力動態感應 (Adaptive Input & Device Sensing) ──
+  let isCoarsePointer = $state(false);
+  let hasDetectedPhysicalKeyboard = $state(false);
+  const showKeyboardHints = $derived(!isCoarsePointer || hasDetectedPhysicalKeyboard);
+
+  // 觸控手勢：單擊標記 (Mark/Flag)，雙擊直接切入暗房精修 (Double-Tap to Retouch)
+  let lastTapTime = 0;
+  let lastTapPhotoId: string | null = null;
+
+  function handlePhotoCardTouch(photo: CatalogPhotoItem, e: TouchEvent) {
+    const now = performance.now();
+    const isDoubleTap = lastTapPhotoId === photo.id && (now - lastTapTime < 340);
+
+    if (isDoubleTap) {
+      // 雙擊：直接進入暗房精修階段
+      lastTapTime = 0;
+      lastTapPhotoId = null;
+      onSelectPhoto(photo);
+      onOpenRetouch(photo);
+      e.preventDefault();
+    } else {
+      // 單擊：立即切換標記狀態 (Mark/Flag) 並更新作用中選取相片
+      lastTapTime = now;
+      lastTapPhotoId = photo.id;
+      onSelectPhoto(photo);
+      photo.flagged = !photo.flagged;
+      onToggleFlag?.(photo);
+    }
+  }
+
   // Derived filtered photos
   let displayedPhotos = $derived(
     filterFlaggedOnly ? photos.filter(p => p.flagged) : photos
@@ -114,6 +144,31 @@
       setTimeout(() => {
         scrollToPhoto(activePhoto.id);
       }, 60);
+
+    }
+
+    if (typeof window !== 'undefined') {
+      const coarseMq = window.matchMedia('(pointer: coarse)');
+      isCoarsePointer = coarseMq.matches || (navigator.maxTouchPoints > 0);
+
+      const updatePointer = (e: MediaQueryListEvent) => {
+        isCoarsePointer = e.matches;
+      };
+      coarseMq.addEventListener?.('change', updatePointer);
+
+      // 動態偵測：一旦使用者在平板或電腦按下實體鍵盤，立即點亮快捷鍵導引
+      const onFirstKey = (e: KeyboardEvent) => {
+        if (!['Shift', 'Alt', 'Control', 'Meta'].includes(e.key)) {
+          hasDetectedPhysicalKeyboard = true;
+        }
+      };
+      window.addEventListener('keydown', onFirstKey, { passive: true });
+
+      return () => {
+        coarseMq.removeEventListener?.('change', updatePointer);
+        window.removeEventListener('keydown', onFirstKey);
+      };
+
     }
   });
 
@@ -257,7 +312,8 @@
     </div>
 
     <div class="tool-group actions">
-      <!-- Vim Keyboard Shortcuts Hint -->
+      <!-- Vim Keyboard Shortcuts Hint: 在純觸控環境隱藏，外接鍵盤時動態點亮 -->
+      {#if showKeyboardHints}
       <div class="vim-nav-indicator hairline-all" title="鍵盤導航：HJKL 移動，P 挑選/取消，空白鍵大圖審查，Enter 一鍵進入精修">
         <span class="material-symbols-outlined" style="font-size: 13px; color: var(--amber-highlight);">keyboard</span>
         <span class="key-cap">HJKL</span>
@@ -272,6 +328,8 @@
         <span class="key-cap">Enter</span>
         <span class="key-desc">精修</span>
       </div>
+
+      {/if}
 
       <!-- Flagging Controls -->
       <button 
@@ -373,8 +431,14 @@
             role="gridcell"
             tabindex="0"
             onclick={(e) => {
+              if (isCoarsePointer) return;
               (e.currentTarget as HTMLElement).blur();
               onSelectPhoto(photo);
+            }}
+            ontouchend={(e) => {
+              if (isCoarsePointer) {
+                handlePhotoCardTouch(photo, e);
+              }
             }}
             ondblclick={() => onOpenRetouch(photo)}
             onkeydown={(e) => {
@@ -431,7 +495,13 @@
             <!-- Footer Meta Bar -->
             <div class="film-card-footer font-mono">
               <span class="filename-text truncate">{photo.filename}</span>
-              <span class="hint-dblclick">雙擊精修 ↵</span>
+              {#if showKeyboardHints}
+                <span class="hint-dblclick">雙擊精修 ↵</span>
+              {:else}
+                <span class="hint-dblclick" class:amber={photo.flagged}>
+                  {photo.flagged ? '已挑選 🔖' : '輕點標記'}
+                </span>
+              {/if}
             </div>
           </div>
         {/each}
@@ -879,5 +949,54 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .hint-dblclick.amber {
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+
+  /* ── 觸控設備與行動端專屬佈局 (Mobile & Coarse Pointer Layout) ── */
+  @media (pointer: coarse), (max-width: 768px) {
+    .catalog-toolbar {
+      padding: 6px 10px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tool-title {
+      font-size: 13px;
+    }
+
+    .density-switch {
+      display: none; /* 行動端與純觸控自適應 2 欄大縮圖 */
+    }
+
+    .catalog-grid-container {
+      padding: 8px;
+    }
+
+    .film-grid {
+      grid-template-columns: repeat(2, 1fr) !important;
+      gap: 8px;
+    }
+
+    .film-card {
+      -webkit-touch-callout: none;
+      touch-action: manipulation;
+    }
+
+    .sprocket-strip {
+      height: 12px;
+      padding: 0 4px;
+    }
+
+    .sprocket-hole {
+      width: 4px;
+      height: 4px;
+    }
+
+    .telemetry-compact {
+      font-size: 8px;
+    }
   }
 </style>

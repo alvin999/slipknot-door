@@ -444,5 +444,41 @@
     filter: brightness(1.1);
     box-shadow: 0 0 18px rgba(75, 146, 182, 0.45);
   }
+
+  /* ── 行動端頂部列響應式 (Mobile TopNav Layout) ── */
+  @media (max-width: 768px) {
+    .top-nav {
+      height: 48px;
+      padding: 0 10px;
+    }
+
+    .brand-sub,
+    .device-metric,
+    .divider,
+    .stepper-pipeline,
+    .archival-chip {
+      display: none;
+    }
+
+    .brand-title {
+      font-size: 14px;
+    }
+
+    .device-telemetry {
+      padding: 4px 8px;
+      font-size: 10px;
+      max-width: 140px;
+    }
+
+    .device-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .top-actions {
+      gap: 6px;
+    }
+  }
 </style>
 

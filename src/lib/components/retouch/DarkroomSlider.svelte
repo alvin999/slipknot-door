@@ -356,4 +356,28 @@
     pointer-events: none;
     border-radius: 1px;
   }
+
+  /* 行動端觸控介面優化：放大滑桿 thumb 與點擊熱區 */
+  @media (max-width: 768px) {
+    .slider-wrapper {
+      padding: 10px 0;
+      touch-action: none;
+    }
+
+    .darkroom-slider {
+      height: 6px;
+    }
+
+    .darkroom-slider::-webkit-slider-thumb {
+      width: 22px;
+      height: 22px;
+      box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+    }
+
+    .label-text,
+    .control-val {
+      font-size: 13px;
+      padding: 4px 6px;
+    }
+  }
 </style>

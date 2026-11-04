@@ -129,11 +129,13 @@
     const kh = currentKeystoneH;
 
     if (!kv && !kh) {
-      return `scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg)`;
+      const base = `scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg)`;
+      return isMobileZoomed ? `${base} scale(1.8)` : base;
     }
 
     // 垂直透視校正：負 rotateX 使頂部往觀察者拉近（拉寬）、底部遠離（縮窄），補償仰拍產生的上窄下寬
-    return `perspective(1000px) rotateX(${-kv}deg) rotateY(${kh}deg) scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg)`;
+    const baseTransform = `perspective(1000px) rotateX(${-kv}deg) rotateY(${kh}deg) scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg)`;
+    return isMobileZoomed ? `${baseTransform} scale(1.8)` : baseTransform;
   });
 
   const currentDiffMode = $derived(propsDiffMode ?? darkroomState.diffMode);
@@ -151,6 +153,54 @@
   let hasRenderedFirstFrame = $state<boolean>(false);
   let isWebglActive = $state<boolean>(false);
   let isExifSlateOpen = $state<boolean>(false);
+
+  // ── 行動端觸控手勢 (Mobile Touch Gestures: Swipe & Double-Tap Zoom) ──
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchStartTime = 0;
+  let lastTapTime = 0;
+  let isMobileZoomed = $state<boolean>(false);
+
+  function handleTouchStart(e: TouchEvent) {
+    if (e.touches.length === 1) {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+      touchStartTime = performance.now();
+    }
+  }
+
+  function handleTouchEnd(e: TouchEvent) {
+    if (e.changedTouches.length === 1) {
+      const touchEndX = e.changedTouches[0].clientX;
+      const touchEndY = e.changedTouches[0].clientY;
+      const deltaX = touchEndX - touchStartX;
+      const deltaY = touchEndY - touchStartY;
+      const deltaTime = performance.now() - touchStartTime;
+
+      // 1. 雙擊縮放偵測 (Double-Tap Zoom)
+      const now = performance.now();
+      if (Math.abs(deltaX) < 15 && Math.abs(deltaY) < 15 && deltaTime < 280) {
+        if (now - lastTapTime < 320) {
+          isMobileZoomed = !isMobileZoomed;
+          lastTapTime = 0;
+          return;
+        }
+        lastTapTime = now;
+      }
+
+      // 2. 左右滑動切換底片 (Swipe Left / Right)
+      // 在非縮放、非裁切調整與非簾幕拖曳狀態下觸發
+      if (!isMobileZoomed && !currentIsCropMode && !darkroomState.isDraggingSplit) {
+        if (deltaX < -50 && Math.abs(deltaY) < 60) {
+          // 向左滑動 -> 下一張
+          photoLibrary.selectAdjacentPhoto(1);
+        } else if (deltaX > 50 && Math.abs(deltaY) < 60) {
+          // 向右滑動 -> 前一張
+          photoLibrary.selectAdjacentPhoto(-1);
+        }
+      }
+    }
+  }
 
   // 簾幕比對拖曳
   function handleSplitPointerDown(e: MouseEvent) {
@@ -360,6 +410,8 @@
       onmousemove={handleStagePointerMove}
       onmouseup={handleStagePointerUp}
       onmouseleave={handleStagePointerUp}
+      ontouchstart={handleTouchStart}
+      ontouchend={handleTouchEnd}
       role="region"
       aria-label="暗房畫布視窗"
     >
@@ -1596,5 +1648,115 @@
     border-radius: 2px;
     white-space: nowrap;
     border: 1px solid var(--hairline-slate);
+  }
+  /* ── 行動端暗房觸控與排版優化 (Mobile Darkroom Responsive Layout) ── */
+  @media (max-width: 768px) {
+    .photo-stage-viewport {
+      padding: 6px;
+      overflow: hidden;
+    }
+
+    .plate-canvas-wrapper {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    .plate-tag-bar {
+      top: 6px;
+      left: 6px;
+      right: 6px;
+      gap: 6px;
+      justify-content: space-between;
+    }
+
+    .plate-id-badge {
+      font-size: 10px;
+      padding: 3px 6px;
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .stage-hud-bar {
+      padding: 2px 6px;
+      gap: 4px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .stage-hud-bar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .hud-left {
+      gap: 3px;
+    }
+
+    .hud-title {
+      display: none;
+    }
+
+    .diff-mode-btn {
+      font-size: 10px;
+      padding: 3px 6px;
+    }
+
+    .hud-right .quick-export-hud-btn span:last-child {
+      display: none; /* 手機端只顯示閃電圖示，節省空間 */
+    }
+
+    /* 原圖比對按鈕：浮動在手機右下方拇指舒適區 */
+    .ab-toggle-btn {
+      bottom: 42px;
+      right: 10px;
+      padding: 6px 10px;
+      font-size: 11px;
+      border-radius: 20px;
+      background: rgba(18, 19, 22, 0.85);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    /* 光學遙測條：緊湊橫向滑動 */
+    .plate-rebate-bar {
+      height: 32px;
+      padding: 0 8px;
+      font-size: 10px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .rebate-lens,
+    .rebate-sep,
+    .rebate-chip.dim {
+      display: none;
+    }
+
+    /* 底部底片軌道：緊湊直覺 */
+    .contact-sheet-strip {
+      height: 86px;
+    }
+
+    .strip-header {
+      padding: 4px 10px;
+      font-size: 10px;
+    }
+
+    .strip-info-left .strip-label {
+      display: none;
+    }
+
+    .strip-frames-scroll {
+      padding: 4px 8px;
+      gap: 6px;
+    }
+
+    .film-frame-card {
+      width: 58px;
+      height: 52px;
+    }
   }
 </style>
