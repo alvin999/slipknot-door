@@ -61,6 +61,12 @@
   // ── 多選模式與批次選取狀態 (Multi-Select & Batch Action Mode) ──
   let isMultiSelectMode = $state(false);
   let selectedBatchIds = $state<string[]>([]);
+  let isSwipeSelecting = $state(false);
+  let swipeSelectAction = $state<'select' | 'deselect'>('select');
+  let gridContainerElement: HTMLElement | null = $state(null);
+  let autoScrollRafId: number | null = null;
+  let currentTouchClientX = 0;
+  let currentTouchClientY = 0;
 
   function toggleBatchSelect(photoId: string) {
     if (selectedBatchIds.includes(photoId)) {
@@ -70,10 +76,16 @@
     }
   }
 
-  function enterMultiSelect(photo: CatalogPhotoItem) {
+  function enterMultiSelect(photo: CatalogPhotoItem, autoStartSwipe = false) {
     isMultiSelectMode = true;
     if (!selectedBatchIds.includes(photo.id)) {
       selectedBatchIds = [...selectedBatchIds, photo.id];
+      swipeSelectAction = 'select';
+    } else {
+      swipeSelectAction = 'deselect';
+    }
+    if (autoStartSwipe) {
+      isSwipeSelecting = true;
     }
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       try { navigator.vibrate(40); } catch (_) {}
@@ -81,6 +93,8 @@
   }
 
   function exitMultiSelect() {
+    stopAutoScroll();
+    isSwipeSelecting = false;
     isMultiSelectMode = false;
     selectedBatchIds = [];
   }
@@ -108,7 +122,79 @@
     }
   }
 
-  // 觸控手勢管理：長按進入多選模式，單擊直接進入精修 (或在多選模式下切換選取)
+  // ── 邊緣自動平滑滾動 (Edge Auto-scrolling on Swipe Select) ──
+  function checkAndStartAutoScroll() {
+    if (!gridContainerElement || !isSwipeSelecting) return;
+    const rect = gridContainerElement.getBoundingClientRect();
+    const topThreshold = rect.top + 65;
+    const bottomThreshold = rect.bottom - 65;
+
+    if (currentTouchClientY < topThreshold || currentTouchClientY > bottomThreshold) {
+      if (!autoScrollRafId) {
+        autoScrollLoop();
+      }
+    } else {
+      stopAutoScroll();
+    }
+  }
+
+  function autoScrollLoop() {
+    if (!gridContainerElement || !isSwipeSelecting) {
+      stopAutoScroll();
+      return;
+    }
+    const rect = gridContainerElement.getBoundingClientRect();
+    const topThreshold = rect.top + 65;
+    const bottomThreshold = rect.bottom - 65;
+
+    if (currentTouchClientY < topThreshold) {
+      const intensity = Math.min(1, Math.max(0.2, (topThreshold - currentTouchClientY) / 65));
+      gridContainerElement.scrollTop -= Math.round(3 + intensity * 12);
+    } else if (currentTouchClientY > bottomThreshold) {
+      const intensity = Math.min(1, Math.max(0.2, (currentTouchClientY - bottomThreshold) / 65));
+      gridContainerElement.scrollTop += Math.round(3 + intensity * 12);
+    } else {
+      stopAutoScroll();
+      return;
+    }
+
+    // 捲動同時檢測滑過的底片元素進行連選
+    processSwipeHover(currentTouchClientX, currentTouchClientY);
+    autoScrollRafId = requestAnimationFrame(autoScrollLoop);
+  }
+
+  function stopAutoScroll() {
+    if (autoScrollRafId) {
+      cancelAnimationFrame(autoScrollRafId);
+      autoScrollRafId = null;
+    }
+  }
+
+  function processSwipeHover(clientX: number, clientY: number) {
+    if (!clientX || !clientY) return;
+    const elem = document.elementFromPoint(clientX, clientY);
+    const card = elem?.closest<HTMLElement>('.film-card');
+    if (card && card.dataset.photoId) {
+      const pid = card.dataset.photoId;
+      if (swipeSelectAction === 'select') {
+        if (!selectedBatchIds.includes(pid)) {
+          selectedBatchIds = [...selectedBatchIds, pid];
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            try { navigator.vibrate(10); } catch (_) {}
+          }
+        }
+      } else {
+        if (selectedBatchIds.includes(pid)) {
+          selectedBatchIds = selectedBatchIds.filter(id => id !== pid);
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            try { navigator.vibrate(10); } catch (_) {}
+          }
+        }
+      }
+    }
+  }
+
+  // 觸控手勢管理：長按進入多選模式並可連帶滑動連選；單擊直接進入精修 (多選時為切換)
   let touchStartX = 0;
   let touchStartY = 0;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -117,26 +203,45 @@
   function handleTouchStart(photo: CatalogPhotoItem, e: TouchEvent) {
     if (!isCoarsePointer) return;
     didTriggerLongPress = false;
+    isSwipeSelecting = false;
+    stopAutoScroll();
+
     if (e.touches.length > 0) {
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
+      currentTouchClientX = touchStartX;
+      currentTouchClientY = touchStartY;
     }
     if (longPressTimer) {
       clearTimeout(longPressTimer);
     }
-    // Why: 420ms 符合行動裝置慣例長按判定閥值，既能與快速滑動區分，又不會有過長的等待感
+
+    // Why: 在多選狀態下長按 180ms 即可立即啟動滑刷選取；非多選狀態下 420ms 避免一般快速滑動被誤判
+    const delay = isMultiSelectMode ? 180 : 420;
     longPressTimer = setTimeout(() => {
       didTriggerLongPress = true;
-      enterMultiSelect(photo);
-    }, 420);
+      enterMultiSelect(photo, true);
+    }, delay);
   }
 
   function handleTouchMove(e: TouchEvent) {
-    if (!longPressTimer) return;
-    if (e.touches.length > 0) {
-      const diffX = Math.abs(e.touches[0].clientX - touchStartX);
-      const diffY = Math.abs(e.touches[0].clientY - touchStartY);
-      // 移動超過 10px 視為滑動捲動頁面，立即取消長按定時器
+    if (e.touches.length === 0) return;
+    const touch = e.touches[0];
+    currentTouchClientX = touch.clientX;
+    currentTouchClientY = touch.clientY;
+
+    if (isSwipeSelecting) {
+      // 處於滑動多選模式中：阻止頁面原生捲動，接管為滑刷選取
+      if (e.cancelable) e.preventDefault();
+      processSwipeHover(touch.clientX, touch.clientY);
+      checkAndStartAutoScroll();
+      return;
+    }
+
+    if (longPressTimer) {
+      const diffX = Math.abs(touch.clientX - touchStartX);
+      const diffY = Math.abs(touch.clientY - touchStartY);
+      // 移動超過 10px 視為一般捲動瀏覽，立即取消長按定時器
       if (diffX > 10 || diffY > 10) {
         clearTimeout(longPressTimer);
         longPressTimer = null;
@@ -150,8 +255,17 @@
       clearTimeout(longPressTimer);
       longPressTimer = null;
     }
+    stopAutoScroll();
+
+    if (isSwipeSelecting) {
+      isSwipeSelecting = false;
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
+
     if (didTriggerLongPress) {
-      e.preventDefault();
+      didTriggerLongPress = false;
+      if (e.cancelable) e.preventDefault();
       return;
     }
 
@@ -516,12 +630,17 @@
   </header>
 
   <!-- MAIN GRID BODY -->
-  <div class="catalog-grid-container custom-scroll">
+  <div 
+    bind:this={gridContainerElement} 
+    class="catalog-grid-container custom-scroll"
+    class:swipe-selecting={isSwipeSelecting}
+  >
     {#if displayedPhotos.length > 0}
       <div bind:this={gridElement} class="film-grid {gridDensity}">
         {#each displayedPhotos as photo (photo.id + '_' + (photo.gradedThumbnail ? 'graded' : 'raw'))}
           <div 
             id={`film-card-${photo.id}`}
+            data-photo-id={photo.id}
             class="film-card hairline-all" 
             class:selected={activePhoto?.id === photo.id}
             class:batch-selected={selectedBatchIds.includes(photo.id)}
@@ -536,6 +655,7 @@
             ontouchstart={(e) => handleTouchStart(photo, e)}
             ontouchmove={handleTouchMove}
             ontouchend={(e) => handleTouchEnd(photo, e)}
+            ontouchcancel={(e) => handleTouchEnd(photo, e)}
             ondblclick={() => {
               if (isCoarsePointer) return;
               onOpenRetouch(photo);
@@ -607,7 +727,7 @@
                 <span class="hint-dblclick">雙擊精修 ↵</span>
               {:else if isMultiSelectMode}
                 <span class="hint-dblclick" class:amber={selectedBatchIds.includes(photo.id)}>
-                  {selectedBatchIds.includes(photo.id) ? '已選取 ✓' : '輕點選取'}
+                  {selectedBatchIds.includes(photo.id) ? '已選取 ✓' : '輕點或滑動選取'}
                 </span>
               {:else}
                 <span class="hint-dblclick" class:amber={photo.flagged}>
@@ -669,7 +789,12 @@
     <div class="batch-action-bar hairline-all font-mono">
       <div class="batch-bar-left">
         <span class="material-symbols-outlined batch-icon">checklist</span>
-        <span class="batch-count-label">已選取 <strong>{selectedBatchIds.length}</strong> 幀</span>
+        <span class="batch-count-label">
+        已選取 <strong>{selectedBatchIds.length}</strong> 幀
+        {#if isSwipeSelecting}
+          <span class="swipe-indicator">⚡ 滑動連選中</span>
+        {/if}
+      </span>
       </div>
       <div class="batch-bar-actions">
         <button 
@@ -1027,6 +1152,27 @@
 
   .batch-bar-left strong {
     color: var(--amber-highlight);
+  }
+
+  .swipe-indicator {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 11px;
+    color: var(--amber-highlight);
+    background: rgba(226, 157, 82, 0.15);
+    padding: 1px 6px;
+    border-radius: var(--radius-xs);
+    animation: pulseSwipe 1s infinite alternate;
+  }
+
+  @keyframes pulseSwipe {
+    from { opacity: 0.6; }
+    to { opacity: 1; }
+  }
+
+  .catalog-grid-container.swipe-selecting {
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .batch-bar-actions {
