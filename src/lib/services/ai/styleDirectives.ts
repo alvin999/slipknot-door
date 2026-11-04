@@ -328,11 +328,12 @@ ${aestheticLine}- Since you have Image 2 (rendered actual result) as concrete gr
   2. SHADOW DEPTH & TOE GRADATION (lift_shadows_delta, valid range: -0.5 to 0.5):
      - If blacks benefit from deeper, crisper punch, supply a negative delta within [-0.5, 0.0].
      - If shadow areas require gentle opening or a softer matte film aesthetic is desired, provide a positive delta within [0.0, 0.5].
-  3. TONAL CONTRAST & DYNAMICS (contrast_delta, valid range: -0.5 to 0.5):
-     - If contrast transition is too steep for the target vibe, provide a negative delta within [-0.5, 0.0] for smoother, gentler roll-off.
-     - If the image benefits from greater tonal separation and visual energy, provide a positive delta within [0.0, 0.5].
-  4. COLOR TEMPERATURE & AMBIENT HARMONY (color_temp_delta, valid range: -3000 to 3000 Kelvin):
+  3. TONAL CONTRAST & DYNAMICS (contrast_delta, valid range: -0.8 to 0.8):
+     - If contrast transition is too steep for the target vibe, provide a negative delta within [-0.8, 0.0] for smoother, gentler roll-off.
+     - If the image benefits from greater tonal separation and visual energy, provide a positive delta within [0.0, 0.8].
+  4. COLOR TEMPERATURE & AMBIENT HARMONY (color_temp_delta, valid range: -3000 to 3000 Kelvin; tint_delta, optional, valid range: -100.0 to 100.0):
      - Supply the necessary Kelvin adjustment within [-3000, 3000] K to harmonize ambient scene lighting with the selected film profile and aesthetic targets.
+     - Supply a tint delta within [-100.0, 100.0] if the rendered draft exhibits unwanted green/magenta cast or requires stylized tint adjustment.
   5. 3D LUT INTENSITY (lut_intensity_delta, optional, valid range: -1.0 to 1.0):
      - Modulate the 3D LUT's volumetric influence within [-1.0, 1.0] if a more subtle or distinct profile presence is desired.
   6. OPTICAL TEXTURE & ACUTANCE (clarity_delta & sharpness_delta, optional, valid range: -0.5 to 0.5):
@@ -344,7 +345,8 @@ Respond ONLY with raw JSON matching this schema:
   "exposure_delta": "number between -2.0 and 2.0 (EV adjustment, 0.0 if optimal)",
   "lift_shadows_delta": "number between -0.5 and 0.5 (toe lift adjustment, 0.0 if optimal)",
   "color_temp_delta": "integer between -3000 and 3000 (Kelvin adjustment, 0 if accurate)",
-  "contrast_delta": "number between -0.5 and 0.5 (contrast adjustment, 0.0 if balanced)",
+  "tint_delta": "number between -100.0 and 100.0 (optional tint adjustment, 0.0 if balanced)",
+  "contrast_delta": "number between -0.8 and 0.8 (contrast adjustment, 0.0 if balanced)",
   "lut_intensity_delta": "number between -1.0 and 1.0 (optional LUT intensity adjustment, 0.0 if optimal)",
   "clarity_delta": "number between -0.5 and 0.5 (optional clarity adjustment, 0.0 if optimal)",
   "sharpness_delta": "number between -0.5 and 0.5 (optional sharpness adjustment, 0.0 if optimal)",
@@ -434,12 +436,12 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
   const channels: string[] = [];
   if (enableTone) {
     channels.push('1. exposure_compensation: Global luminance scaling (-2.0 to +2.0 EV). Target linear mid-tone placement while protecting organic highlight headroom.');
-    channels.push('2. contrast: Global linear tonal slope (-0.5 to +0.5).');
+    channels.push('2. contrast: Global linear tonal slope (-0.8 to +0.8).');
     channels.push('3. lift_shadows: Shadow toe adjustment (-0.5 to +0.5). Negative deepens blacks; positive lifts darkest 40% luminance.');
     channels.push('4. clarity & sharpness [-1.0 to +1.0, baseline: 0.0]: Spatial frequency control. Baseline 0.0 preserves native lens MTF. Negative values (<= 0.0) attenuate edge contrast to model organic emulsion diffusion; positive values (> 0.0) apply algorithmic digital sharpening.');
   }
   if (enableWb) {
-    channels.push('5. color_temp & tint: Pre-LUT white balance (color_temp: integer 2500 to 10000, 5500 baseline; tint: -30.0 to +30.0). Neutralize unintended environmental chromatic cast.');
+    channels.push('5. color_temp & tint: Pre-LUT white balance (color_temp: integer 2800 to 8500, 5500 baseline; tint: -100.0 to +100.0). Neutralize unintended environmental chromatic cast.');
   }
   if (enableLut) {
     channels.push('6. recommended_profile & lut_intensity: 3D film volumetric emulation (lut_intensity: 0.0 to 1.0).');
@@ -462,6 +464,6 @@ Respond ONLY with raw JSON matching this schema:
   "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
   "style_insight": "string (1-2 sentences in Traditional Chinese)",
   "recommended_mood": "string (short mood label in Traditional Chinese)",
-  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${enableLut ? `,\n  "recommended_profile": "${recommendedProfileSchemaHint}",\n  "lut_intensity": "number between 0.0 and 1.0"` : ''}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "contrast": "number between -0.5 and +0.5",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2500 and 10000",\n  "tint": "number between -30.0 and +30.0"` : ''}
+  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${enableLut ? `,\n  "recommended_profile": "${recommendedProfileSchemaHint}",\n  "lut_intensity": "number between 0.0 and 1.0"` : ''}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}
 }`;
 }

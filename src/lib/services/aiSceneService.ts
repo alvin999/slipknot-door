@@ -481,6 +481,7 @@ export class AiSceneService {
               const prevExposure = decision.exposure_compensation;
               const prevShadow = decision.lift_shadows;
               const prevTemp = decision.color_temp ?? 5500;
+              const prevTint = decision.tint ?? 0.0;
               const prevContrast = decision.contrast ?? 0.0;
               const prevLut = decision.lut_intensity ?? 0.85;
               const prevClarity = decision.clarity ?? 0.0;
@@ -490,8 +491,11 @@ export class AiSceneService {
               const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
               decision.exposure_compensation = parseFloat(clamp(prevExposure + refinement.exposure_delta, -2.0, 2.0).toFixed(2));
               decision.lift_shadows = parseFloat(clamp(prevShadow + refinement.lift_shadows_delta, -0.5, 0.5).toFixed(2));
-              decision.color_temp = Math.round(clamp(prevTemp + refinement.color_temp_delta, 2500, 10000));
-              decision.contrast = parseFloat(clamp(prevContrast + refinement.contrast_delta, -0.5, 0.5).toFixed(2));
+              decision.color_temp = Math.round(clamp(prevTemp + refinement.color_temp_delta, 2800, 8500));
+              decision.contrast = parseFloat(clamp(prevContrast + refinement.contrast_delta, -0.8, 0.8).toFixed(2));
+              if (typeof refinement.tint_delta === 'number') {
+                decision.tint = parseFloat(clamp(prevTint + refinement.tint_delta, -100.0, 100.0).toFixed(1));
+              }
               if (typeof refinement.lut_intensity_delta === 'number') {
                 decision.lut_intensity = parseFloat(clamp(prevLut + refinement.lut_intensity_delta, 0.0, 1.0).toFixed(2));
               }
@@ -524,6 +528,10 @@ export class AiSceneService {
                 }
                 if (Math.abs(refinement.color_temp_delta) >= 10) {
                   diffLogs.push(`  • 色溫: ${refinement.color_temp_delta > 0 ? '+' : ''}${refinement.color_temp_delta} K (${prevTemp}K → ${decision.color_temp}K)`);
+                }
+                if (typeof refinement.tint_delta === 'number' && Math.abs(refinement.tint_delta) >= 0.5) {
+                  const newTint = decision.tint ?? 0.0;
+                  diffLogs.push(`  • 色調 (Tint): ${refinement.tint_delta > 0 ? '+' : ''}${refinement.tint_delta.toFixed(1)} (${prevTint >= 0 ? '+' : ''}${prevTint.toFixed(1)} → ${newTint >= 0 ? '+' : ''}${newTint.toFixed(1)})`);
                 }
                 if (typeof refinement.lut_intensity_delta === 'number' && Math.abs(refinement.lut_intensity_delta) >= 0.01) {
                   diffLogs.push(`  • LUT 濃度: ${formatDelta(refinement.lut_intensity_delta)} (${prevLut.toFixed(2)} → ${decision.lut_intensity.toFixed(2)})`);

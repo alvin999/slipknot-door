@@ -106,6 +106,7 @@ export interface RefinementDecision {
   exposure_delta: number;
   lift_shadows_delta: number;
   color_temp_delta: number;
+  tint_delta?: number;
   contrast_delta: number;
   lut_intensity_delta?: number;
   clarity_delta?: number;
