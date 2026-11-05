@@ -50,7 +50,7 @@
 
 <header class="top-nav hairline-b">
   <div class="brand-block">
-    <img src="/favicon.png" alt="大相無形 Logo" class="brand-icon-img" />
+    <img src="/brand-logo.png" alt="大相無形 Logo" class="brand-icon-img" />
     <div class="brand-titles">
       <h1 class="brand-title font-headline">大相無形</h1>
       <span class="brand-sub font-mono">SLIPKNOTTING ON HEAVEN'S DOOR · 0.1.0</span>

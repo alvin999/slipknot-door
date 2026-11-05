@@ -775,7 +775,7 @@
       <div class="catalog-hero-wrapper">
         <div class="catalog-hero-container">
           <div class="brand-crest">
-            <img src="/favicon.png" alt="Logo" class="crest-icon-img" />
+            <img src="/brand-logo.png" alt="Logo" class="crest-icon-img" />
             <div class="crest-halo"></div>
           </div>
 
