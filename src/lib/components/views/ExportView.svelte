@@ -35,6 +35,8 @@
     aiSceneTitle?: string;
     onSetExportMode: (m: 'modeA' | 'modeB') => void;
     onTriggerExport: (subset?: PhotoPlateItem[], options?: ExportPipelineOptions) => void;
+    onGoToRetouch?: () => void;
+    onGoToCatalog?: () => void;
   }
 
   let {
@@ -47,8 +49,12 @@
     aiVisionTags = [],
     aiSceneTitle = '',
     onSetExportMode,
-    onTriggerExport
+    onTriggerExport,
+    onGoToRetouch,
+    onGoToCatalog
   }: Props = $props();
+
+  let userChoseScope = $state(false);
 
   let exportScope = $state<ExportScope>('picked');
   let previewLayout = $state<'strip' | 'grid'>('strip'); // 膠卷帶模式 or 網格展開模式
@@ -297,7 +303,7 @@
         type="button" 
         class="scope-chip" 
         class:active={exportScope === 'picked'}
-        onclick={() => exportScope = 'picked'}
+        onclick={() => { userChoseScope = true; exportScope = 'picked'; }}
         title="僅匯出有標記 Pick 旗標的相片"
       >
         <span>已挑選 (Picked)</span>
@@ -308,7 +314,7 @@
         type="button" 
         class="scope-chip" 
         class:active={exportScope === 'edited'}
-        onclick={() => exportScope = 'edited'}
+        onclick={() => { userChoseScope = true; exportScope = 'edited'; }}
         title="匯出所有已調整光影或套用風格的相片 (即使未標記 Pick 也能一鍵導出)"
       >
         <span>所有已調色 (Edited)</span>
@@ -319,7 +325,7 @@
         type="button" 
         class="scope-chip" 
         class:active={exportScope === 'selected'}
-        onclick={() => exportScope = 'selected'}
+        onclick={() => { userChoseScope = true; exportScope = 'selected'; }}
         title="僅匯出目前畫面選中的單張底片"
       >
         <span>當前底片 (Selected)</span>
@@ -329,7 +335,7 @@
         type="button" 
         class="scope-chip" 
         class:active={exportScope === 'all'}
-        onclick={() => exportScope = 'all'}
+        onclick={() => { userChoseScope = true; exportScope = 'all'; }}
         title="匯出相卷中的全部底片"
       >
         <span>全量底片 (All)</span>
@@ -350,11 +356,28 @@
               {#if exportScope === 'picked'}
                 [已挑選 PICKED · {finalExportPhotos.length}/{effectivePhotos.length} 幀]
               {:else if exportScope === 'edited'}
-                [所有已調色 EDITED · {finalExportPhotos.length}/{effectivePhotos.length} 幀]
-              {:else if exportScope === 'selected'}
-                [當前底片 SELECTED · {finalExportPhotos.length}/{effectivePhotos.length} 幀]
+                <strong>目前佇列無調色底片</strong>
+                <p>相片尚未進行暗房調色。您可以切換至全量底片，或前往暗房進行風格微調。</p>
+                <div class="empty-actions">
+                  <button type="button" class="empty-cta-btn" onclick={() => { userChoseScope = true; exportScope = 'all'; }}>
+                    切換至「全量底片 ({allPhotos.length})」
+                  </button>
+                  {#if onGoToRetouch}
+                    <button type="button" class="empty-cta-btn outline" onclick={onGoToRetouch}>
+                      前往暗房精修 →
+                    </button>
+                  {/if}
+                </div>
               {:else}
-                [全量底片 ALL · {finalExportPhotos.length}/{effectivePhotos.length} 幀]
+                <strong>目前目錄無底片</strong>
+                <p>請先由「膠卷目錄」載入相簿以進行批次匯出。</p>
+                {#if onGoToCatalog}
+                  <div class="empty-actions">
+                    <button type="button" class="empty-cta-btn" onclick={onGoToCatalog}>
+                      前往膠卷目錄匯入相片 →
+                    </button>
+                  </div>
+                {/if}
               {/if}
             </span>
           </div>

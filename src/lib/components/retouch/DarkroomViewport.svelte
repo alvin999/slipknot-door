@@ -463,18 +463,6 @@
           </div>
 
           <div class="hud-right">
-            {#if onOpenQuickExport}
-              <button
-                type="button"
-                class="quick-export-hud-btn"
-                onclick={onOpenQuickExport}
-                title="單張即時出圖 (⌘E)"
-              >
-                <span class="material-symbols-outlined" style="font-size: 14px;">bolt</span>
-                <span>即時出圖 (⌘E)</span>
-              </button>
-            {/if}
-
             <button
               type="button"
               class="crop-toggle-btn"
@@ -772,12 +760,31 @@
     <!-- Empty State -->
     <div class="empty-stage-box hairline-all">
       <span class="material-symbols-outlined empty-stage-icon">camera_roll</span>
-      <h3 class="font-headline empty-stage-title">等待相機裝置連接</h3>
+      <h3 class="font-headline empty-stage-title">
+        {#if (propsPhotos && propsPhotos.length > 0) || (photoLibrary.photoPlates.length > 0)}
+          尚未選取暗房底片幀
+        {:else}
+          等待相機裝置連接或底片匯入
+        {/if}
+      </h3>
       <p class="font-body empty-stage-desc">
-        接上相機 USB/Type-C 傳輸線開機自動載入，或手動指定本機 DCIM / RAW 目錄開啟底片作業。
+        {#if (propsPhotos && propsPhotos.length > 0) || (photoLibrary.photoPlates.length > 0)}
+          目錄中已有底片檔案。請前往膠卷目錄挑選底片，或於下方底片滾軸點選任意幀以啟動顯影。
+        {:else}
+          接上相機 USB/Type-C 傳輸線開機自動載入，或手動指定本機 DCIM / RAW 目錄開啟底片作業。
+        {/if}
       </p>
       <div class="empty-actions">
-        {#if onPickDirectory}
+        {#if ((propsPhotos && propsPhotos.length > 0) || (photoLibrary.photoPlates.length > 0)) && onGoToCatalog}
+          <button
+            type="button"
+            class="archival-btn-primary"
+            onclick={onGoToCatalog}
+          >
+            <span class="material-symbols-outlined" style="font-size: 16px;">photo_library</span>
+            <span>返回膠卷目錄挑選底片 →</span>
+          </button>
+        {:else if onPickDirectory}
           <button
             type="button"
             class="archival-btn-primary"
@@ -1482,25 +1489,7 @@
     align-items: center;
     gap: 4px;
   }
-  .quick-export-hud-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
-    background-color: rgba(212, 163, 115, 0.12);
-    border: 1px solid rgba(212, 163, 115, 0.35);
-    border-radius: var(--radius-xs);
-    color: var(--amber-highlight);
-    font-size: 10.5px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .quick-export-hud-btn:hover {
-    background-color: rgba(212, 163, 115, 0.22);
-    border-color: var(--amber-highlight);
-    box-shadow: 0 0 8px rgba(212, 163, 115, 0.25);
-  }
+  
   .crop-toggle-btn {
     display: flex;
     align-items: center;
@@ -1797,9 +1786,7 @@
       padding: 3px 6px;
     }
 
-    .hud-right .quick-export-hud-btn span:last-child {
-      display: none; /* 手機端只顯示閃電圖示，節省空間 */
-    }
+    
 
     /* 原圖比對按鈕：浮動在手機右下方拇指舒適區 */
     .ab-toggle-btn {

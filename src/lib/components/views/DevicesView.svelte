@@ -9,6 +9,8 @@
     onOpenVault: () => void;
     onLoadMount?: (mount: CameraMountInfo) => void;
     onPickDirectory?: () => void;
+    onGoToCatalog?: () => void;
+    onGoToRetouch?: () => void;
   }
 
   let {
@@ -18,7 +20,9 @@
     onRefreshMounts,
     onOpenVault,
     onLoadMount,
-    onPickDirectory
+    onPickDirectory,
+    onGoToCatalog,
+    onGoToRetouch
   }: Props = $props();
 
   let autoPolling = $state<boolean>(true);

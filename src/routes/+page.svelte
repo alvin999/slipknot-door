@@ -3360,8 +3360,8 @@
 
   <!-- MAIN CURATORIAL WORKSPACE -->
   <main class="main-body">
-    <!-- LEFT SIDEBAR: WORKFLOW MODULES (目錄挑圖階段收起，釋放 100% 畫布呼吸感) -->
-    {#if activeTab !== "catalog"}
+    <!-- LEFT SIDEBAR: AI ASSISTANT PANEL (僅在暗房精修專屬呈現，其他頁面全幅展開) -->
+    {#if activeTab === "retouch"}
       <aside class="left-sidebar hairline-r" class:drawer-open={activeMobileDrawer === "ai"}>
         <!-- 行動端抽屜收合把手 (Mobile Drawer Handle) -->
         <div class="mobile-drawer-handle-bar">
@@ -3375,56 +3375,42 @@
             <span class="material-symbols-outlined" style="font-size: 14px;">keyboard_arrow_down</span>
           </button>
         </div>
-        <!-- 電腦版桌面側邊選單：在手機版抽屜中隱藏，使抽屜僅呈現純粹 AI 風格面板 -->
-        <div class="desktop-workflow-nav">
-          <WorkflowSidebar
-            {activeTab}
-            totalPhotos={photoPlates.length}
-            {flaggedCount}
-            activeQueueLength={activeQueue.length}
-            profilesCount={profiles.length}
-            onTabChange={(tab) => (activeTab = tab)}
-            onOpenHelp={() => (isHelpOpen = true)}
-          />
-        </div>
 
-        <!-- AI Scene Assistant Quick Dock (Step 2: 單張暗房精修專屬) -->
-        {#if activeTab === "retouch"}
-          <AiAssistPanel
-            {styleGradingPresets}
-            {stylePreviewThumbs}
-            {geminiKeyStatus}
-            {activePhoto}
-            photos={photoPlates}
-            {hasAiBaseline}
-            {isModifiedFromAi}
-            onRestoreAiTuning={restoreAiTuning}
-            {isAiAnalyzing}
-            {isBatchAiRunning}
-            {batchProgress}
-            {aiTerminalLogs}
-            {aiSceneTitle}
-            {aiSuggestedScene}
-            {aiRecommendedMood}
-            {aiStyleInsight}
-            {aiCropRationale}
-            {aiVisionTags}
-            {aiScope}
-            {isAiScopeOpen}
-            {copiedLogNotice}
-            onToggleAiScope={toggleAiScope}
-            onToggleIsAiScopeOpen={() => (isAiScopeOpen = !isAiScopeOpen)}
-            onCopyTerminalLogs={copyTerminalLogs}
-            onRunAiAnalysis={() => runAiAnalysis()}
-            onRequestBatchAi={requestBatchAiAnalysis}
-            onCancelBatchAi={cancelBatchAi}
-            onOpenVault={() => (isVaultOpen = true)}
-            onHoverProfile={(profileId) => {
-              previewHoverProfileId = profileId;
-              retouchViewRef?.triggerRender();
-            }}
-          />
-        {/if}
+        <!-- AI Scene Assistant (100% 垂直高度專屬呈現，免去冗長捲動) -->
+        <AiAssistPanel
+          {styleGradingPresets}
+          {stylePreviewThumbs}
+          {geminiKeyStatus}
+          {activePhoto}
+          photos={photoPlates}
+          {hasAiBaseline}
+          {isModifiedFromAi}
+          onRestoreAiTuning={restoreAiTuning}
+          {isAiAnalyzing}
+          {isBatchAiRunning}
+          {batchProgress}
+          {aiTerminalLogs}
+          {aiSceneTitle}
+          {aiSuggestedScene}
+          {aiRecommendedMood}
+          {aiStyleInsight}
+          {aiCropRationale}
+          {aiVisionTags}
+          {aiScope}
+          {isAiScopeOpen}
+          {copiedLogNotice}
+          onToggleAiScope={toggleAiScope}
+          onToggleIsAiScopeOpen={() => (isAiScopeOpen = !isAiScopeOpen)}
+          onCopyTerminalLogs={copyTerminalLogs}
+          onRunAiAnalysis={() => runAiAnalysis()}
+          onRequestBatchAi={requestBatchAiAnalysis}
+          onCancelBatchAi={cancelBatchAi}
+          onOpenVault={() => (isVaultOpen = true)}
+          onHoverProfile={(profileId) => {
+            previewHoverProfileId = profileId;
+            retouchViewRef?.triggerRender();
+          }}
+        />
       </aside>
     {/if}
 
@@ -3478,6 +3464,8 @@
           activePhotoTitle={activePhoto ? activePhoto.filename : "尚未選取相片"}
           onApplyProfile={(id) => applyProfile(id)}
           onApplyToAll={(id) => applyProfileToAll(id)}
+          onGoToRetouch={goToRetouch}
+          onGoToCatalog={goToCatalog}
         />
       {:else if activeTab === "export"}
         <!-- MODULE 4: DUAL PIPELINE EXPORT DOCK (BOUND TO PHOTO PLATES WITH SCOPE SELECTOR) -->
@@ -3493,6 +3481,8 @@
           onSetExportMode={(m: "modeA" | "modeB") => (exportMode = m)}
           onTriggerExport={(subset, options) =>
             triggerExport(subset as PhotoPlate[], options)}
+          onGoToRetouch={goToRetouch}
+          onGoToCatalog={goToCatalog}
         />
       {:else if activeTab === "devices"}
         <!-- MODULE 5: HARDWARE MOUNTS & STORAGE SETTINGS -->
@@ -3504,6 +3494,8 @@
           onOpenVault={() => (isVaultOpen = true)}
           onLoadMount={(m: CameraMountInfo) => handleLoadCameraMount(m)}
           onPickDirectory={handlePickDirectory}
+          onGoToCatalog={goToCatalog}
+          onGoToRetouch={goToRetouch}
         />
       {/if}
     </section>
@@ -3757,10 +3749,7 @@
 
   /* ── 行動端暗房佈局與抽屜動效 (Mobile Darkroom Responsive Layout & Bottom Sheet) ── */
   @media (max-width: 768px) {
-    /* 手機抽屜展開時，隱藏電腦版工作流側邊導航，僅呈現純粹 AI 風格面板 */
-    .desktop-workflow-nav {
-      display: none !important;
-    }
+    
 
     .left-sidebar,
     .right-telemetry {

@@ -60,7 +60,6 @@
   }: Props = $props();
 
   const activePhoto = $derived(propsActivePhoto ?? photoLibrary.activePhoto);
-  const currentProfileId = $derived(propsActiveProfileId ?? activePhoto?.appliedProfile);
   const isAiAnalyzing = $derived(aiPipeline.isAiAnalyzing);
 </script>
 
@@ -375,75 +374,6 @@
   </div>
 </div>
 
-<!-- 3. 3D LUT Vault Quick Select - 第三順位 -->
-<div class="telemetry-box">
-  <div class="tuning-box-header">
-    <div class="box-title font-mono">3D LUT PROFILES</div>
-    {#if onQuickAiProfile}
-      <button
-        type="button"
-        class="quick-ai-btn font-mono"
-        onclick={onQuickAiProfile}
-        disabled={isAiAnalyzing || !activePhoto}
-        title="一鍵讓 AI 推薦最合適的風格檔"
-      >
-        <span
-          class="material-symbols-outlined"
-          style="font-size: 12px; color: var(--amber-highlight);"
-          >palette</span
-        >
-        <span>AI 推薦</span>
-      </button>
-    {/if}
-  </div>
-
-  <div class="profile-cards-list">
-    {#each profiles as prof}
-      <button
-        type="button"
-        class="profile-card hairline-all"
-        class:active={currentProfileId === prof.id}
-        onclick={() => {
-          if (onHoverProfile) onHoverProfile(null);
-          if (onApplyProfile) onApplyProfile(prof.id);
-          const linkedPreset = styleGradingPresets.find(
-            (p) => p.profileId === prof.id,
-          );
-          if (linkedPreset) darkroomState.activeStylePreset = linkedPreset.key;
-        }}
-        onmouseenter={() => {
-          if (onHoverProfile) onHoverProfile(prof.id);
-        }}
-        onmouseleave={() => {
-          if (onHoverProfile) onHoverProfile(null);
-        }}
-      >
-        <div class="prof-card-top">
-          <span class="prof-title font-headline">{prof.title}</span>
-          <span class="prof-badge font-mono">{prof.badge}</span>
-        </div>
-        <div class="prof-tone font-body">{prof.tone}</div>
-      </button>
-    {/each}
-  </div>
-</div>
-
-<!-- 下一個步驟：前往步驟三 批次匯出管線 -->
-{#if onGoToExport}
-  <div class="telemetry-box hairline-t mt-auto">
-    <button
-      type="button"
-      class="archival-btn-primary w-full step2-cta-btn"
-      onclick={onGoToExport}
-      title="步驟二完成：前往步驟三 批次匯出管線"
-    >
-      <span class="material-symbols-outlined" style="font-size: 15px;">output_circle</span>
-      <span>前往步驟三 · 批次匯出 →</span>
-    </button>
-  </div>
-{/if}
-
-
 <style>
   .telemetry-box {
     padding: 14px 16px;
@@ -455,23 +385,6 @@
     letter-spacing: 0.1em;
     color: var(--parchment-dim);
     margin-bottom: 10px;
-  }
-
-  /* STEP 2 IN-PANEL CTA BUTTON */
-  .step2-cta-btn {
-    margin-top: 10px;
-    background: linear-gradient(
-      135deg,
-      var(--primary-indigo),
-      #3a506b
-    ) !important;
-    border: 1px solid rgba(138, 154, 184, 0.4) !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    font-weight: 600;
-  }
-
-  .step2-cta-btn:hover {
-    filter: brightness(1.1);
   }
 
   .tuning-box-header {
@@ -503,55 +416,6 @@
     border-color: rgba(229, 142, 38, 0.45);
     color: var(--amber-highlight);
     background-color: rgba(229, 142, 38, 0.08);
-  }
-
-  /* PROFILES LIST */
-  .profile-cards-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .profile-card {
-    background-color: var(--surface-elevated);
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition: all 0.15s ease;
-    border: 1px solid var(--hairline-slate);
-    width: 100%;
-    text-align: left;
-    outline: none;
-    font-family: inherit;
-  }
-  .profile-card:hover {
-    background-color: var(--surface-overlay);
-  }
-  .profile-card.active {
-    border-color: var(--amber-highlight);
-    background-color: var(--surface-overlay);
-  }
-  .prof-card-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 3px;
-  }
-  .prof-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--parchment-bright);
-  }
-  .prof-badge {
-    font-size: 9px;
-    color: var(--parchment-dim);
-    background-color: var(--canvas-base);
-    padding: 1px 4px;
-    border-radius: var(--radius-xs);
-  }
-  .prof-tone {
-    font-size: 10px;
-    color: var(--parchment-muted);
-    line-height: 1.3;
   }
 
   /* CROP & GEOMETRY RIGHT PANEL */

@@ -26,6 +26,8 @@
     activePhotoTitle?: string;
     onApplyProfile: (profileId: string) => void;
     onApplyToAll: (profileId: string) => void;
+    onGoToRetouch?: () => void;
+    onGoToCatalog?: () => void;
   }
 
   let {
@@ -33,7 +35,9 @@
     activeProfileId,
     activePhotoTitle = '尚未選取底片',
     onApplyProfile,
-    onApplyToAll
+    onApplyToAll,
+    onGoToRetouch,
+    onGoToCatalog
   }: Props = $props();
 
   let toastMessage = $state<string>('');

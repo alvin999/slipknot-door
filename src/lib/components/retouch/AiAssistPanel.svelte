@@ -69,6 +69,7 @@
   }: Props = $props();
 
   let terminalBodyElement = $state<HTMLDivElement | null>(null);
+  let isExpandedStyles = $state<boolean>(false);
 
   const activePhoto = $derived(propsActivePhoto ?? photoLibrary.activePhoto);
   const photoPlates = $derived(propsPhotos?.length ? propsPhotos : photoLibrary.photoPlates);
@@ -98,7 +99,7 @@
   });
 </script>
 
-<div class="ai-assistant-dock hairline-t">
+<div class="ai-assistant-dock">
   <div class="ai-header">
     <span class="material-symbols-outlined ai-sparkle">auto_awesome</span>
     <span class="font-headline ai-title">AI 顯影調色</span>
@@ -307,15 +308,29 @@
       <!-- AI 風格調色：先選風格（卡片列，Hover 即時預覽），再按下執行 -->
       <div class="style-card-picker hairline-all font-mono">
         <div class="style-card-picker-header">
-          <span
-            class="material-symbols-outlined"
-            style="font-size: 13px; color: var(--amber-highlight);"
+          <div class="header-left">
+            <span
+              class="material-symbols-outlined"
+              style="font-size: 13px; color: var(--amber-highlight);"
+            >
+              palette
+            </span>
+            <span>選擇風格（Hover 預覽）</span>
+            <span class="picker-count font-mono">{styleGradingPresets.length}</span>
+          </div>
+          <button
+            type="button"
+            class="expand-toggle-btn font-mono"
+            onclick={() => (isExpandedStyles = !isExpandedStyles)}
+            title={isExpandedStyles ? "切換為捲軸檢視" : "展開全部 12 款風格"}
           >
-            palette
-          </span>
-          <span>選擇風格（Hover 即時預覽）</span>
+            <span>{isExpandedStyles ? "收合" : "展開全部"}</span>
+            <span class="material-symbols-outlined" style="font-size: 13px;">
+              {isExpandedStyles ? "unfold_less" : "unfold_more"}
+            </span>
+          </button>
         </div>
-        <div class="style-card-row custom-scroll">
+        <div class="style-card-row custom-scroll" class:is-expanded={isExpandedStyles}>
           {#each styleGradingPresets as preset}
             <button
               type="button"
@@ -569,8 +584,8 @@
 
 
   .ai-assistant-dock {
-    margin-top: auto;
-    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
   }
   .ai-header {
     display: flex;
@@ -837,58 +852,97 @@
   }
 
   .style-card-picker {
-    padding: 6px;
+    padding: 8px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     background: rgba(255, 255, 255, 0.02);
+    border-radius: var(--radius-sm);
   }
   .style-card-picker-header {
     display: flex;
     align-items: center;
-    gap: 5px;
+    justify-content: space-between;
     font-size: 10px;
     color: var(--parchment-dim);
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .picker-count {
+    background: var(--surface-overlay);
+    color: var(--amber-highlight);
+    padding: 1px 5px;
+    border-radius: var(--radius-xs);
+    font-size: 9px;
+  }
+  .expand-toggle-btn {
+    background: transparent;
+    border: none;
+    color: var(--parchment-muted);
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+    transition: all 0.15s ease;
+  }
+  .expand-toggle-btn:hover {
+    color: var(--amber-highlight);
+    background: rgba(212, 163, 115, 0.12);
   }
   .style-card-row {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 6px;
-    max-height: 220px;
+    gap: 8px;
+    max-height: 380px;
     overflow-y: auto;
     padding-right: 2px;
+    transition: max-height 0.25s ease;
+  }
+  .style-card-row.is-expanded {
+    max-height: none;
+    overflow-y: visible;
   }
   .style-card {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    padding: 5px;
+    gap: 4px;
+    padding: 6px;
     text-align: left;
     background: rgba(255, 255, 255, 0.025);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 4px;
     cursor: pointer;
-    transition: all 0.14s ease;
+    transition: all 0.15s ease;
   }
   .style-card:hover {
     background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(226, 157, 82, 0.4);
+    border-color: rgba(226, 157, 82, 0.5);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
   }
   .style-card.active {
     background: rgba(212, 140, 52, 0.16);
     border-color: var(--amber-highlight);
+    box-shadow: 0 0 0 1px var(--amber-highlight), 0 4px 12px rgba(0, 0, 0, 0.4);
   }
   .style-card-swatch {
     display: block;
-    height: 80px;
+    height: 90px;
     border-radius: 3px;
     display: flex;
     align-items: center;
     justify-content: center;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   }
   .style-card-title {
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--parchment-bright);
     white-space: nowrap;
@@ -899,7 +953,7 @@
     color: var(--amber-highlight);
   }
   .style-card-badge {
-    font-size: 8.5px;
+    font-size: 9px;
     color: var(--parchment-dim);
   }
 
