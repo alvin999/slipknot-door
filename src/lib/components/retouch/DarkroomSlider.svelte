@@ -17,6 +17,7 @@
     step: number;
     isBipolar?: boolean;
     amberValue?: boolean;
+    customTrackGradient?: string;
     formatValue?: (val: number) => string;
     parseInput?: (text: string) => number | null;
   }
@@ -30,6 +31,7 @@
     step,
     isBipolar = false,
     amberValue = false,
+    customTrackGradient,
     formatValue,
     parseInput,
   }: Props = $props();
@@ -111,6 +113,7 @@
 
   // 計算滑桿填充背景樣式 (CSS gradient track fill)
   const trackBackground = $derived.by(() => {
+    if (customTrackGradient) return customTrackGradient;
     const range = max - min;
     if (range <= 0) return "var(--surface-overlay)";
 

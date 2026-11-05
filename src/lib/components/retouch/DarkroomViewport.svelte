@@ -124,6 +124,50 @@
   const currentIsCropMode = $derived(propsIsCropMode ?? darkroomState.isCropMode);
   const currentAiCropRationale = $derived(propsAiCropRationale ?? darkroomState.aiCropRationale);
 
+  // ── 桌面端畫布自由縮放與平移檢視 (Zoom & Pan) ──
+  let desktopZoom = $state<number>(1.0);
+  let panOffsetX = $state<number>(0);
+  let panOffsetY = $state<number>(0);
+  let isPanningCanvas = $state<boolean>(false);
+  let panStartX = 0;
+  let panStartY = 0;
+  let initialPanX = 0;
+  let initialPanY = 0;
+
+  function resetDesktopZoom() {
+    desktopZoom = 1.0;
+    panOffsetX = 0;
+    panOffsetY = 0;
+    isPanningCanvas = false;
+  }
+
+  function handleCanvasWheel(e: WheelEvent) {
+    if (currentIsCropMode || darkroomState.isDraggingSplit) return;
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.88;
+    let next = Math.max(1.0, Math.min(4.0, desktopZoom * zoomFactor));
+    if (next <= 1.03) {
+      next = 1.0;
+      panOffsetX = 0;
+      panOffsetY = 0;
+    }
+    desktopZoom = parseFloat(next.toFixed(2));
+  }
+
+  function toggleDesktopZoom() {
+    if (currentIsCropMode || darkroomState.isDraggingSplit) return;
+    if (desktopZoom > 1.05) {
+      resetDesktopZoom();
+    } else {
+      desktopZoom = 2.0;
+    }
+  }
+
+  // 裁切手柄初始位置記憶（防突跳）
+  let cropDragStartX = 0;
+  let cropDragStartY = 0;
+  let cropInitialBox = { x: 0, y: 0, width: 1, height: 1 };
+
   // 組合幾何變換樣式（包含 3D 透視梯形校正 Keystone V/H、翻轉與旋轉）
   const viewportImageTransform = $derived.by(() => {
     const flipX = currentFlipH ? -1 : 1;
@@ -131,16 +175,17 @@
     const rot = currentCropRotation;
     const kv = currentKeystoneV;
     const kh = currentKeystoneH;
+    const zoom = isMobileZoomed ? 1.8 : desktopZoom;
+    const pan = desktopZoom > 1.0 ? `translate(${panOffsetX}px, ${panOffsetY}px) ` : "";
 
     if (!kv && !kh) {
-      const base = `scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg)`;
-      return isMobileZoomed ? `${base} scale(1.8)` : base;
+      return `${pan}scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg) scale(${zoom})`;
     }
 
     // 垂直透視校正：負 rotateX 使頂部往觀察者拉近（拉寬）、底部遠離（縮窄），補償仰拍產生的上窄下寬
-    const baseTransform = `perspective(1000px) rotateX(${-kv}deg) rotateY(${kh}deg) scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg)`;
-    return isMobileZoomed ? `${baseTransform} scale(1.8)` : baseTransform;
+    return `${pan}perspective(1000px) rotateX(${-kv}deg) rotateY(${kh}deg) scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg) scale(${zoom})`;
   });
+
 
   const currentDiffMode = $derived(propsDiffMode ?? darkroomState.diffMode);
   const currentSplitPosition = $derived(propsSplitPosition ?? darkroomState.splitPosition);
@@ -149,6 +194,20 @@
 
   // DOM 參考與 WebGL 2.0 狀態
   let canvasContainerRef = $state<HTMLDivElement | null>(null);
+  let stripScrollRef = $state<HTMLDivElement | null>(null);
+
+  // 底部膠卷切換相片時自動平滑滾動至置中視角 (Auto Scroll Into View)
+  $effect(() => {
+    const currentId = activePhoto?.id;
+    if (currentId && stripScrollRef) {
+      setTimeout(() => {
+        const activeCard = stripScrollRef?.querySelector('.film-frame-card.selected') as HTMLElement | null;
+        if (activeCard) {
+          activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+      }, 50);
+    }
+  });
   let webglCanvas = $state<HTMLCanvasElement | null>(null);
   let sourceImgElement = $state<HTMLImageElement | null>(null);
   let webglRenderer: WebglLutRenderer | null = null;
@@ -220,10 +279,33 @@
     darkroomState.splitPosition = Math.round(pct);
   }
 
-  // 裁切手柄互動拖曳
+  // 畫布滑鼠按下（若處於放大檢視則啟動自由平移拖曳）
+  function handleCanvasPointerDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    if (currentIsCropMode || darkroomState.isDraggingSplit) return;
+    if (desktopZoom > 1.0) {
+      isPanningCanvas = true;
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+      initialPanX = panOffsetX;
+      initialPanY = panOffsetY;
+    }
+  }
+
+  // 裁切手柄互動拖曳（記憶起始點以防游標置中跳動）
   function handleCropStart(handle: string, e: MouseEvent) {
     e.stopPropagation();
     darkroomState.isDraggingCrop = handle;
+    if (!canvasContainerRef) return;
+    const rect = canvasContainerRef.getBoundingClientRect();
+    cropDragStartX = (e.clientX - rect.left) / rect.width;
+    cropDragStartY = (e.clientY - rect.top) / rect.height;
+    cropInitialBox = {
+      x: currentCropX,
+      y: currentCropY,
+      width: currentCropWidth,
+      height: currentCropHeight,
+    };
   }
 
   function updateCropFromEvent(e: MouseEvent) {
@@ -231,32 +313,61 @@
     const rect = canvasContainerRef.getBoundingClientRect();
     const curX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const curY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const dx = curX - cropDragStartX;
+    const dy = curY - cropDragStartY;
+    const handle = darkroomState.isDraggingCrop;
 
-    if (darkroomState.isDraggingCrop === "move") {
-      const halfW = darkroomState.cropWidth / 2;
-      const halfH = darkroomState.cropHeight / 2;
-      const newX = Math.max(0, Math.min(1 - darkroomState.cropWidth, curX - halfW));
-      const newY = Math.max(0, Math.min(1 - darkroomState.cropHeight, curY - halfH));
+    if (handle === 'move') {
+      const newX = Math.max(0, Math.min(1 - cropInitialBox.width, cropInitialBox.x + dx));
+      const newY = Math.max(0, Math.min(1 - cropInitialBox.height, cropInitialBox.y + dy));
       darkroomState.cropX = parseFloat(newX.toFixed(3));
       darkroomState.cropY = parseFloat(newY.toFixed(3));
-    } else if (darkroomState.isDraggingCrop === "se") {
-      darkroomState.cropWidth = parseFloat(
-        Math.max(0.1, Math.min(1 - darkroomState.cropX, curX - darkroomState.cropX)).toFixed(3)
-      );
-      darkroomState.cropHeight = parseFloat(
-        Math.max(0.1, Math.min(1 - darkroomState.cropY, curY - darkroomState.cropY)).toFixed(3)
-      );
-    } else if (darkroomState.isDraggingCrop === "nw") {
-      const right = darkroomState.cropX + darkroomState.cropWidth;
-      const bottom = darkroomState.cropY + darkroomState.cropHeight;
-      darkroomState.cropX = parseFloat(Math.max(0, Math.min(right - 0.1, curX)).toFixed(3));
-      darkroomState.cropY = parseFloat(Math.max(0, Math.min(bottom - 0.1, curY)).toFixed(3));
-      darkroomState.cropWidth = parseFloat((right - darkroomState.cropX).toFixed(3));
-      darkroomState.cropHeight = parseFloat((bottom - darkroomState.cropY).toFixed(3));
+    } else if (handle === 'se') {
+      let newW = Math.max(0.08, Math.min(1 - cropInitialBox.x, cropInitialBox.width + dx));
+      let newH = Math.max(0.08, Math.min(1 - cropInitialBox.y, cropInitialBox.height + dy));
+      darkroomState.cropWidth = parseFloat(newW.toFixed(3));
+      darkroomState.cropHeight = parseFloat(newH.toFixed(3));
+    } else if (handle === 'nw') {
+      let newX = Math.max(0, Math.min(cropInitialBox.x + cropInitialBox.width - 0.08, cropInitialBox.x + dx));
+      let newY = Math.max(0, Math.min(cropInitialBox.y + cropInitialBox.height - 0.08, cropInitialBox.y + dy));
+      darkroomState.cropWidth = parseFloat((cropInitialBox.x + cropInitialBox.width - newX).toFixed(3));
+      darkroomState.cropHeight = parseFloat((cropInitialBox.y + cropInitialBox.height - newY).toFixed(3));
+      darkroomState.cropX = parseFloat(newX.toFixed(3));
+      darkroomState.cropY = parseFloat(newY.toFixed(3));
+    } else if (handle === 'ne') {
+      let newY = Math.max(0, Math.min(cropInitialBox.y + cropInitialBox.height - 0.08, cropInitialBox.y + dy));
+      let newW = Math.max(0.08, Math.min(1 - cropInitialBox.x, cropInitialBox.width + dx));
+      darkroomState.cropHeight = parseFloat((cropInitialBox.y + cropInitialBox.height - newY).toFixed(3));
+      darkroomState.cropWidth = parseFloat(newW.toFixed(3));
+      darkroomState.cropY = parseFloat(newY.toFixed(3));
+    } else if (handle === 'sw') {
+      let newX = Math.max(0, Math.min(cropInitialBox.x + cropInitialBox.width - 0.08, cropInitialBox.x + dx));
+      let newH = Math.max(0.08, Math.min(1 - cropInitialBox.y, cropInitialBox.height + dy));
+      darkroomState.cropWidth = parseFloat((cropInitialBox.x + cropInitialBox.width - newX).toFixed(3));
+      darkroomState.cropHeight = parseFloat(newH.toFixed(3));
+      darkroomState.cropX = parseFloat(newX.toFixed(3));
+    } else if (handle === 'n') {
+      let newY = Math.max(0, Math.min(cropInitialBox.y + cropInitialBox.height - 0.08, cropInitialBox.y + dy));
+      darkroomState.cropHeight = parseFloat((cropInitialBox.y + cropInitialBox.height - newY).toFixed(3));
+      darkroomState.cropY = parseFloat(newY.toFixed(3));
+    } else if (handle === 's') {
+      let newH = Math.max(0.08, Math.min(1 - cropInitialBox.y, cropInitialBox.height + dy));
+      darkroomState.cropHeight = parseFloat(newH.toFixed(3));
+    } else if (handle === 'w') {
+      let newX = Math.max(0, Math.min(cropInitialBox.x + cropInitialBox.width - 0.08, cropInitialBox.x + dx));
+      darkroomState.cropWidth = parseFloat((cropInitialBox.x + cropInitialBox.width - newX).toFixed(3));
+      darkroomState.cropX = parseFloat(newX.toFixed(3));
+    } else if (handle === 'e') {
+      let newW = Math.max(0.08, Math.min(1 - cropInitialBox.x, cropInitialBox.width + dx));
+      darkroomState.cropWidth = parseFloat(newW.toFixed(3));
     }
   }
 
   function handleStagePointerMove(e: MouseEvent) {
+    if (isPanningCanvas) {
+      panOffsetX = initialPanX + (e.clientX - panStartX);
+      panOffsetY = initialPanY + (e.clientY - panStartY);
+    }
     if (darkroomState.isDraggingSplit && canvasContainerRef) {
       updateSplitFromEvent(e);
     }
@@ -266,6 +377,7 @@
   }
 
   function handleStagePointerUp() {
+    isPanningCanvas = false;
     darkroomState.isDraggingSplit = false;
     darkroomState.isDraggingCrop = null;
   }
@@ -410,14 +522,18 @@
     <div
       class="plate-canvas-wrapper hairline-all"
       class:is-side-by-side={currentDiffMode === "sideBySide"}
+      class:is-zoomed={desktopZoom > 1.0}
       bind:this={canvasContainerRef}
+      onwheel={handleCanvasWheel}
+      onmousedown={handleCanvasPointerDown}
+      ondblclick={toggleDesktopZoom}
       onmousemove={handleStagePointerMove}
       onmouseup={handleStagePointerUp}
       onmouseleave={handleStagePointerUp}
       ontouchstart={handleTouchStart}
       ontouchend={handleTouchEnd}
       role="region"
-      aria-label="暗房畫布視窗"
+      aria-label="暗房畫布視窗 (滾輪縮放 / 拖曳平移 / 雙擊切換視角)"
     >
       <!-- 頂部浮動列 (整齊置頂於照片上方中央，唯一的 plate-tag-bar) -->
       <div class="plate-tag-bar font-mono">
@@ -460,6 +576,22 @@
                 <span>雙聯並排</span>
               </button>
             </div>
+          </div>
+
+          <!-- ZOOM HUD INDICATOR -->
+          <div class="hud-center">
+            <button
+              type="button"
+              class="zoom-hud-btn font-mono"
+              class:zoomed={desktopZoom > 1.0}
+              onclick={resetDesktopZoom}
+              title={desktopZoom > 1.0 ? "目前已放大，點擊恢復全幅 (FIT)" : "雙擊畫布或滾輪可自由放大 (100%~400%)"}
+            >
+              <span class="material-symbols-outlined" style="font-size: 13px;">
+                {desktopZoom > 1.0 ? "zoom_out_map" : "fit_screen"}
+              </span>
+              <span>{desktopZoom > 1.0 ? `${Math.round(desktopZoom * 100)}%` : "FIT"}</span>
+            </button>
           </div>
 
           <div class="hud-right">
@@ -591,7 +723,7 @@
               <div class="crop-grid-line h1"></div>
               <div class="crop-grid-line h2"></div>
 
-              <!-- Handles -->
+              <!-- 8 向互動把手 (Corners & Edges) -->
               <div
                 class="crop-handle nw"
                 onmousedown={(e) => handleCropStart("nw", e)}
@@ -600,11 +732,53 @@
                 aria-label="左上角裁切把手"
               ></div>
               <div
+                class="crop-handle ne"
+                onmousedown={(e) => handleCropStart("ne", e)}
+                role="button"
+                tabindex="0"
+                aria-label="右上角裁切把手"
+              ></div>
+              <div
                 class="crop-handle se"
                 onmousedown={(e) => handleCropStart("se", e)}
                 role="button"
                 tabindex="0"
                 aria-label="右下角裁切把手"
+              ></div>
+              <div
+                class="crop-handle sw"
+                onmousedown={(e) => handleCropStart("sw", e)}
+                role="button"
+                tabindex="0"
+                aria-label="左下角裁切把手"
+              ></div>
+              <div
+                class="crop-handle edge-n"
+                onmousedown={(e) => handleCropStart("n", e)}
+                role="button"
+                tabindex="0"
+                aria-label="上緣裁切把手"
+              ></div>
+              <div
+                class="crop-handle edge-s"
+                onmousedown={(e) => handleCropStart("s", e)}
+                role="button"
+                tabindex="0"
+                aria-label="下緣裁切把手"
+              ></div>
+              <div
+                class="crop-handle edge-w"
+                onmousedown={(e) => handleCropStart("w", e)}
+                role="button"
+                tabindex="0"
+                aria-label="左緣裁切把手"
+              ></div>
+              <div
+                class="crop-handle edge-e"
+                onmousedown={(e) => handleCropStart("e", e)}
+                role="button"
+                tabindex="0"
+                aria-label="右緣裁切把手"
               ></div>
 
               <div class="crop-readout font-mono">
@@ -628,12 +802,19 @@
         {:else if currentCropWidth < 0.999 || currentCropHeight < 0.999 || currentCropX > 0.001 || currentCropY > 0.001}
           <!-- STATIC CROP PREVIEW MASK -->
           <div class="crop-overlay-stage static-preview">
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <div
               class="crop-box-element static"
               style:left={`${currentCropX * 100}%`}
               style:top={`${currentCropY * 100}%`}
               style:width={`${currentCropWidth * 100}%`}
               style:height={`${currentCropHeight * 100}%`}
+              role="button"
+              tabindex="0"
+              aria-label="構圖裁切預覽框，按 Enter 或雙擊進入編輯"
+              onkeydown={(e) => { if (e.key === 'Enter') darkroomState.isCropMode = true; }}
+              ondblclick={() => (darkroomState.isCropMode = true)}
+              title="雙擊進入構圖裁切編輯"
             >
               <div class="crop-readout font-mono static">
                 {currentCropAspectRatio.toUpperCase()} · 構圖裁切預覽
@@ -867,13 +1048,15 @@
       {/if}
     </div>
   </div>
-  <div class="strip-frames-scroll">
+  <div class="strip-frames-scroll custom-scroll" bind:this={stripScrollRef}>
     {#if activeQueue.length > 0}
       {#each activeQueue as plate (plate.id)}
+        {@const isGraded = !!(plate.tuning || plate.gradedThumbnail || (plate.appliedProfile && plate.appliedProfile !== 'Profile_00_StandardNatural') || plate.crop)}
         <button
           type="button"
           class="film-frame-card"
           class:selected={plate.selected}
+          class:is-graded={isGraded}
           onclick={() => onSelectPhoto(plate)}
         >
           <div class="film-frame-outer">
@@ -882,10 +1065,16 @@
               alt={plate.filename}
               class="film-frame-thumb"
             />
+            {#if isGraded}
+              <span class="frame-graded-badge" title="已顯影/已調色"></span>
+            {/if}
+            {#if plate.flagged}
+              <span class="frame-flag-badge" title="已挑選精修">★</span>
+            {/if}
           </div>
           <div class="film-frame-meta font-mono">
             <span class="frame-num">{plate.frameNo}</span>
-            <span class="frame-tag">{plate.camera.split(" ")[0]}</span>
+            <span class="frame-tag">{plate.camera ? plate.camera.split(" ")[0] : "RAW"}</span>
           </div>
         </button>
       {/each}
@@ -1701,10 +1890,86 @@
     left: -7px;
     cursor: nwse-resize;
   }
+  .crop-handle.ne {
+    top: -7px;
+    right: -7px;
+    cursor: nesw-resize;
+  }
   .crop-handle.se {
     bottom: -7px;
     right: -7px;
     cursor: nwse-resize;
+  }
+  .crop-handle.sw {
+    bottom: -7px;
+    left: -7px;
+    cursor: nesw-resize;
+  }
+  .crop-handle.edge-n {
+    top: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 8px;
+    cursor: ns-resize;
+    border-radius: 2px;
+  }
+  .crop-handle.edge-s {
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 8px;
+    cursor: ns-resize;
+    border-radius: 2px;
+  }
+  .crop-handle.edge-w {
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 24px;
+    cursor: ew-resize;
+    border-radius: 2px;
+  }
+  .crop-handle.edge-e {
+    right: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 24px;
+    cursor: ew-resize;
+    border-radius: 2px;
+  }
+  
+  .zoom-hud-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: transparent;
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-dim);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .zoom-hud-btn:hover {
+    color: var(--parchment-bright);
+    background-color: var(--surface-overlay);
+    border-color: var(--parchment-muted);
+  }
+  .zoom-hud-btn.zoomed {
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+    background-color: rgba(212, 163, 115, 0.12);
+  }
+  .plate-canvas-wrapper.is-zoomed {
+    cursor: grab;
+  }
+  .plate-canvas-wrapper.is-zoomed:active {
+    cursor: grabbing;
   }
 
   .crop-readout {

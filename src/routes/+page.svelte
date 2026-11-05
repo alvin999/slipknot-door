@@ -1154,6 +1154,37 @@
         return;
       }
 
+      // 支援 Ctrl/Cmd + Shift + C 複製調色
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "c" || e.key === "C")) {
+        e.preventDefault();
+        if (activePhoto) {
+          darkroomState.copyCurrentTuning(activePhoto.appliedProfile);
+          toastStore.show("已複製調色參數 (Ctrl+Shift+C) ✓", "success", 2000);
+        }
+        return;
+      }
+
+      // 支援 Ctrl/Cmd + Shift + V 貼上調色
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "v" || e.key === "V")) {
+        e.preventDefault();
+        const pasted = darkroomState.pasteCopiedTuning();
+        if (pasted) {
+          applyProfile(pasted.appliedProfile);
+          toastStore.show("已套用貼上調色參數 (Ctrl+Shift+V) ✓", "success", 2000);
+        }
+        return;
+      }
+
+      // 支援 P / F 鍵切換挑圖標記 (Pick / Flag)
+      if (e.key === "p" || e.key === "P" || e.key === "f" || e.key === "F") {
+        if (activePhoto) {
+          e.preventDefault();
+          togglePhotoFlag(activePhoto);
+          toastStore.show(activePhoto.flagged ? "已標記為挑選底片 ★" : "已取消挑選標記", "info", 1500);
+          return;
+        }
+      }
+
       if (e.key === "h" || e.key === "ArrowLeft") {
         e.preventDefault();
         selectAdjacentPhoto(-1);
@@ -3410,6 +3441,7 @@
             previewHoverProfileId = profileId;
             retouchViewRef?.triggerRender();
           }}
+          onApplyProfile={(id) => applyProfile(id)}
         />
       </aside>
     {/if}

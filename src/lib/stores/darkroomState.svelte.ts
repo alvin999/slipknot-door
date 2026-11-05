@@ -68,6 +68,18 @@ export class DarkroomStateStore {
   splitPosition = $state<number>(50); // 0% ~ 100% 簾幕分割線位置
   isDraggingSplit = $state<boolean>(false);
 
+  // 畫布縮放與平移檢視狀態 (Zoom & Pan Navigation)
+  zoomLevel = $state<number>(1.0); // 1.0 = 適合視窗 (Fit), > 1.0 = 放大檢視 (如 1.8x, 2.0x, 3.0x)
+  panX = $state<number>(0);        // 平移 X 軸像素位移
+  panY = $state<number>(0);        // 平移 Y 軸像素位移
+  isPanning = $state<boolean>(false);
+
+  // 調色參數剪貼簿 (跨相片快速複製貼上)
+  copiedTuning = $state<{
+    appliedProfile: string;
+    tuning: TuningParameters;
+  } | null>(null);
+
   // 幾何構圖與裁切狀態 (Crop & Keystone Geometry)
   isCropMode = $state<boolean>(false);
   cropX = $state<number>(0.0); // 0.0 ~ 1.0 (左上角 X 比例)
@@ -415,6 +427,52 @@ export class DarkroomStateStore {
       this.cropX = 0.0;
       this.cropY = parseFloat(((1.0 - this.cropHeight) / 2).toFixed(3));
     }
+  }
+
+  /**
+   * 重設縮放與平移狀態為適合視窗 (Fit)
+   */
+  resetZoom(): void {
+    this.zoomLevel = 1.0;
+    this.panX = 0;
+    this.panY = 0;
+    this.isPanning = false;
+  }
+
+  /**
+   * 複製當前調色參數至剪貼簿
+   */
+  copyCurrentTuning(appliedProfile: string): void {
+    this.copiedTuning = {
+      appliedProfile,
+      tuning: {
+        exposure: this.exposure,
+        contrast: this.contrast,
+        shadows: this.shadows,
+        lutIntensity: this.lutIntensity,
+        colorTemp: this.colorTemp,
+        tint: this.tint,
+        clarity: this.clarity,
+        sharpness: this.sharpness,
+      },
+    };
+  }
+
+  /**
+   * 貼上已複製之調色參數
+   */
+  pasteCopiedTuning(): { appliedProfile: string; tuning: TuningParameters } | null {
+    if (!this.copiedTuning) return null;
+    const { appliedProfile, tuning } = this.copiedTuning;
+    this.exposure = tuning.exposure;
+    this.contrast = tuning.contrast;
+    this.shadows = tuning.shadows ?? 0.0;
+    this.lutIntensity = tuning.lutIntensity;
+    this.colorTemp = tuning.colorTemp;
+    this.tint = tuning.tint;
+    this.clarity = tuning.clarity ?? 0.0;
+    this.sharpness = tuning.sharpness ?? 0.0;
+    return this.copiedTuning;
   }
 }
 

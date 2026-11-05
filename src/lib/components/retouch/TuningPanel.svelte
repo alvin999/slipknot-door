@@ -3,6 +3,8 @@
   import { photoLibrary, type PhotoPlateItem } from "$lib/stores/photoLibrary.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
   import DarkroomSlider from "./DarkroomSlider.svelte";
+  import DarkroomHistogram from "./DarkroomHistogram.svelte";
+  import { toastStore } from "$lib/stores/toastStore.svelte";
 
   // 百分比參數解析函式 (支援 20 -> 0.2 或 0.2 -> 0.2)
   function parsePercentage(text: string): number | null {
@@ -63,11 +65,46 @@
   const isAiAnalyzing = $derived(aiPipeline.isAiAnalyzing);
 </script>
 
+<!-- 光學即時直方圖波形 -->
+<DarkroomHistogram {activePhoto} />
+
 <!-- 1. Color Adjustment Sliders (3D LUT TUNING) - 置頂第一順位 -->
 <div class="telemetry-box hairline-b">
   <div class="tuning-box-header">
     <div class="box-title font-mono">3D LUT TUNING</div>
     <div style="display: flex; gap: 4px; align-items: center;">
+      <!-- 複製與貼上調色按鈕 -->
+      <button
+        type="button"
+        class="reset-tuning-btn font-mono"
+        onclick={() => {
+          if (!activePhoto) return;
+          darkroomState.copyCurrentTuning(activePhoto.appliedProfile);
+          toastStore.show("已複製當前調色參數 ✓", "success", 2000);
+        }}
+        title="複製當前底片的所有調色參數"
+      >
+        <span class="material-symbols-outlined" style="font-size: 13px;">content_copy</span>
+        <span>複製</span>
+      </button>
+
+      {#if darkroomState.copiedTuning}
+        <button
+          type="button"
+          class="reset-tuning-btn font-mono is-modified"
+          onclick={() => {
+            const pasted = darkroomState.pasteCopiedTuning();
+            if (pasted && onApplyProfile) {
+              onApplyProfile(pasted.appliedProfile);
+            }
+            toastStore.show("已套用貼上調色參數 ✓", "success", 2000);
+          }}
+          title="將複製的調色參數套用至目前底片"
+        >
+          <span class="material-symbols-outlined" style="font-size: 13px; color: var(--amber-highlight);">content_paste</span>
+          <span>貼上</span>
+        </button>
+      {/if}
       {#if onQuickAiTone}
         <button
           type="button"
@@ -206,6 +243,7 @@
     min={2800}
     max={8500}
     step={50}
+    customTrackGradient="linear-gradient(to right, #4578b8 0%, #83a5cf 35%, #d4a373 65%, #ea8d3b 100%)"
     formatValue={(v) => `${v}K`}
     parseInput={parseCleanNumber}
   />
@@ -219,6 +257,7 @@
     max={100}
     step={1}
     isBipolar={true}
+    customTrackGradient="linear-gradient(to right, #2ba471 0%, #1a1e24 50%, #c44e91 100%)"
     formatValue={(v) =>
       v > 0
         ? `+${Math.round(v)} (洋紅)`

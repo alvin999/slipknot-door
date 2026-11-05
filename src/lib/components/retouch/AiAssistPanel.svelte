@@ -34,6 +34,7 @@
     onCancelBatchAi?: () => void;
     onOpenVault?: () => void;
     onHoverProfile?: (profileId: string | null) => void;
+    onApplyProfile?: (profileId: string) => void;
   }
 
   let {
@@ -66,6 +67,7 @@
     onCancelBatchAi,
     onOpenVault,
     onHoverProfile,
+    onApplyProfile,
   }: Props = $props();
 
   let terminalBodyElement = $state<HTMLDivElement | null>(null);
@@ -340,6 +342,9 @@
               onclick={() => {
                 if (onHoverProfile) onHoverProfile(null);
                 darkroomState.activeStylePreset = preset.key;
+                if (preset.profileId && onApplyProfile) {
+                  onApplyProfile(preset.profileId);
+                }
               }}
               onmouseenter={() => {
                 if (preset.profileId && onHoverProfile) {
