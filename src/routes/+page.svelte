@@ -2105,6 +2105,24 @@
     }
   }
 
+  // Handle Drag & Drop files or directories from OS Desktop / Explorer
+  async function handleFilesDropped(dataTransfer: DataTransfer) {
+    isLoadingPhotos = true;
+    try {
+      const items = await IngestionService.processDataTransfer(dataTransfer);
+      if (items.length > 0) {
+        currentDirectoryName = IngestionService.currentDirectoryName || '拖放相片集';
+        await loadPhotosFromItems(items);
+        toastStore.show(`已成功載入 ${items.length} 幀底片 ✓`, 'success', 2500);
+      }
+    } catch (err) {
+      console.warn('Drag and drop ingestion failed:', err);
+      toastStore.show('載入相片失敗，請重試', 'error', 3000);
+    } finally {
+      isLoadingPhotos = false;
+    }
+  }
+
   // Load photos directly from camera mount
   async function handleLoadCameraMount(mount: CameraMountInfo) {
     const targetPath = mount.dcim_path || mount.mount_path;
@@ -3333,6 +3351,8 @@
     onGoToCatalog={goToCatalog}
     onGoToRetouch={goToRetouch}
     onGoToExport={goToExport}
+    onGoToProfiles={() => (activeTab = "profiles")}
+    onGoToDevices={() => (activeTab = "devices")}
     onOpenQuickExport={() => (isQuickExportOpen = true)}
     onTriggerExport={() => triggerExport()}
     onOpenHelp={() => (isHelpOpen = true)}
@@ -3340,71 +3360,73 @@
 
   <!-- MAIN CURATORIAL WORKSPACE -->
   <main class="main-body">
-    <!-- LEFT SIDEBAR: WORKFLOW MODULES -->
-    <aside class="left-sidebar hairline-r" class:drawer-open={activeMobileDrawer === "ai"}>
-      <!-- 行動端抽屜收合把手 (Mobile Drawer Handle) -->
-      <div class="mobile-drawer-handle-bar">
-        <div class="drawer-drag-pill"></div>
-        <button
-          type="button"
-          class="drawer-close-btn font-mono"
-          onclick={() => (activeMobileDrawer = "none")}
-        >
-          <span>收合面板</span>
-          <span class="material-symbols-outlined" style="font-size: 14px;">keyboard_arrow_down</span>
-        </button>
-      </div>
-      <!-- 電腦版桌面側邊選單：在手機版抽屜中隱藏，使抽屜僅呈現純粹 AI 風格面板 -->
-      <div class="desktop-workflow-nav">
-        <WorkflowSidebar
-          {activeTab}
-          totalPhotos={photoPlates.length}
-          {flaggedCount}
-          activeQueueLength={activeQueue.length}
-          profilesCount={profiles.length}
-          onTabChange={(tab) => (activeTab = tab)}
-          onOpenHelp={() => (isHelpOpen = true)}
-        />
-      </div>
+    <!-- LEFT SIDEBAR: WORKFLOW MODULES (目錄挑圖階段收起，釋放 100% 畫布呼吸感) -->
+    {#if activeTab !== "catalog"}
+      <aside class="left-sidebar hairline-r" class:drawer-open={activeMobileDrawer === "ai"}>
+        <!-- 行動端抽屜收合把手 (Mobile Drawer Handle) -->
+        <div class="mobile-drawer-handle-bar">
+          <div class="drawer-drag-pill"></div>
+          <button
+            type="button"
+            class="drawer-close-btn font-mono"
+            onclick={() => (activeMobileDrawer = "none")}
+          >
+            <span>收合面板</span>
+            <span class="material-symbols-outlined" style="font-size: 14px;">keyboard_arrow_down</span>
+          </button>
+        </div>
+        <!-- 電腦版桌面側邊選單：在手機版抽屜中隱藏，使抽屜僅呈現純粹 AI 風格面板 -->
+        <div class="desktop-workflow-nav">
+          <WorkflowSidebar
+            {activeTab}
+            totalPhotos={photoPlates.length}
+            {flaggedCount}
+            activeQueueLength={activeQueue.length}
+            profilesCount={profiles.length}
+            onTabChange={(tab) => (activeTab = tab)}
+            onOpenHelp={() => (isHelpOpen = true)}
+          />
+        </div>
 
-      <!-- AI Scene Assistant Quick Dock (Step 2: 單張暗房精修專屬) -->
-      {#if activeTab === "retouch"}
-        <AiAssistPanel
-          {styleGradingPresets}
-          {stylePreviewThumbs}
-          {geminiKeyStatus}
-          {activePhoto}
-          photos={photoPlates}
-          {hasAiBaseline}
-          {isModifiedFromAi}
-          onRestoreAiTuning={restoreAiTuning}
-          {isAiAnalyzing}
-          {isBatchAiRunning}
-          {batchProgress}
-          {aiTerminalLogs}
-          {aiSceneTitle}
-          {aiSuggestedScene}
-          {aiRecommendedMood}
-          {aiStyleInsight}
-          {aiCropRationale}
-          {aiVisionTags}
-          {aiScope}
-          {isAiScopeOpen}
-          {copiedLogNotice}
-          onToggleAiScope={toggleAiScope}
-          onToggleIsAiScopeOpen={() => (isAiScopeOpen = !isAiScopeOpen)}
-          onCopyTerminalLogs={copyTerminalLogs}
-          onRunAiAnalysis={() => runAiAnalysis()}
-          onRequestBatchAi={requestBatchAiAnalysis}
-          onCancelBatchAi={cancelBatchAi}
-          onOpenVault={() => (isVaultOpen = true)}
-          onHoverProfile={(profileId) => {
-            previewHoverProfileId = profileId;
-            retouchViewRef?.triggerRender();
-          }}
-        />
-      {/if}
-    </aside>
+        <!-- AI Scene Assistant Quick Dock (Step 2: 單張暗房精修專屬) -->
+        {#if activeTab === "retouch"}
+          <AiAssistPanel
+            {styleGradingPresets}
+            {stylePreviewThumbs}
+            {geminiKeyStatus}
+            {activePhoto}
+            photos={photoPlates}
+            {hasAiBaseline}
+            {isModifiedFromAi}
+            onRestoreAiTuning={restoreAiTuning}
+            {isAiAnalyzing}
+            {isBatchAiRunning}
+            {batchProgress}
+            {aiTerminalLogs}
+            {aiSceneTitle}
+            {aiSuggestedScene}
+            {aiRecommendedMood}
+            {aiStyleInsight}
+            {aiCropRationale}
+            {aiVisionTags}
+            {aiScope}
+            {isAiScopeOpen}
+            {copiedLogNotice}
+            onToggleAiScope={toggleAiScope}
+            onToggleIsAiScopeOpen={() => (isAiScopeOpen = !isAiScopeOpen)}
+            onCopyTerminalLogs={copyTerminalLogs}
+            onRunAiAnalysis={() => runAiAnalysis()}
+            onRequestBatchAi={requestBatchAiAnalysis}
+            onCancelBatchAi={cancelBatchAi}
+            onOpenVault={() => (isVaultOpen = true)}
+            onHoverProfile={(profileId) => {
+              previewHoverProfileId = profileId;
+              retouchViewRef?.triggerRender();
+            }}
+          />
+        {/if}
+      </aside>
+    {/if}
 
     <!-- CENTER STAGE: PHOTOGRAPHIC PLATE VIEWPORT -->
     <section class="center-stage">
@@ -3422,6 +3444,9 @@
           onPickDirectory={handlePickDirectory}
           onRefreshMounts={refreshCameraMounts}
           onToggleFlag={handleFlagToggled}
+          onFilesDropped={handleFilesDropped}
+          {cameraMounts}
+          onLoadCameraMount={(m) => handleLoadCameraMount(m)}
         />
       {:else if activeTab === "retouch"}
         <!-- MODULE 2: RETOUCH DARKROOM WORKBENCH -->
@@ -3483,8 +3508,8 @@
       {/if}
     </section>
 
-    {#if activeTab === "retouch" || activeTab === "catalog"}
-      <!-- RIGHT SIDEBAR: RETOUCH COLOR DOCK OR CATALOG SELECTION RACK -->
+    {#if activeTab === "retouch" || (activeTab === "catalog" && flaggedCount > 0)}
+      <!-- RIGHT SIDEBAR: RETOUCH COLOR DOCK OR CATALOG SELECTION RACK (僅在精修或有挑圖時滑出) -->
       <aside class="right-telemetry hairline-l" class:drawer-open={activeMobileDrawer === "tuning"}>
         <!-- 行動端抽屜收合把手 (Mobile Drawer Handle) -->
         <div class="mobile-drawer-handle-bar">

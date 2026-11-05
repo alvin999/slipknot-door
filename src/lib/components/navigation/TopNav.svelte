@@ -21,6 +21,8 @@
     onOpenQuickExport: () => void;
     onTriggerExport: () => void;
     onOpenHelp: () => void;
+    onGoToProfiles?: () => void;
+    onGoToDevices?: () => void;
   }
 
   let {
@@ -40,7 +42,9 @@
     onGoToExport,
     onOpenQuickExport,
     onTriggerExport,
-    onOpenHelp
+    onOpenHelp,
+    onGoToProfiles,
+    onGoToDevices
   }: Props = $props();
 </script>
 
@@ -222,6 +226,33 @@
       </button>
     {/if}
 
+    <!-- Module Shortcuts: Profiles & Devices Settings -->
+    {#if onGoToProfiles}
+      <button
+        type="button"
+        class="help-trigger-btn hairline-all font-mono"
+        class:active={activeTab === 'profiles'}
+        onclick={onGoToProfiles}
+        title="3D LUT 風格庫"
+        aria-label="3D LUT 風格庫"
+      >
+        <span class="material-symbols-outlined icon">palette</span>
+      </button>
+    {/if}
+
+    {#if onGoToDevices}
+      <button
+        type="button"
+        class="help-trigger-btn hairline-all font-mono"
+        class:active={activeTab === 'devices'}
+        onclick={onGoToDevices}
+        title="設備與儲存設定"
+        aria-label="設備與儲存設定"
+      >
+        <span class="material-symbols-outlined icon">settings_input_component</span>
+      </button>
+    {/if}
+
     <!-- Help & Shortcuts Button -->
     <button
       type="button"
@@ -362,6 +393,12 @@
     color: var(--parchment-bright);
     border-color: var(--amber-highlight);
     background-color: var(--surface-overlay);
+  }
+  .help-trigger-btn.active {
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+    background-color: var(--surface-overlay);
+    box-shadow: 0 0 10px rgba(212, 163, 115, 0.25);
   }
   .help-trigger-btn .icon {
     font-size: 18px;

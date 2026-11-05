@@ -32,6 +32,9 @@
     onPickDirectory: () => void;
     onRefreshMounts: () => void;
     onToggleFlag?: (p: CatalogPhotoItem) => void;
+    onFilesDropped?: (dataTransfer: DataTransfer) => void;
+    cameraMounts?: import('$lib/services/ingestionService').CameraMountInfo[];
+    onLoadCameraMount?: (mount: import('$lib/services/ingestionService').CameraMountInfo) => void;
   }
 
   let {
@@ -45,8 +48,36 @@
     onGoToRetouch,
     onPickDirectory,
     onRefreshMounts,
-    onToggleFlag
+    onToggleFlag,
+    onFilesDropped,
+    cameraMounts = [],
+    onLoadCameraMount
   }: Props = $props();
+
+  // Drag & Drop State
+  let isDragOver = $state<boolean>(false);
+
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+    isDragOver = true;
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    if (!e.currentTarget || !(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+      isDragOver = false;
+    }
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    isDragOver = false;
+    if (e.dataTransfer && onFilesDropped) {
+      onFilesDropped(e.dataTransfer);
+    }
+  }
 
   // Grid density: 'small' (dense) | 'medium' (standard) | 'large' (spacious)
   let gridDensity = $state<'small' | 'medium' | 'large'>('medium');
@@ -501,50 +532,67 @@
 
 <svelte:window onkeydown={handleKeyNavigation} />
 
-<div class="catalog-viewport">
-  <!-- CATALOG CURATORIAL SUB-HEADER TOOLBAR -->
-  <header class="catalog-toolbar hairline-b font-mono">
-    <div class="tool-group">
-      <span class="tool-title font-headline">膠卷目錄與挑圖矩陣</span>
-      <span class="counter-badge">{photos.length} FRAMES</span>
-      {#if flaggedCount > 0}
-        <span class="counter-badge amber">已標記 {flaggedCount} 幀</span>
-      {/if}
+<div
+  class="catalog-viewport"
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+  role="region"
+  aria-label="膠卷目錄畫布"
+>
+  <!-- 全視窗檔案拖曳懸浮感應罩 (Drag & Drop Full-viewport Ambient Glow) -->
+  {#if isDragOver}
+    <div class="drag-drop-overlay">
+      <div class="drag-drop-modal hairline-all font-mono">
+        <span class="material-symbols-outlined drag-drop-icon">cloud_upload</span>
+        <h3 class="drag-drop-title font-headline">釋放以載入相片或相卷資料夾</h3>
+        <p class="drag-drop-desc">支援光學 RAW (.ARW · .CR2 · .CR3 · .NEF · .RAF · .DNG) 及標準 JPEG</p>
+      </div>
     </div>
+  {/if}
 
-    <div class="tool-group actions">
-      <!-- Vim Keyboard Shortcuts Hint: 在純觸控環境隱藏，外接鍵盤時動態點亮 -->
-      {#if showKeyboardHints}
-      <div class="vim-nav-indicator hairline-all" title="鍵盤導航：HJKL 移動，P 挑選/取消，空白鍵大圖審查，Enter 一鍵進入精修">
-        <span class="material-symbols-outlined" style="font-size: 13px; color: var(--amber-highlight);">keyboard</span>
-        <span class="key-cap">HJKL</span>
-        <span class="key-desc">移動</span>
-        <span class="key-sep">·</span>
-        <span class="key-cap">P</span>
-        <span class="key-desc">挑選</span>
-        <span class="key-sep">·</span>
-        <span class="key-cap">Space</span>
-        <span class="key-desc">大圖</span>
-        <span class="key-sep">·</span>
-        <span class="key-cap">Enter</span>
-        <span class="key-desc">精修</span>
+  <!-- CATALOG CURATORIAL SUB-HEADER TOOLBAR (僅在載入相片後呈現，保持零狀態首頁極簡大器) -->
+  {#if photos.length > 0}
+    <header class="catalog-toolbar hairline-b font-mono">
+      <div class="tool-group">
+        <span class="tool-title font-headline">膠卷目錄與挑圖矩陣</span>
+        <span class="counter-badge">{photos.length} FRAMES</span>
+        {#if flaggedCount > 0}
+          <span class="counter-badge amber">已挑選 {flaggedCount} 幀</span>
+        {/if}
       </div>
 
-      {/if}
+      <div class="tool-group actions">
+        <!-- Vim Keyboard Shortcuts Hint: 在純觸控環境隱藏，外接鍵盤時動態點亮 -->
+        {#if showKeyboardHints}
+        <div class="vim-nav-indicator hairline-all" title="鍵盤導航：HJKL 移動，P 挑選/取消，空白鍵大圖審查，Enter 一鍵進入精修">
+          <span class="material-symbols-outlined" style="font-size: 13px; color: var(--amber-highlight);">keyboard</span>
+          <span class="key-cap">HJKL</span>
+          <span class="key-desc">移動</span>
+          <span class="key-sep">·</span>
+          <span class="key-cap">P</span>
+          <span class="key-desc">挑選</span>
+          <span class="key-sep">·</span>
+          <span class="key-cap">Space</span>
+          <span class="key-desc">大圖</span>
+          <span class="key-sep">·</span>
+          <span class="key-cap">Enter</span>
+          <span class="key-desc">精修</span>
+        </div>
+        {/if}
 
-      <!-- Flagging Controls -->
-      <button 
-        type="button" 
-        class="tool-btn" 
-        class:active={filterFlaggedOnly}
-        onclick={() => filterFlaggedOnly = !filterFlaggedOnly}
-        title="僅顯示已標記挑圖底片"
-      >
-        <span class="material-symbols-outlined" style="font-size: 14px;">bookmark</span>
-        <span>{filterFlaggedOnly ? '顯示全部' : '僅看已標記'}</span>
-      </button>
+        <!-- Flagging Controls -->
+        <button 
+          type="button" 
+          class="tool-btn" 
+          class:active={filterFlaggedOnly}
+          onclick={() => filterFlaggedOnly = !filterFlaggedOnly}
+          title="僅顯示已標記挑圖底片"
+        >
+          <span class="material-symbols-outlined" style="font-size: 14px;">bookmark</span>
+          <span>{filterFlaggedOnly ? '顯示全部' : '僅看已標記'}</span>
+        </button>
 
-      {#if photos.length > 0}
         <button type="button" class="tool-btn" onclick={selectAll} title="將全部底片加入標記">
           <span class="material-symbols-outlined" style="font-size: 14px;">select_all</span>
           <span>全選</span>
@@ -553,78 +601,52 @@
           <span class="material-symbols-outlined" style="font-size: 14px;">deselect</span>
           <span>清除標記</span>
         </button>
-      {/if}
 
-      <!-- Grid Density Selector -->
-      <div class="density-switch hairline-all">
-        <button 
-          type="button" 
-          class="density-btn" 
-          class:active={gridDensity === 'small'}
-          onclick={() => gridDensity = 'small'}
-          title="緊密網格 (6 欄)"
-        >
-          <span class="material-symbols-outlined" style="font-size: 14px;">grid_on</span>
-        </button>
-        <button 
-          type="button" 
-          class="density-btn" 
-          class:active={gridDensity === 'medium'}
-          onclick={() => gridDensity = 'medium'}
-          title="標準網格 (4 欄)"
-        >
-          <span class="material-symbols-outlined" style="font-size: 14px;">grid_view</span>
-        </button>
-        <button 
-          type="button" 
-          class="density-btn" 
-          class:active={gridDensity === 'large'}
-          onclick={() => gridDensity = 'large'}
-          title="大圖檢視 (3 欄)"
-        >
-          <span class="material-symbols-outlined" style="font-size: 14px;">splitscreen</span>
-        </button>
+        <!-- Grid Density Selector -->
+        <div class="density-switch hairline-all">
+          <button 
+            type="button" 
+            class="density-btn" 
+            class:active={gridDensity === 'small'}
+            onclick={() => gridDensity = 'small'}
+            title="緊密網格 (6 欄)"
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px;">grid_on</span>
+          </button>
+          <button 
+            type="button" 
+            class="density-btn" 
+            class:active={gridDensity === 'medium'}
+            onclick={() => gridDensity = 'medium'}
+            title="標準網格 (4 欄)"
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px;">grid_view</span>
+          </button>
+          <button 
+            type="button" 
+            class="density-btn" 
+            class:active={gridDensity === 'large'}
+            onclick={() => gridDensity = 'large'}
+            title="大圖檢視 (3 欄)"
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px;">splitscreen</span>
+          </button>
+        </div>
+
+        {#if !hasApiKey && onOpenVault}
+          <button
+            type="button"
+            class="tool-btn key-guide-badge"
+            onclick={onOpenVault}
+            title="尚未配置 AI 雲端金鑰，點擊前往保險庫設定"
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">vpn_key_alert</span>
+            <span class="badge-text amber">未配置金鑰</span>
+          </button>
+        {/if}
       </div>
-
-
-      {#if !hasApiKey && onOpenVault}
-        <button
-          type="button"
-          class="tool-btn key-guide-badge"
-          onclick={onOpenVault}
-          title="尚未配置 AI 雲端金鑰，點擊前往保險庫設定"
-        >
-          <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">vpn_key_alert</span>
-          <span class="badge-text amber">未配置金鑰</span>
-        </button>
-      {/if}
-
-      <!-- SEQUENTIAL STEP 1 ACTION: ONE-CLICK ENTER RETOUCH -->
-      {#if photos.length > 0}
-        <button 
-          type="button" 
-          class="archival-btn-primary step-btn-highlight" 
-          onclick={() => {
-            if (onGoToRetouch) {
-              onGoToRetouch();
-            } else if (activePhoto) {
-              onOpenRetouch(activePhoto);
-            }
-          }}
-          title="步驟一：一鍵進入暗房精修（若有選取則僅精修選取幀，未選取則精修全部）"
-        >
-          <span class="material-symbols-outlined" style="font-size: 15px;">tonality</span>
-          <span>
-            {#if flaggedCount > 0}
-              一鍵進入精修 (已選 {flaggedCount} 幀) →
-            {:else}
-              一鍵進入精修 (全部 {photos.length} 幀) →
-            {/if}
-          </span>
-        </button>
-      {/if}
-    </div>
-  </header>
+    </header>
+  {/if}
 
   <!-- MAIN GRID BODY -->
   <div 
@@ -692,25 +714,27 @@
                 ontouchstart={(e) => e.stopPropagation()}
                 ontouchend={(e) => e.stopPropagation()}
                 onclick={(e) => toggleFlag(photo, e)}
-                title="標記此幀"
+                title="標記挑選此幀"
               >
                 <span class="material-symbols-outlined">
                   {photo.flagged ? 'bookmark' : 'bookmark_border'}
                 </span>
               </button>
 
-              <!-- Applied Profile Pill Floating on Bottom-Left -->
-              <div class="applied-profile-pill font-mono">
-                <span class="profile-dot" style:background={photo.appliedProfile ? 'var(--amber-highlight)' : 'var(--parchment-dim)'}></span>
-                <span class="truncate">{photo.appliedProfile}</span>
-                {#if photo.sceneTag && photo.sceneTag !== '本機相簿幀'}
-                  <span style="opacity: 0.6; margin: 0 2px;">·</span>
-                  <span class="truncate" style="color: var(--amber-highlight);">{photo.sceneTag}</span>
-                {/if}
-              </div>
+              <!-- Applied Profile Pill (僅在有套用非預設風格或挑選時呈現) -->
+              {#if photo.appliedProfile && photo.appliedProfile !== 'Profile_00_StandardNatural'}
+                <div class="applied-profile-pill font-mono">
+                  <span class="profile-dot" style:background="var(--amber-highlight)"></span>
+                  <span class="truncate">{photo.appliedProfile}</span>
+                  {#if photo.sceneTag && photo.sceneTag !== '本機相簿幀'}
+                    <span style="opacity: 0.6; margin: 0 2px;">·</span>
+                    <span class="truncate" style="color: var(--amber-highlight);">{photo.sceneTag}</span>
+                  {/if}
+                </div>
+              {/if}
             </div>
 
-            <!-- 35mm Film Bottom Sprocket Bar & Optical Telemetry -->
+            <!-- 35mm Film Bottom Sprocket Bar & Optical Telemetry (漸進式揭露) -->
             <div class="sprocket-strip bottom font-mono">
               <span class="sprocket-hole"></span>
               <span class="telemetry-compact truncate">
@@ -747,38 +771,91 @@
         </button>
       </div>
     {:else}
-      <!-- Empty Catalog Guidance -->
-      <div class="catalog-empty-box hairline-all">
-        <span class="material-symbols-outlined empty-icon">photo_library</span>
-        <h3 class="font-headline empty-title">尚未載入膠卷底片</h3>
-        <p class="font-body empty-sub">
-          請連接外接相機 USB/Type-C 隨插即讀設備，或由本機選取 DCIM / RAW 相片資料夾展開挑圖。
-        </p>
-        <div class="empty-actions">
-          <button type="button" class="archival-btn-primary" onclick={onPickDirectory} disabled={isLoadingPhotos}>
-            <span class="material-symbols-outlined" style="font-size: 16px;">folder_open</span>
-            <span>{isLoadingPhotos ? '正在解析 RAW/JPG...' : '開啟相片目錄 (RAW / JPG)'}</span>
-          </button>
-          <button type="button" class="archival-btn-secondary" onclick={onRefreshMounts}>
-            <span class="material-symbols-outlined" style="font-size: 16px;">cable</span>
-            <span>重新偵測隨插即讀設備</span>
-          </button>
-        </div>
+      <!-- 典藏級極簡大器迎賓首頁 (Grand Curatorial Zero-State Hero) -->
+      <div class="catalog-hero-wrapper">
+        <div class="catalog-hero-container">
+          <div class="brand-crest">
+            <img src="/favicon.png" alt="Logo" class="crest-icon-img" />
+            <div class="crest-halo"></div>
+          </div>
 
-        {#if !hasApiKey && onOpenVault}
-          <div class="key-vault-empty-banner hairline-all font-mono">
-            <div class="banner-left">
-              <span class="material-symbols-outlined banner-icon">vpn_key_alert</span>
-              <div class="banner-texts">
-                <span class="banner-title">尚未配置 AI 雲端金鑰</span>
-                <span class="banner-desc">可預先配置 Gemini / Groq API 金鑰，載入相片後隨即可享受 AI 智慧光學顯影</span>
+          <h2 class="hero-title font-headline">大相無形</h2>
+          <p class="hero-tagline font-mono">SLIPKNOTTING ON HEAVEN'S DOOR</p>
+
+          <!-- 核心拖放艙 (Curatorial Dropzone Pod) -->
+          <div
+            class="hero-dropzone-pod hairline-all font-mono"
+            class:loading={isLoadingPhotos}
+            onclick={onPickDirectory}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => { if (e.key === 'Enter') onPickDirectory(); }}
+          >
+            <div class="pod-icon-box">
+              <span class="material-symbols-outlined pod-main-icon">
+                {isLoadingPhotos ? 'hourglass_top' : 'folder_open'}
+              </span>
+            </div>
+            <div class="pod-meta-info">
+              <div class="pod-headline font-headline">
+                {isLoadingPhotos ? '正在解析光學 RAW / JPG 底片...' : '開啟相片目錄，或將資料夾 / 檔案拖放至此'}
+              </div>
+              <div class="pod-formats">
+                支援 Sony ARW · Canon CR2/CR3 · Nikon NEF · Fuji RAF · DNG · JPEG
               </div>
             </div>
-            <button type="button" class="banner-action-btn font-mono" onclick={onOpenVault}>
-              <span>立即配置 🔑</span>
+            <button
+              type="button"
+              class="archival-btn-primary pod-action-btn"
+              onclick={(e) => { e.stopPropagation(); onPickDirectory(); }}
+              disabled={isLoadingPhotos}
+            >
+              <span>選取相卷 ↵</span>
             </button>
           </div>
-        {/if}
+
+          <!-- 相機隨插即讀即時連線提示 (若有偵測到相機) -->
+          {#if cameraMounts && cameraMounts.length > 0 && onLoadCameraMount}
+            <div
+              class="hero-camera-pod hairline-all font-mono"
+              role="button"
+              tabindex="0"
+              onclick={() => onLoadCameraMount(cameraMounts[0])}
+              onkeydown={(e) => { if (e.key === 'Enter') onLoadCameraMount(cameraMounts[0]); }}
+            >
+              <div class="camera-pod-left">
+                <span class="status-pulse-dot"></span>
+                <span class="material-symbols-outlined" style="font-size: 18px; color: #5eead4;">photo_camera</span>
+                <span class="camera-pod-name">已偵測到外接相機：{cameraMounts[0].volume_name}</span>
+                <span class="camera-pod-count">({cameraMounts[0].file_count} 幀 RAW)</span>
+              </div>
+              <span class="camera-pod-action">一鍵載入相機相卷 →</span>
+            </div>
+          {/if}
+
+          <!-- 次要動作列 -->
+          <div class="hero-sub-actions font-mono">
+            <button type="button" class="hero-ghost-btn" onclick={onRefreshMounts}>
+              <span class="material-symbols-outlined" style="font-size: 15px;">cable</span>
+              <span>重新偵測 USB/Type-C 相機連線</span>
+            </button>
+            {#if !hasApiKey && onOpenVault}
+              <button type="button" class="hero-ghost-btn amber" onclick={onOpenVault}>
+                <span class="material-symbols-outlined" style="font-size: 15px;">vpn_key</span>
+                <span>配置 AI 雲端金鑰 (選填)</span>
+              </button>
+            {/if}
+          </div>
+
+          <!-- 系統工藝指標遙測條 (Curatorial Specifications) -->
+          <div class="hero-specs-telemetry font-mono">
+            <span>50MS 內嵌 JPEG 零延遲解碼</span>
+            <span class="spec-sep">/</span>
+            <span>WEBGL 2.0 3D LUT 色彩著色器</span>
+            <span class="spec-sep">/</span>
+            <span>LOCAL-FIRST 本機優先離線運作</span>
+          </div>
+        </div>
       </div>
     {/if}
   </div>
@@ -1371,6 +1448,360 @@
     opacity: 0.8;
   }
 
+  /* DRAG & DROP OVERLAY */
+  .drag-drop-overlay {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(18, 19, 22, 0.88);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    animation: fadeInOverlay 0.18s ease-out;
+  }
+
+  @keyframes fadeInOverlay {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .drag-drop-modal {
+    padding: 36px 48px;
+    background: var(--surface-panel);
+    border: 2px dashed var(--amber-highlight);
+    border-radius: var(--radius-md);
+    text-align: center;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8), 0 0 32px rgba(226, 157, 82, 0.2);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .drag-drop-icon {
+    font-size: 52px;
+    color: var(--amber-highlight);
+    animation: floatIcon 1.2s infinite ease-in-out alternate;
+  }
+
+  @keyframes floatIcon {
+    from { transform: translateY(0); }
+    to { transform: translateY(-6px); }
+  }
+
+  .drag-drop-title {
+    font-size: 20px;
+    color: var(--parchment-bright);
+    margin: 0;
+    letter-spacing: 0.04em;
+  }
+
+  .drag-drop-desc {
+    font-size: 12px;
+    color: var(--parchment-muted);
+    margin: 0;
+  }
+
+  /* GRAND CURATORIAL ZERO-STATE HERO */
+  .catalog-hero-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    padding: 40px 20px;
+  }
+
+  .catalog-hero-container {
+    max-width: 680px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .brand-crest {
+    position: relative;
+    width: 58px;
+    height: 58px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .crest-icon-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    position: relative;
+    z-index: 2;
+    filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.6));
+  }
+
+  .crest-halo {
+    position: absolute;
+    inset: -12px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(226, 157, 82, 0.22) 0%, transparent 70%);
+    z-index: 1;
+    pointer-events: none;
+    animation: pulseHalo 3s infinite ease-in-out alternate;
+  }
+
+  @keyframes pulseHalo {
+    from { transform: scale(0.9); opacity: 0.6; }
+    to { transform: scale(1.15); opacity: 1; }
+  }
+
+  .hero-title {
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--parchment-bright);
+    letter-spacing: 0.12em;
+    margin: 0 0 6px 0;
+  }
+
+  .hero-tagline {
+    font-size: 11px;
+    color: var(--amber-highlight);
+    letter-spacing: 0.15em;
+    margin: 0 0 16px 0;
+    opacity: 0.9;
+  }
+
+  .hero-philosophy {
+    font-size: 13px;
+    color: var(--parchment-dim);
+    line-height: 1.7;
+    margin: 0 0 32px 0;
+    max-width: 540px;
+  }
+
+  /* CURATORIAL DROPZONE POD */
+  .hero-dropzone-pod {
+    width: 100%;
+    background-color: var(--surface-panel);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-md);
+    padding: 22px 24px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    box-sizing: border-box;
+  }
+
+  .hero-dropzone-pod:hover {
+    border-color: var(--amber-highlight);
+    background-color: var(--surface-elevated);
+    transform: translateY(-2px);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(226, 157, 82, 0.12);
+  }
+
+  .hero-dropzone-pod.loading {
+    opacity: 0.7;
+    cursor: wait;
+    pointer-events: none;
+  }
+
+  .pod-icon-box {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-sm);
+    background-color: var(--surface-elevated);
+    border: 1px solid var(--hairline-slate);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--amber-highlight);
+    transition: all 0.2s ease;
+  }
+
+  .hero-dropzone-pod:hover .pod-icon-box {
+    background-color: var(--surface-overlay);
+    border-color: var(--amber-highlight);
+    transform: scale(1.05);
+  }
+
+  .pod-main-icon {
+    font-size: 26px;
+  }
+
+  .pod-meta-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .pod-headline {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--parchment-bright);
+    letter-spacing: 0.03em;
+  }
+
+  .pod-formats {
+    font-size: 11px;
+    color: var(--parchment-dim);
+  }
+
+  .pod-action-btn {
+    padding: 8px 16px !important;
+    font-size: 12px !important;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* CAMERA DETECTED POD */
+  .hero-camera-pod {
+    margin-top: 14px;
+    width: 100%;
+    background: rgba(94, 234, 212, 0.06);
+    border: 1px solid rgba(94, 234, 212, 0.35);
+    border-radius: var(--radius-sm);
+    padding: 12px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    text-align: left;
+    box-sizing: border-box;
+  }
+
+  .hero-camera-pod:hover {
+    background: rgba(94, 234, 212, 0.12);
+    border-color: #5eead4;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 18px rgba(94, 234, 212, 0.15);
+  }
+
+  .camera-pod-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--parchment-bright);
+  }
+
+  .status-pulse-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #5eead4;
+    box-shadow: 0 0 8px #5eead4;
+    animation: pulseDot 1s infinite alternate;
+  }
+
+  @keyframes pulseDot {
+    from { opacity: 0.5; }
+    to { opacity: 1; }
+  }
+
+  .camera-pod-name {
+    font-weight: 600;
+    color: #5eead4;
+  }
+
+  .camera-pod-count {
+    color: var(--parchment-dim);
+    font-size: 11px;
+  }
+
+  .camera-pod-action {
+    font-size: 11px;
+    color: #5eead4;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* SUB ACTIONS & SPECS */
+  .hero-sub-actions {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .hero-ghost-btn {
+    background: transparent;
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-muted);
+    font-size: 11px;
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .hero-ghost-btn:hover {
+    border-color: var(--parchment-dim);
+    color: var(--parchment-bright);
+    background-color: var(--surface-panel);
+  }
+
+  .hero-ghost-btn.amber:hover {
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+    background: rgba(226, 157, 82, 0.1);
+  }
+
+  .hero-specs-telemetry {
+    margin-top: 36px;
+    font-size: 10px;
+    color: var(--parchment-ghost);
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    opacity: 0.7;
+  }
+
+  .spec-sep {
+    opacity: 0.4;
+  }
+
+  /* REFINED FILM CARD PROGRESSIVE DISCLOSURE */
+  .film-card .flag-btn {
+    opacity: 0.35;
+    background-color: rgba(18, 19, 22, 0.5);
+  }
+
+  .film-card:hover .flag-btn,
+  .film-card.selected .flag-btn,
+  .film-card.flagged .flag-btn {
+    opacity: 1;
+  }
+
+  .film-card .telemetry-compact {
+    opacity: 0.75;
+    transition: opacity 0.15s ease;
+  }
+
+  .film-card:hover .telemetry-compact,
+  .film-card.selected .telemetry-compact {
+    opacity: 1;
+    color: var(--parchment-bright);
+  }
+
   /* EMPTY GUIDANCE */
   .catalog-empty-box {
     margin: 60px auto;
@@ -1422,66 +1853,6 @@
   }
 
   /* KEY VAULT GUIDANCE BANNER & TOOLBAR BADGE */
-  .key-vault-empty-banner {
-    margin-top: 24px;
-    width: 100%;
-    padding: 12px 16px;
-    background: rgba(226, 157, 82, 0.08);
-    border: 1px dashed rgba(226, 157, 82, 0.35);
-    border-radius: var(--radius-sm);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    text-align: left;
-    box-sizing: border-box;
-  }
-  .key-vault-empty-banner .banner-left {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-  }
-  .key-vault-empty-banner .banner-icon {
-    font-size: 20px;
-    color: var(--amber-highlight);
-    flex-shrink: 0;
-  }
-  .key-vault-empty-banner .banner-texts {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-  .key-vault-empty-banner .banner-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--amber-highlight);
-    letter-spacing: 0.04em;
-  }
-  .key-vault-empty-banner .banner-desc {
-    font-size: 11px;
-    color: var(--parchment-muted);
-    line-height: 1.4;
-  }
-  .key-vault-empty-banner .banner-action-btn {
-    padding: 6px 12px;
-    background: var(--amber-highlight);
-    color: #121214;
-    border: none;
-    border-radius: var(--radius-xs);
-    font-size: 11px;
-    font-weight: 700;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: all 0.15s ease;
-    white-space: nowrap;
-  }
-  .key-vault-empty-banner .banner-action-btn:hover {
-    background: #f0a855;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(226, 157, 82, 0.3);
-  }
   .tool-btn.key-guide-badge {
     border-color: rgba(226, 157, 82, 0.4);
     background: rgba(226, 157, 82, 0.08);
@@ -1497,18 +1868,6 @@
 
   /* ── 觸控設備與行動端專屬佈局 (Mobile & Coarse Pointer Layout) ── */
   @media (pointer: coarse), (max-width: 768px) {
-    .key-vault-empty-banner {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 12px;
-      padding: 14px;
-    }
-    .key-vault-empty-banner .banner-action-btn {
-      width: 100%;
-      padding: 10px;
-      font-size: 12px;
-      text-align: center;
-    }
     .catalog-toolbar {
       padding: 6px 10px;
       flex-wrap: wrap;

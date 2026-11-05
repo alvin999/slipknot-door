@@ -459,6 +459,85 @@ export class IngestionService {
   }
 
   /**
+   * Process dropped files or directory items from Drag & Drop event
+   */
+  public static async processDataTransfer(dataTransfer: DataTransfer): Promise<RawPhotoItem[]> {
+    const rawFiles: File[] = [];
+
+    // 1. Check if webkitGetAsEntry is available for directory traversal
+    const items = dataTransfer.items;
+    if (items && items.length > 0 && typeof (items[0] as any).webkitGetAsEntry === 'function') {
+      const queue: any[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const entry = (items[i] as any).webkitGetAsEntry();
+        if (entry) queue.push(entry);
+      }
+
+      async function readEntry(entry: any): Promise<void> {
+        if (entry.isFile) {
+          await new Promise<void>((resolve) => {
+            entry.file((file: File) => {
+              const ext = file.name.split('.').pop()?.toLowerCase() || '';
+              if (SUPPORTED_EXTS.includes(ext)) {
+                rawFiles.push(file);
+              }
+              resolve();
+            }, () => resolve());
+          });
+        } else if (entry.isDirectory) {
+          const reader = entry.createReader();
+          const readEntries = async (): Promise<any[]> => {
+            return new Promise((resolve) => {
+              reader.readEntries((entries: any[]) => resolve(entries || []), () => resolve([]));
+            });
+          };
+
+          let batch = await readEntries();
+          while (batch.length > 0) {
+            for (const child of batch) {
+              await readEntry(child);
+            }
+            batch = await readEntries();
+          }
+        }
+      }
+
+      for (const entry of queue) {
+        await readEntry(entry);
+      }
+    } else if (dataTransfer.files && dataTransfer.files.length > 0) {
+      for (let i = 0; i < dataTransfer.files.length; i++) {
+        const file = dataTransfer.files[i];
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        if (SUPPORTED_EXTS.includes(ext)) {
+          rawFiles.push(file);
+        }
+      }
+    }
+
+    if (rawFiles.length > 0) {
+      this.currentDirectoryName = rawFiles.length === 1 ? rawFiles[0].name : '拖入相片集';
+    }
+
+    const resultItems: RawPhotoItem[] = [];
+    let index = 1;
+    for (const file of rawFiles) {
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      resultItems.push({
+        file_path: file.name,
+        filename: file.name,
+        file_size: file.size,
+        extension: ext,
+        frame_no: `${String(index).padStart(2, '0')}A`,
+        fileHandle: file
+      });
+      index++;
+    }
+
+    return resultItems;
+  }
+
+  /**
    * Extract embedded JPEG and optical EXIF within 50ms without raw demosaicing
    * Supports both Tauri desktop extraction and authentic in-browser binary extraction
    */
