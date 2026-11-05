@@ -3563,18 +3563,6 @@
     <button
       type="button"
       class="mobile-nav-item"
-      class:active={activeTab === "profiles"}
-      onclick={() => {
-        activeTab = "profiles";
-        activeMobileDrawer = "none";
-      }}
-    >
-      <span class="material-symbols-outlined">palette</span>
-      <span class="nav-text">風格庫</span>
-    </button>
-    <button
-      type="button"
-      class="mobile-nav-item"
       class:active={activeTab === "export"}
       onclick={() => {
         activeTab = "export";
@@ -3587,14 +3575,26 @@
     <button
       type="button"
       class="mobile-nav-item"
+      class:active={activeTab === "profiles"}
+      onclick={() => {
+        activeTab = "profiles";
+        activeMobileDrawer = "none";
+      }}
+    >
+      <span class="material-symbols-outlined">palette</span>
+      <span class="nav-text">風格庫</span>
+    </button>
+    <button
+      type="button"
+      class="mobile-nav-item"
       class:active={activeTab === "devices"}
       onclick={() => {
         activeTab = "devices";
         activeMobileDrawer = "none";
       }}
     >
-      <span class="material-symbols-outlined">cable</span>
-      <span class="nav-text">相機</span>
+      <span class="material-symbols-outlined">settings</span>
+      <span class="nav-text">設定</span>
     </button>
   </nav>
 
