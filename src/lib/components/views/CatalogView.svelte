@@ -202,6 +202,7 @@
 
   function handleTouchStart(photo: CatalogPhotoItem, e: TouchEvent) {
     if (!isCoarsePointer) return;
+    if ((e.target as HTMLElement)?.closest('.flag-btn')) return;
     didTriggerLongPress = false;
     isSwipeSelecting = false;
     stopAutoScroll();
@@ -251,6 +252,7 @@
 
   function handleTouchEnd(photo: CatalogPhotoItem, e: TouchEvent) {
     if (!isCoarsePointer) return;
+    if ((e.target as HTMLElement)?.closest('.flag-btn')) return;
     if (longPressTimer) {
       clearTimeout(longPressTimer);
       longPressTimer = null;
@@ -692,6 +694,8 @@
                 type="button" 
                 class="flag-btn" 
                 class:active={photo.flagged}
+                ontouchstart={(e) => e.stopPropagation()}
+                ontouchend={(e) => e.stopPropagation()}
                 onclick={(e) => toggleFlag(photo, e)}
                 title="標記此幀"
               >
