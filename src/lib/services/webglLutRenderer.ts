@@ -453,10 +453,7 @@ export class WebglLutRenderer {
       const res = await fetch(url);
       if (res.ok) {
         const text = await res.text();
-        const success = this.parseAndRegisterCube(profileId, text);
-        if (success) {
-          console.info(`[WebGL LUT] 成功載入並升級真實 .cube 紋理: ${profileId} (${url})`);
-        }
+        this.parseAndRegisterCube(profileId, text);
       }
     } catch {
       // 離線或檔案未找到時靜默略過，維持即時數學兜底紋理
