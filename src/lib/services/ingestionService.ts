@@ -566,7 +566,7 @@ export class IngestionService {
     }
 
     // 3. In Web Dev Mode with file path (via dev middleware)
-    if (!this.isTauri() && filePath) {
+    if (!this.isTauri() && filePath && !fileBlob) {
       return {
         file_path: filePath,
         mime_type: 'image/jpeg',

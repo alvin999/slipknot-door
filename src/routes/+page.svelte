@@ -1928,10 +1928,14 @@
 
       // Step 1: Instant zero-latency initialization (< 5ms) for all frames
       const loaded: PhotoPlate[] = items.map((item, i) => {
-        const directUrl =
-          !isTauriEnv && item.file_path
-            ? `/api/extract-preview?path=${encodeURIComponent(item.file_path)}`
-            : "";
+        let directUrl = "";
+        if (item.fileHandle) {
+          if (item.extension === "jpg" || item.extension === "jpeg") {
+            directUrl = URL.createObjectURL(item.fileHandle);
+          }
+        } else if (!isTauriEnv && item.file_path) {
+          directUrl = `/api/extract-preview?path=${encodeURIComponent(item.file_path)}`;
+        }
         return {
           id: `photo_${i + 1}`,
           frameNo: item.frame_no,

@@ -183,10 +183,14 @@ export class PhotoLibraryStore {
 
     // 步驟 1: 即時零延遲初始化 (< 5ms) 所有畫格
     const loaded: PhotoPlateItem[] = items.map((item, i) => {
-      const directUrl =
-        !isTauriEnv && item.file_path
-          ? `/api/extract-preview?path=${encodeURIComponent(item.file_path)}`
-          : "";
+      let directUrl = "";
+      if (item.fileHandle) {
+        if (item.extension === "jpg" || item.extension === "jpeg") {
+          directUrl = URL.createObjectURL(item.fileHandle);
+        }
+      } else if (!isTauriEnv && item.file_path) {
+        directUrl = `/api/extract-preview?path=${encodeURIComponent(item.file_path)}`;
+      }
       return {
         id: `photo_${i + 1}`,
         frameNo: item.frame_no,
