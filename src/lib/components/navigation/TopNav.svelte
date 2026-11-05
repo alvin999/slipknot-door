@@ -13,6 +13,7 @@
     activeQueueLength: number;
     exportMode: 'modeA' | 'modeB';
     isExporting: boolean;
+    currentDirectoryName?: string;
     onSelectMount: () => void;
     onGoToCatalog: () => void;
     onGoToRetouch: () => void;
@@ -32,6 +33,7 @@
     activeQueueLength,
     exportMode,
     isExporting,
+    currentDirectoryName = '',
     onSelectMount,
     onGoToCatalog,
     onGoToRetouch,
@@ -51,39 +53,43 @@
     </div>
   </div>
 
-  <!-- Active Hardware Ingestion Indicator -->
+  <!-- Global Directory / Hardware Ingestion Telemetry -->
   <button
     type="button"
     class="device-telemetry hairline-all"
+    class:camera-detected={cameraMounts.length > 0}
     onclick={onSelectMount}
     title={cameraMounts.length > 0
-      ? '點擊一鍵載入相機 DCIM 底片'
-      : !IngestionService.isTauri()
-        ? '瀏覽器環境：點擊手動選取相機資料夾 (或執行桌面版自動偵測)'
-        : '點擊重新偵測相機外接裝置'}
+      ? `已偵測到外接相機 [${cameraMounts[0].volume_name}] (${cameraMounts[0].file_count} 幀 RAW)，點擊載入相機或切換目錄`
+      : totalPhotos > 0
+        ? '點擊更換相片目錄 (選取新資料夾挑圖或讀取相機)'
+        : '點擊選取相片目錄 (支援 RAW / JPG)'}
   >
     <span
       class="status-dot"
       class:scanning={isScanningMounts}
-      class:connected={cameraMounts.length > 0}
+      class:connected={cameraMounts.length > 0 || totalPhotos > 0}
+      class:has-camera={cameraMounts.length > 0}
     ></span>
     <span class="device-name font-mono">
-      {#if cameraMounts.length > 0}
-        {cameraMounts[0].volume_name} // 隨插即讀已連線
-      {:else if !IngestionService.isTauri()}
-        瀏覽器模式 // 點擊開啟相機目錄 (RAW/JPG)
+      {#if totalPhotos > 0 && cameraMounts.length > 0}
+        📁 {currentDirectoryName || '目前目錄'} // 📷 偵測到 {cameraMounts[0].volume_name} (點擊切換) ▾
+      {:else if totalPhotos > 0}
+        📁 {currentDirectoryName || '相片目錄'} // 切換新目錄 ▾
+      {:else if cameraMounts.length > 0}
+        📷 {cameraMounts[0].volume_name} // 隨插即讀已連線 ↵
       {:else}
-        未偵測到相機掛載
+        📁 開啟相片目錄 / 相機 (RAW/JPG)
       {/if}
     </span>
     <span class="divider">|</span>
     <span class="device-metric font-mono">
       {#if cameraMounts.length > 0}
-        載入 {cameraMounts[0].file_count} 幀 RAW ↵
-      {:else if !IngestionService.isTauri()}
-        支援手動載入
+        <span class="camera-badge">相機 {cameraMounts[0].file_count} 幀 RAW ↵</span>
+      {:else if totalPhotos > 0}
+        已載入 {totalPhotos} 幀 · 更換目錄 ↵
       {:else}
-        等待接線
+        點擊選取目錄 ↵
       {/if}
     </span>
   </button>
@@ -288,6 +294,18 @@
   .device-telemetry:hover {
     border-color: var(--primary-indigo);
     background-color: var(--surface-overlay);
+  }
+  .device-telemetry.camera-detected {
+    border-color: rgba(94, 234, 212, 0.4);
+    background-color: rgba(94, 234, 212, 0.08);
+  }
+  .status-dot.has-camera {
+    background-color: #5eead4;
+    box-shadow: 0 0 8px #5eead4;
+  }
+  .camera-badge {
+    color: #5eead4;
+    font-weight: 600;
   }
   .status-dot {
     width: 6px;

@@ -317,7 +317,12 @@ export class IngestionService {
   /**
    * Scan directory using Tauri or Web Dev Bridge
    */
+  public static currentDirectoryName: string = '';
   public static async scanDirectory(path: string): Promise<RawPhotoItem[]> {
+    if (path) {
+      const parts = path.replace(/[/\\]+$/, '').split(/[/\\]/);
+      this.currentDirectoryName = parts[parts.length - 1] || path;
+    }
     if (this.isTauri()) {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
@@ -360,6 +365,8 @@ export class IngestionService {
           title: '選擇相片目錄'
         });
         if (selected && typeof selected === 'string') {
+          const parts = selected.replace(/[/\\]+$/, '').split(/[/\\]/);
+          this.currentDirectoryName = parts[parts.length - 1] || selected;
           return await this.scanDirectory(selected);
         }
         return [];
@@ -372,6 +379,7 @@ export class IngestionService {
     if ('showDirectoryPicker' in window) {
       try {
         const dirHandle = await (window as any).showDirectoryPicker();
+        this.currentDirectoryName = dirHandle.name || '相片資料夾';
         const items: RawPhotoItem[] = [];
         let index = 1;
 
@@ -411,6 +419,11 @@ export class IngestionService {
 
       input.onchange = () => {
         const files = Array.from(input.files || []);
+        if (files.length > 0 && files[0].webkitRelativePath) {
+          this.currentDirectoryName = files[0].webkitRelativePath.split('/')[0] || '相片資料夾';
+        } else if (files.length > 0) {
+          this.currentDirectoryName = '相片資料夾';
+        }
         const items: RawPhotoItem[] = [];
         let index = 1;
 

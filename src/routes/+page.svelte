@@ -58,9 +58,24 @@
   let isScanningMounts = $state<boolean>(false);
   let latestExtractionMs = $state<number>(18);
 
-  onMount(async () => {
-    await refreshCameraMounts();
+  onMount(() => {
+    refreshCameraMounts();
     refreshKeyStatus();
+
+    // 背景熱插拔偵測：每 4 秒檢查一次外接相機與儲存裝置連線狀態
+    const mountPollTimer = setInterval(() => {
+      refreshCameraMounts();
+    }, 4000);
+
+    const handleFocus = () => {
+      refreshCameraMounts();
+    };
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      clearInterval(mountPollTimer);
+      window.removeEventListener("focus", handleFocus);
+    };
   });
 
   function refreshKeyStatus() {
@@ -128,6 +143,7 @@
   let photoPlates = $state<PhotoPlate[]>([]);
   let activePhoto = $state<PhotoPlate | null>(null);
   let isLoadingPhotos = $state<boolean>(false);
+  let currentDirectoryName = $state<string>('');
 
   // Darkroom Tuning Sliders
   // Professional Darkroom Tonal & Color Parameters
@@ -2080,6 +2096,9 @@
     isLoadingPhotos = true;
     try {
       const items = await IngestionService.pickWebDirectory();
+      if (items.length > 0) {
+        currentDirectoryName = IngestionService.currentDirectoryName || '相片資料夾';
+      }
       await loadPhotosFromItems(items);
     } finally {
       isLoadingPhotos = false;
@@ -2092,10 +2111,36 @@
     isLoadingPhotos = true;
     try {
       const items = await IngestionService.scanDirectory(targetPath);
+      if (items.length > 0) {
+        currentDirectoryName = mount.volume_name || IngestionService.currentDirectoryName || '相機外接裝置';
+      }
       await loadPhotosFromItems(items);
     } finally {
       isLoadingPhotos = false;
     }
+  }
+
+  // 智慧處理：頂部全域目錄與相機切換
+  async function handleSelectMountOrDirectory() {
+    if (cameraMounts.length > 0) {
+      const camera = cameraMounts[0];
+      if (photoPlates.length > 0) {
+        const confirmLoad = window.confirm(
+          `【偵測到外接相機連線】\n相機名稱：${camera.volume_name}\n可載入底片：${camera.file_count} 幀 RAW\n\n點擊「確定」載入此相機相卷\n點擊「取消」瀏覽挑選其他本機目錄`
+        );
+        if (confirmLoad) {
+          await handleLoadCameraMount(camera);
+          return;
+        } else {
+          await handlePickDirectory();
+          return;
+        }
+      } else {
+        await handleLoadCameraMount(camera);
+        return;
+      }
+    }
+    await handlePickDirectory();
   }
 
   // AI Adjustment Slider Organic Tween Animation (AI 手動推拉滑桿感)
@@ -3283,15 +3328,8 @@
     activeQueueLength={activeQueue.length}
     {exportMode}
     {isExporting}
-    onSelectMount={() => {
-      if (cameraMounts.length > 0) {
-        handleLoadCameraMount(cameraMounts[0]);
-      } else if (!IngestionService.isTauri()) {
-        handlePickDirectory();
-      } else {
-        refreshCameraMounts();
-      }
-    }}
+    {currentDirectoryName}
+    onSelectMount={handleSelectMountOrDirectory}
     onGoToCatalog={goToCatalog}
     onGoToRetouch={goToRetouch}
     onGoToExport={goToExport}

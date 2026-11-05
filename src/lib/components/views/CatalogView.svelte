@@ -586,11 +586,6 @@
         </button>
       </div>
 
-      <!-- Directory Open Button -->
-      <button type="button" class="tool-btn" onclick={onPickDirectory} disabled={isLoadingPhotos} title="載入相片目錄">
-        <span class="material-symbols-outlined" style="font-size: 14px;">folder_open</span>
-        <span>{isLoadingPhotos ? '解析中...' : '載入目錄'}</span>
-      </button>
 
       {#if !hasApiKey && onOpenVault}
         <button
