@@ -11,6 +11,12 @@ export interface CameraMountInfo {
   is_camera: boolean;
 }
 
+export interface RecentDirectoryEntry {
+  path: string;
+  name: string;
+  timestamp: number;
+}
+
 export interface RawPhotoItem {
   file_path: string;
   filename: string;
@@ -318,10 +324,40 @@ export class IngestionService {
    * Scan directory using Tauri or Web Dev Bridge
    */
   public static currentDirectoryName: string = '';
+  private static RECENT_DIRS_STORAGE_KEY = 'slipknot_recent_directories';
+
+  public static getRecentDirectories(): RecentDirectoryEntry[] {
+    if (typeof localStorage === 'undefined') return [];
+    try {
+      const data = localStorage.getItem(this.RECENT_DIRS_STORAGE_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  public static addRecentDirectory(path: string, name: string): void {
+    if (typeof localStorage === 'undefined' || !path) return;
+    try {
+      let list = this.getRecentDirectories().filter((d) => d.path !== path);
+      list.unshift({ path, name: name || path, timestamp: Date.now() });
+      if (list.length > 8) list = list.slice(0, 8);
+      localStorage.setItem(this.RECENT_DIRS_STORAGE_KEY, JSON.stringify(list));
+    } catch (err) {
+      console.warn('Failed to save recent directory:', err);
+    }
+  }
+
+  public static clearRecentDirectories(): void {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(this.RECENT_DIRS_STORAGE_KEY);
+  }
+
   public static async scanDirectory(path: string): Promise<RawPhotoItem[]> {
     if (path) {
       const parts = path.replace(/[/\\]+$/, '').split(/[/\\]/);
       this.currentDirectoryName = parts[parts.length - 1] || path;
+      this.addRecentDirectory(path, this.currentDirectoryName);
     }
     if (this.isTauri()) {
       try {
@@ -380,6 +416,7 @@ export class IngestionService {
       try {
         const dirHandle = await (window as any).showDirectoryPicker();
         this.currentDirectoryName = dirHandle.name || '相片資料夾';
+        this.addRecentDirectory(dirHandle.name, dirHandle.name || '相片資料夾');
         const items: RawPhotoItem[] = [];
         let index = 1;
 
@@ -451,6 +488,129 @@ export class IngestionService {
         if (input.parentNode) {
           document.body.removeChild(input);
         }
+        resolve([]);
+      };
+
+      input.click();
+    });
+  }
+
+  /**
+   * Pick individual photo files directly (RAW / JPG)
+   */
+  public static async pickWebFiles(): Promise<RawPhotoItem[]> {
+    if (typeof window === 'undefined') return [];
+
+    // 1. Tauri Native File Picker
+    if (this.isTauri()) {
+      try {
+        const { open } = await import('@tauri-apps/plugin-dialog');
+        const selected = await open({
+          directory: false,
+          multiple: true,
+          title: '選取相片底片 (RAW / JPG)',
+          filters: [
+            {
+              name: 'Photographic Plates',
+              extensions: ['arw', 'cr2', 'cr3', 'nef', 'raf', 'dng', 'jpg', 'jpeg']
+            }
+          ]
+        });
+        if (selected) {
+          const paths = Array.isArray(selected) ? selected : [selected];
+          const items: RawPhotoItem[] = [];
+          for (let i = 0; i < paths.length; i++) {
+            const p = paths[i];
+            const name = p.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || p;
+            const ext = name.split('.').pop()?.toLowerCase() || '';
+            items.push({
+              file_path: p,
+              filename: name,
+              file_size: 0,
+              extension: ext,
+              frame_no: `${String(i + 1).padStart(2, '0')}A`
+            });
+          }
+          return items;
+        }
+        return [];
+      } catch (err) {
+        console.warn('Tauri open file dialog failed, falling back to Web API:', err);
+      }
+    }
+
+    // 2. Modern File System Access API
+    if ('showOpenFilePicker' in window) {
+      try {
+        const handles = await (window as any).showOpenFilePicker({
+          multiple: true,
+          types: [
+            {
+              description: 'Photos & RAW Plates',
+              accept: {
+                'image/*': ['.jpg', '.jpeg', '.dng'],
+                'application/octet-stream': ['.arw', '.cr2', '.cr3', '.nef', '.raf']
+              }
+            }
+          ]
+        });
+        const items: RawPhotoItem[] = [];
+        let index = 1;
+        for (const handle of handles) {
+          const file: File = await handle.getFile();
+          const ext = file.name.split('.').pop()?.toLowerCase() || '';
+          if (SUPPORTED_EXTS.includes(ext)) {
+            items.push({
+              file_path: file.name,
+              filename: file.name,
+              file_size: file.size,
+              extension: ext,
+              frame_no: `${String(index).padStart(2, '0')}A`,
+              fileHandle: file
+            });
+            index++;
+          }
+        }
+        return items;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return [];
+        console.warn('showOpenFilePicker failed, falling back to HTML5 input:', err);
+      }
+    }
+
+    // 3. HTML5 File input fallback
+    return new Promise<RawPhotoItem[]>((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.accept = '.jpg,.jpeg,.arw,.cr2,.cr3,.nef,.raf,.dng';
+      input.style.display = 'none';
+      document.body.appendChild(input);
+
+      input.onchange = () => {
+        const files = Array.from(input.files || []);
+        const items: RawPhotoItem[] = [];
+        let index = 1;
+        for (const file of files) {
+          const ext = file.name.split('.').pop()?.toLowerCase() || '';
+          if (SUPPORTED_EXTS.includes(ext)) {
+            items.push({
+              file_path: file.name,
+              filename: file.name,
+              file_size: file.size,
+              extension: ext,
+              frame_no: `${String(index).padStart(2, '0')}A`,
+              fileHandle: file
+            });
+            index++;
+          }
+        }
+        if (input.parentNode) document.body.removeChild(input);
+        resolve(items);
+      };
+
+      input.oncancel = () => {
+        if (input.parentNode) document.body.removeChild(input);
         resolve([]);
       };
 

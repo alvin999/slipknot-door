@@ -1209,6 +1209,15 @@
         }
       }
 
+      // 支援 Delete / Backspace 鍵從相卷排除相片 (Remove / Cull)
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (activePhoto) {
+          e.preventDefault();
+          handleRemovePhoto(activePhoto.id);
+          return;
+        }
+      }
+
       if (e.key === "h" || e.key === "ArrowLeft") {
         e.preventDefault();
         selectAdjacentPhoto(-1);
@@ -2005,12 +2014,25 @@
 
   async function loadPhotosFromItems(
     items: import("$lib/services/ingestionService").RawPhotoItem[],
+    append = false,
   ) {
     if (items.length > 0) {
       const isTauriEnv = IngestionService.isTauri();
 
+      // 追加模式下，過濾掉已存在於目前相卷中的相片（以檔名比對）
+      let itemsToLoad = items;
+      if (append && photoPlates.length > 0) {
+        const existingNames = new Set(photoPlates.map((p) => p.filename));
+        itemsToLoad = items.filter((item) => !existingNames.has(item.filename));
+        if (itemsToLoad.length === 0) {
+          toastStore.show("所選相片均已在相卷中，未有新增相片", "info", 2500);
+          return;
+        }
+      }
+
+      const startIndex = append ? photoPlates.length : 0;
       // Step 1: Instant zero-latency initialization (< 5ms) for all frames
-      const loaded: PhotoPlate[] = items.map((item, i) => {
+      const loaded: PhotoPlate[] = itemsToLoad.map((item, i) => {
         let directUrl = "";
         if (item.fileHandle) {
           if (item.extension === "jpg" || item.extension === "jpeg") {
@@ -2019,9 +2041,10 @@
         } else if (!isTauriEnv && item.file_path) {
           directUrl = `/api/extract-preview?path=${encodeURIComponent(item.file_path)}`;
         }
+        const frameIdx = startIndex + i + 1;
         return {
-          id: `photo_${i + 1}`,
-          frameNo: item.frame_no,
+          id: `photo_${frameIdx}_${Date.now()}`,
+          frameNo: item.frame_no || `${String(frameIdx).padStart(2, "0")}A`,
           filename: item.filename,
           camera: `${item.extension.toUpperCase()} 底片`,
           lens: "標準光學鏡頭",
@@ -2031,73 +2054,84 @@
           focalLength: "--",
           thumbnail: directUrl,
           sceneTag: "本機相簿幀",
-          selected: i === 0,
+          selected: !append && i === 0,
           appliedProfile: "Profile_00_StandardNatural",
           fileHandle: item.fileHandle,
         };
       });
 
-      photoPlates = loaded;
-      activePhoto = loaded[0];
-      photoLibrary.photoPlates = loaded as any;
-      photoLibrary.activePhoto = loaded[0] as any;
-      activeTab = "catalog"; // Switch to catalog grid view immediately
+      if (append) {
+        photoPlates = [...photoPlates, ...loaded];
+        if (!activePhoto && photoPlates.length > 0) {
+          activePhoto = photoPlates[0];
+          photoPlates[0].selected = true;
+        }
+        photoLibrary.photoPlates = photoPlates as any;
+        toastStore.show(`已成功追加 ${loaded.length} 幀底片 ✓`, "success", 2500);
+      } else {
+        photoPlates = loaded;
+        activePhoto = loaded[0];
+        photoLibrary.photoPlates = loaded as any;
+        photoLibrary.activePhoto = loaded[0] as any;
+        activeTab = "catalog"; // Switch to catalog grid view immediately
+      }
 
       // Step 2: Progressive enhancement for EXIF and thumbnails
       // Prioritize the first visible frames immediately
-      const initialBatch = Math.min(items.length, 12);
+      const initialBatch = Math.min(itemsToLoad.length, 12);
       for (let i = 0; i < initialBatch; i++) {
-        const item = items[i];
-        if (!photoPlates[i].thumbnail || isTauriEnv || item.fileHandle) {
+        const item = itemsToLoad[i];
+        const plateIndex = startIndex + i;
+        if (!photoPlates[plateIndex]?.thumbnail || isTauriEnv || item.fileHandle) {
           IngestionService.extractPreview(item.file_path, item.fileHandle).then(
             (preview) => {
-              if (photoPlates[i]) {
+              if (photoPlates[plateIndex]) {
                 if (preview.blob_url || preview.jpeg_base64) {
-                  photoPlates[i].thumbnail =
+                  photoPlates[plateIndex].thumbnail =
                     preview.blob_url ||
                     `data:image/jpeg;base64,${preview.jpeg_base64}`;
                   if (
-                    photoPlates[i].appliedProfile &&
-                    photoPlates[i].appliedProfile !==
+                    photoPlates[plateIndex].appliedProfile &&
+                    photoPlates[plateIndex].appliedProfile !==
                       "Profile_00_StandardNatural"
                   ) {
-                    enqueueThumbnailRender(photoPlates[i]);
+                    enqueueThumbnailRender(photoPlates[plateIndex]);
                   }
                 }
-                photoPlates[i].camera =
-                  preview.exif.camera_model || photoPlates[i].camera;
-                photoPlates[i].lens =
-                  preview.exif.lens_model || photoPlates[i].lens;
-                photoPlates[i].iso = preview.exif.iso || photoPlates[i].iso;
-                photoPlates[i].shutter =
-                  preview.exif.shutter_speed || photoPlates[i].shutter;
-                photoPlates[i].aperture =
-                  preview.exif.aperture || photoPlates[i].aperture;
-                photoPlates[i].focalLength =
-                  preview.exif.focal_length || photoPlates[i].focalLength;
-                photoPlates[i].exposureBias = preview.exif.exposure_bias ?? 0.0;
-                photoPlates[i].exposureProgram =
+                photoPlates[plateIndex].camera =
+                  preview.exif.camera_model || photoPlates[plateIndex].camera;
+                photoPlates[plateIndex].lens =
+                  preview.exif.lens_model || photoPlates[plateIndex].lens;
+                photoPlates[plateIndex].iso = preview.exif.iso || photoPlates[plateIndex].iso;
+                photoPlates[plateIndex].shutter =
+                  preview.exif.shutter_speed || photoPlates[plateIndex].shutter;
+                photoPlates[plateIndex].aperture =
+                  preview.exif.aperture || photoPlates[plateIndex].aperture;
+                photoPlates[plateIndex].focalLength =
+                  preview.exif.focal_length || photoPlates[plateIndex].focalLength;
+                photoPlates[plateIndex].exposureBias = preview.exif.exposure_bias ?? 0.0;
+                photoPlates[plateIndex].exposureProgram =
                   preview.exif.exposure_program || "標準自動";
-                photoPlates[i].meteringMode =
+                photoPlates[plateIndex].meteringMode =
                   preview.exif.metering_mode || "多重測光";
-                photoPlates[i].colorSpace = preview.exif.color_space || "sRGB";
-                photoPlates[i].flash = preview.exif.flash || "未擊發";
-                photoPlates[i].asShotTemp = preview.exif.color_temp ?? 5500;
-                photoPlates[i].asShotTint = preview.exif.tint ?? 0;
-                photoPlates[i].asShotExposure =
+                photoPlates[plateIndex].colorSpace = preview.exif.color_space || "sRGB";
+                photoPlates[plateIndex].flash = preview.exif.flash || "未擊發";
+                photoPlates[plateIndex].asShotTemp = preview.exif.color_temp ?? 5500;
+                photoPlates[plateIndex].asShotTint = preview.exif.tint ?? 0;
+                photoPlates[plateIndex].asShotExposure =
                   preview.exif.exposure_bias ?? 0.0;
                 latestExtractionMs = preview.extraction_time_ms || 18;
 
                 // 若剛好是當前活躍檢視相片，且尚未調整過，立即同步載入相機拍攝原值
                 if (
                   activePhoto &&
-                  activePhoto.id === photoPlates[i].id &&
+                  activePhoto.id === photoPlates[plateIndex].id &&
                   !activePhoto.tuning
                 ) {
-                  activePhoto = { ...photoPlates[i] };
-                  colorTemp = photoPlates[i].asShotTemp ?? 5500;
-                  tint = photoPlates[i].asShotTint ?? 0.0;
-                  exposure = photoPlates[i].asShotExposure ?? 0.0;
+                  activePhoto = { ...photoPlates[plateIndex] };
+                  colorTemp = photoPlates[plateIndex].asShotTemp ?? 5500;
+                  tint = photoPlates[plateIndex].asShotTint ?? 0.0;
+                  exposure = photoPlates[plateIndex].asShotExposure ?? 0.0;
                 }
               }
             },
@@ -2106,49 +2140,50 @@
       }
 
       // Step 3: Background chunked ingestion for subsequent frames
-      if (items.length > initialBatch) {
+      if (itemsToLoad.length > initialBatch) {
         setTimeout(async () => {
-          for (let i = initialBatch; i < items.length; i++) {
-            const item = items[i];
-            if (!photoPlates[i]?.thumbnail || isTauriEnv || item.fileHandle) {
+          for (let i = initialBatch; i < itemsToLoad.length; i++) {
+            const item = itemsToLoad[i];
+            const plateIndex = startIndex + i;
+            if (!photoPlates[plateIndex]?.thumbnail || isTauriEnv || item.fileHandle) {
               const preview = await IngestionService.extractPreview(
                 item.file_path,
                 item.fileHandle,
               );
-              if (photoPlates[i]) {
+              if (photoPlates[plateIndex]) {
                 if (preview.blob_url || preview.jpeg_base64) {
-                  photoPlates[i].thumbnail =
+                  photoPlates[plateIndex].thumbnail =
                     preview.blob_url ||
                     `data:image/jpeg;base64,${preview.jpeg_base64}`;
                   if (
-                    photoPlates[i].appliedProfile &&
-                    photoPlates[i].appliedProfile !==
+                    photoPlates[plateIndex].appliedProfile &&
+                    photoPlates[plateIndex].appliedProfile !==
                       "Profile_00_StandardNatural"
                   ) {
-                    enqueueThumbnailRender(photoPlates[i]);
+                    enqueueThumbnailRender(photoPlates[plateIndex]);
                   }
                 }
-                photoPlates[i].camera =
-                  preview.exif.camera_model || photoPlates[i].camera;
-                photoPlates[i].lens =
-                  preview.exif.lens_model || photoPlates[i].lens;
-                photoPlates[i].iso = preview.exif.iso || photoPlates[i].iso;
-                photoPlates[i].shutter =
-                  preview.exif.shutter_speed || photoPlates[i].shutter;
-                photoPlates[i].aperture =
-                  preview.exif.aperture || photoPlates[i].aperture;
-                photoPlates[i].focalLength =
-                  preview.exif.focal_length || photoPlates[i].focalLength;
-                photoPlates[i].exposureBias = preview.exif.exposure_bias ?? 0.0;
-                photoPlates[i].exposureProgram =
+                photoPlates[plateIndex].camera =
+                  preview.exif.camera_model || photoPlates[plateIndex].camera;
+                photoPlates[plateIndex].lens =
+                  preview.exif.lens_model || photoPlates[plateIndex].lens;
+                photoPlates[plateIndex].iso = preview.exif.iso || photoPlates[plateIndex].iso;
+                photoPlates[plateIndex].shutter =
+                  preview.exif.shutter_speed || photoPlates[plateIndex].shutter;
+                photoPlates[plateIndex].aperture =
+                  preview.exif.aperture || photoPlates[plateIndex].aperture;
+                photoPlates[plateIndex].focalLength =
+                  preview.exif.focal_length || photoPlates[plateIndex].focalLength;
+                photoPlates[plateIndex].exposureBias = preview.exif.exposure_bias ?? 0.0;
+                photoPlates[plateIndex].exposureProgram =
                   preview.exif.exposure_program || "標準自動";
-                photoPlates[i].meteringMode =
+                photoPlates[plateIndex].meteringMode =
                   preview.exif.metering_mode || "多重測光";
-                photoPlates[i].colorSpace = preview.exif.color_space || "sRGB";
-                photoPlates[i].flash = preview.exif.flash || "未擊發";
-                photoPlates[i].asShotTemp = preview.exif.color_temp ?? 5500;
-                photoPlates[i].asShotTint = preview.exif.tint ?? 0;
-                photoPlates[i].asShotExposure =
+                photoPlates[plateIndex].colorSpace = preview.exif.color_space || "sRGB";
+                photoPlates[plateIndex].flash = preview.exif.flash || "未擊發";
+                photoPlates[plateIndex].asShotTemp = preview.exif.color_temp ?? 5500;
+                photoPlates[plateIndex].asShotTint = preview.exif.tint ?? 0;
+                photoPlates[plateIndex].asShotExposure =
                   preview.exif.exposure_bias ?? 0.0;
               }
             }
@@ -2158,7 +2193,78 @@
     }
   }
 
-  // Open directory and load real photos
+  // ── 相片工作區排除與復原機制 (Photo Workspace Removal & Undo) ──
+  interface RemovedPhotosSnapshot {
+    items: PhotoPlate[];
+    prevActiveId: string | null;
+  }
+  let lastRemovedSnapshot = $state<RemovedPhotosSnapshot | null>(null);
+
+  function handleRemovePhoto(photoId: string) {
+    handleBatchRemovePhotos([photoId]);
+  }
+
+  function handleBatchRemovePhotos(photoIds: string[]) {
+    if (!photoIds || photoIds.length === 0) return;
+    const idSet = new Set(photoIds);
+    const toRemove = photoPlates.filter((p) => idSet.has(p.id));
+    if (toRemove.length === 0) return;
+
+    lastRemovedSnapshot = {
+      items: toRemove,
+      prevActiveId: activePhoto?.id || null,
+    };
+
+    // 若作用中相片被移除，自動聚焦至下一張相鄰底片
+    let nextActive: PhotoPlate | null = activePhoto;
+    if (activePhoto && idSet.has(activePhoto.id)) {
+      const remaining = photoPlates.filter((p) => !idSet.has(p.id));
+      if (remaining.length > 0) {
+        const curIndex = photoPlates.findIndex((p) => p.id === activePhoto!.id);
+        const nextIndex = Math.min(curIndex, remaining.length - 1);
+        nextActive = remaining[Math.max(0, nextIndex)];
+        nextActive.selected = true;
+      } else {
+        nextActive = null;
+      }
+    }
+
+    photoPlates = photoPlates.filter((p) => !idSet.has(p.id));
+    activePhoto = nextActive;
+    photoLibrary.photoPlates = photoPlates as any;
+    photoLibrary.activePhoto = activePhoto as any;
+
+    toastStore.show(
+      `已自相卷排除 ${toRemove.length} 幀底片`,
+      "info",
+      5000,
+      {
+        label: "復原 ↺",
+        onClick: () => handleUndoRemove(),
+      }
+    );
+  }
+
+  function handleUndoRemove() {
+    if (!lastRemovedSnapshot || lastRemovedSnapshot.items.length === 0) return;
+    const restored = lastRemovedSnapshot.items;
+    photoPlates = [...photoPlates, ...restored];
+    photoLibrary.photoPlates = photoPlates as any;
+
+    if (lastRemovedSnapshot.prevActiveId) {
+      const found = photoPlates.find((p) => p.id === lastRemovedSnapshot!.prevActiveId);
+      if (found) {
+        activePhoto = found;
+        found.selected = true;
+        photoLibrary.activePhoto = found as any;
+      }
+    }
+
+    toastStore.show(`已復原 ${restored.length} 幀底片 ✓`, "success", 2500);
+    lastRemovedSnapshot = null;
+  }
+
+  // Open directory and load real photos (Replace)
   async function handlePickDirectory() {
     isLoadingPhotos = true;
     try {
@@ -2166,8 +2272,49 @@
       if (items.length > 0) {
         currentDirectoryName =
           IngestionService.currentDirectoryName || "相片資料夾";
+        await loadPhotosFromItems(items, false);
       }
-      await loadPhotosFromItems(items);
+    } finally {
+      isLoadingPhotos = false;
+    }
+  }
+
+  // Append directory to existing catalog
+  async function handleAppendDirectory() {
+    isLoadingPhotos = true;
+    try {
+      const items = await IngestionService.pickWebDirectory();
+      if (items.length > 0) {
+        await loadPhotosFromItems(items, true);
+      }
+    } finally {
+      isLoadingPhotos = false;
+    }
+  }
+
+  // Append individual files to existing catalog
+  async function handleAppendFiles() {
+    isLoadingPhotos = true;
+    try {
+      const items = await IngestionService.pickWebFiles();
+      if (items.length > 0) {
+        await loadPhotosFromItems(items, true);
+      }
+    } finally {
+      isLoadingPhotos = false;
+    }
+  }
+
+  // Load directory directly by path (from recent directories list)
+  async function handleLoadDirectoryByPath(path: string) {
+    if (!path) return;
+    isLoadingPhotos = true;
+    try {
+      const items = await IngestionService.scanDirectory(path);
+      if (items.length > 0) {
+        currentDirectoryName = IngestionService.currentDirectoryName || "相片資料夾";
+        await loadPhotosFromItems(items, false);
+      }
     } finally {
       isLoadingPhotos = false;
     }
@@ -3418,7 +3565,9 @@
         // 原始 RAW 備份處理
         if (options?.backupRawFiles && p.fileHandle) {
           try {
-            const rawFile = await p.fileHandle.getFile();
+            const rawFile: File = typeof (p.fileHandle as any).getFile === "function"
+              ? await (p.fileHandle as any).getFile()
+              : p.fileHandle;
             const rawSubPath = directoryPlan?.rawBackupSubPath || "Raw_Backup";
             const actualRawSubDir = dateSubDir
               ? `${dateSubDir}/${rawSubPath}`
@@ -3551,6 +3700,11 @@
     {isExporting}
     {currentDirectoryName}
     onSelectMount={handleSelectMountOrDirectory}
+    onPickDirectory={handlePickDirectory}
+    onAppendDirectory={handleAppendDirectory}
+    onAppendFiles={handleAppendFiles}
+    onSelectRecentDirectory={(path) => handleLoadDirectoryByPath(path)}
+    onLoadCameraMount={(mount) => handleLoadCameraMount(mount)}
     onGoToCatalog={goToCatalog}
     onGoToRetouch={goToRetouch}
     onGoToExport={goToExport}
@@ -3637,6 +3791,10 @@
           onOpenRetouch={(p) => openRetouchForPhoto(p)}
           onGoToRetouch={goToRetouch}
           onPickDirectory={handlePickDirectory}
+          onAppendDirectory={handleAppendDirectory}
+          onAppendFiles={handleAppendFiles}
+          onRemovePhoto={(p) => handleRemovePhoto(p.id)}
+          onBatchRemovePhotos={(ids) => handleBatchRemovePhotos(ids)}
           onRefreshMounts={refreshCameraMounts}
           onToggleFlag={handleFlagToggled}
           onFilesDropped={handleFilesDropped}

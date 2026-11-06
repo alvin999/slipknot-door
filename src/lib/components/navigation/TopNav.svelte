@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { IngestionService, type CameraMountInfo } from '$lib/services/ingestionService';
+  import { IngestionService, type CameraMountInfo, type RecentDirectoryEntry } from '$lib/services/ingestionService';
 
   type ModuleTab = 'catalog' | 'retouch' | 'profiles' | 'export' | 'devices';
 
@@ -15,6 +15,11 @@
     isExporting: boolean;
     currentDirectoryName?: string;
     onSelectMount: () => void;
+    onPickDirectory?: () => void;
+    onAppendDirectory?: () => void;
+    onAppendFiles?: () => void;
+    onSelectRecentDirectory?: (path: string) => void;
+    onLoadCameraMount?: (mount: CameraMountInfo) => void;
     onGoToCatalog: () => void;
     onGoToRetouch: () => void;
     onGoToExport: () => void;
@@ -37,6 +42,11 @@
     isExporting,
     currentDirectoryName = '',
     onSelectMount,
+    onPickDirectory,
+    onAppendDirectory,
+    onAppendFiles,
+    onSelectRecentDirectory,
+    onLoadCameraMount,
     onGoToCatalog,
     onGoToRetouch,
     onGoToExport,
@@ -46,6 +56,30 @@
     onGoToProfiles,
     onGoToDevices
   }: Props = $props();
+
+  let isDirMenuOpen = $state<boolean>(false);
+  let recentDirs = $state<RecentDirectoryEntry[]>([]);
+
+  function toggleDirMenu() {
+    isDirMenuOpen = !isDirMenuOpen;
+    if (isDirMenuOpen) {
+      recentDirs = IngestionService.getRecentDirectories();
+    }
+  }
+
+  function handleTelemetryClick(e: MouseEvent) {
+    if (cameraMounts.length > 0) {
+      // 偵測到外接相機連線時，點擊膠囊本體優先觸發相機智慧載入
+      onSelectMount();
+    } else {
+      toggleDirMenu();
+    }
+  }
+
+  function handleDropdownTriggerClick(e: MouseEvent) {
+    e.stopPropagation();
+    toggleDirMenu();
+  }
 </script>
 
 <header class="top-nav hairline-b">
@@ -58,45 +92,168 @@
   </div>
 
   <!-- Global Directory / Hardware Ingestion Telemetry -->
-  <button
-    type="button"
-    class="device-telemetry hairline-all"
-    class:camera-detected={cameraMounts.length > 0}
-    onclick={onSelectMount}
-    title={cameraMounts.length > 0
-      ? `已偵測到外接相機 [${cameraMounts[0].volume_name}] (${cameraMounts[0].file_count} 幀 RAW)，點擊載入相機或切換目錄`
-      : totalPhotos > 0
-        ? '點擊更換相片目錄 (選取新資料夾挑圖或讀取相機)'
-        : '點擊選取相片目錄 (支援 RAW / JPG)'}
-  >
-    <span
-      class="status-dot"
-      class:scanning={isScanningMounts}
-      class:connected={cameraMounts.length > 0 || totalPhotos > 0}
-      class:has-camera={cameraMounts.length > 0}
-    ></span>
-    <span class="device-name font-mono">
-      {#if totalPhotos > 0 && cameraMounts.length > 0}
-        📁 {currentDirectoryName || '目前目錄'} // 📷 偵測到 {cameraMounts[0].volume_name} (點擊切換) ▾
-      {:else if totalPhotos > 0}
-        📁 {currentDirectoryName || '相片目錄'} // 切換新目錄 ▾
-      {:else if cameraMounts.length > 0}
-        📷 {cameraMounts[0].volume_name} // 隨插即讀已連線 ↵
-      {:else}
-        📁 開啟相片目錄 / 相機 (RAW/JPG)
-      {/if}
-    </span>
-    <span class="divider">|</span>
-    <span class="device-metric font-mono">
-      {#if cameraMounts.length > 0}
-        <span class="camera-badge">相機 {cameraMounts[0].file_count} 幀 RAW ↵</span>
-      {:else if totalPhotos > 0}
-        已載入 {totalPhotos} 幀 · 更換目錄 ↵
-      {:else}
-        點擊選取目錄 ↵
-      {/if}
-    </span>
-  </button>
+  <div class="dir-telemetry-wrapper">
+    <div
+      class="device-telemetry hairline-all"
+      class:camera-detected={cameraMounts.length > 0}
+      role="button"
+      tabindex="0"
+      onclick={handleTelemetryClick}
+      onkeydown={(e) => { if (e.key === 'Enter') handleTelemetryClick(e as any); }}
+      title={cameraMounts.length > 0
+        ? `已偵測到外接相機 [${cameraMounts[0].volume_name}] (${cameraMounts[0].file_count} 幀 RAW)，點擊優先載入相機，或點右側 ▾ 展開選單`
+        : totalPhotos > 0
+          ? '點擊展開目錄與來源管理選單 (更換目錄、追加相片或查看歷史)'
+          : '點擊選取相片目錄 (支援 RAW / JPG)'}
+    >
+      <span
+        class="status-dot"
+        class:scanning={isScanningMounts}
+        class:connected={cameraMounts.length > 0 || totalPhotos > 0}
+        class:has-camera={cameraMounts.length > 0}
+      ></span>
+      <span class="device-name font-mono">
+        {#if totalPhotos > 0 && cameraMounts.length > 0}
+          📁 {currentDirectoryName || '目前目錄'} // 📷 {cameraMounts[0].volume_name}
+        {:else if totalPhotos > 0}
+          📁 {currentDirectoryName || '相片目錄'}
+        {:else if cameraMounts.length > 0}
+          📷 {cameraMounts[0].volume_name} // 一鍵載入
+        {:else}
+          📁 開啟相片目錄 / 相機
+        {/if}
+      </span>
+      <span class="divider">|</span>
+      <span class="device-metric font-mono">
+        {#if cameraMounts.length > 0}
+          <span class="camera-badge">相機 {cameraMounts[0].file_count} 幀 ↵</span>
+        {:else if totalPhotos > 0}
+          已載入 {totalPhotos} 幀
+        {:else}
+          選取目錄
+        {/if}
+      </span>
+      <button
+        type="button"
+        class="dropdown-chevron font-mono"
+        onclick={handleDropdownTriggerClick}
+        title="展開相卷目錄與來源選單"
+        aria-label="展開相卷來源選單"
+      >
+        ▾
+      </button>
+    </div>
+
+    {#if isDirMenuOpen}
+      <div class="dir-menu-backdrop" onclick={() => isDirMenuOpen = false} role="presentation"></div>
+      <div class="dir-dropdown-menu hairline-all font-mono" role="menu">
+        <div class="dir-menu-header">
+          <span class="dir-menu-title font-headline">相卷來源管理</span>
+          <button type="button" class="dir-menu-close" onclick={() => isDirMenuOpen = false} title="關閉">✕</button>
+        </div>
+
+        <div class="dir-menu-section">
+          <button
+            type="button"
+            class="dir-menu-item"
+            onclick={() => {
+              isDirMenuOpen = false;
+              if (onPickDirectory) onPickDirectory();
+              else onSelectMount();
+            }}
+          >
+            <span class="material-symbols-outlined icon">folder_open</span>
+            <div class="item-text">
+              <span class="item-title">開啟新目錄 (更換相卷)</span>
+              <span class="item-desc">選擇資料夾並重新載入 RAW / JPG 底片</span>
+            </div>
+          </button>
+
+          {#if onAppendDirectory}
+            <button
+              type="button"
+              class="dir-menu-item"
+              onclick={() => {
+                isDirMenuOpen = false;
+                onAppendDirectory();
+              }}
+            >
+              <span class="material-symbols-outlined icon">create_new_folder</span>
+              <div class="item-text">
+                <span class="item-title">追加整個資料夾</span>
+                <span class="item-desc">將另一個目錄底片合併至當前相卷</span>
+              </div>
+            </button>
+          {/if}
+
+          {#if onAppendFiles}
+            <button
+              type="button"
+              class="dir-menu-item"
+              onclick={() => {
+                isDirMenuOpen = false;
+                onAppendFiles();
+              }}
+            >
+              <span class="material-symbols-outlined icon">add_photo_alternate</span>
+              <div class="item-text">
+                <span class="item-title">追加個別相片檔案</span>
+                <span class="item-desc">挑選單張或多張相片檔案合併至相卷</span>
+              </div>
+            </button>
+          {/if}
+        </div>
+
+        {#if cameraMounts.length > 0}
+          <div class="dir-menu-divider"></div>
+          <div class="dir-menu-label">偵測到相機連線</div>
+          <div class="dir-menu-section">
+            {#each cameraMounts as mount}
+              <button
+                type="button"
+                class="dir-menu-item camera-item"
+                onclick={() => {
+                  isDirMenuOpen = false;
+                  if (onLoadCameraMount) onLoadCameraMount(mount);
+                  else onSelectMount();
+                }}
+              >
+                <span class="material-symbols-outlined icon">photo_camera</span>
+                <div class="item-text">
+                  <span class="item-title">{mount.volume_name}</span>
+                  <span class="item-desc">{mount.file_count} 幀 RAW · 隨插即讀載入</span>
+                </div>
+              </button>
+            {/each}
+          </div>
+        {/if}
+
+        {#if recentDirs.length > 0}
+          <div class="dir-menu-divider"></div>
+          <div class="dir-menu-label">最近開啟目錄</div>
+          <div class="dir-menu-section recent-list">
+            {#each recentDirs as dir}
+              <button
+                type="button"
+                class="dir-menu-item recent-item"
+                onclick={() => {
+                  isDirMenuOpen = false;
+                  if (onSelectRecentDirectory) onSelectRecentDirectory(dir.path);
+                }}
+                title={dir.path}
+              >
+                <span class="material-symbols-outlined icon">history</span>
+                <div class="item-text">
+                  <span class="item-title truncate">{dir.name}</span>
+                  <span class="item-desc truncate">{dir.path}</span>
+                </div>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </div>
 
   <!-- 3-STEP SEQUENTIAL WORKFLOW BUTTONS -->
   <div class="stepper-pipeline hairline-all font-mono">
@@ -309,6 +466,164 @@
     letter-spacing: 0.08em;
   }
 
+  .dir-telemetry-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .dir-menu-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+  }
+
+  .dir-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    width: 320px;
+    background-color: var(--surface-panel);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
+    z-index: 1001;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    animation: menuFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes menuFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .dir-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--hairline-slate);
+    margin-bottom: 8px;
+  }
+
+  .dir-menu-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--parchment-bright);
+    letter-spacing: 0.05em;
+  }
+
+  .dir-menu-close {
+    background: transparent;
+    border: none;
+    color: var(--parchment-dim);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+  }
+  .dir-menu-close:hover {
+    color: var(--parchment-bright);
+    background-color: var(--surface-overlay);
+  }
+
+  .dir-menu-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .dir-menu-divider {
+    height: 1px;
+    background-color: var(--hairline-slate);
+    margin: 8px 0;
+  }
+
+  .dir-menu-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--parchment-dim);
+    margin-bottom: 6px;
+    padding-left: 4px;
+  }
+
+  .dir-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--parchment-bright);
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+  }
+  .dir-menu-item:hover {
+    background-color: var(--surface-overlay);
+    border-color: var(--hairline-slate);
+  }
+  .dir-menu-item.camera-item {
+    background-color: rgba(94, 234, 212, 0.06);
+    border-color: rgba(94, 234, 212, 0.2);
+  }
+  .dir-menu-item.camera-item:hover {
+    background-color: rgba(94, 234, 212, 0.12);
+    border-color: rgba(94, 234, 212, 0.4);
+  }
+  .dir-menu-item.camera-item .icon {
+    color: #5eead4;
+  }
+
+  .dir-menu-item .icon {
+    font-size: 18px;
+    color: var(--parchment-muted);
+    flex-shrink: 0;
+  }
+
+  .dir-menu-item:hover .icon {
+    color: var(--amber-highlight);
+  }
+
+  .item-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .item-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--parchment-bright);
+    line-height: 1.3;
+  }
+
+  .item-desc {
+    font-size: 10px;
+    color: var(--parchment-dim);
+    line-height: 1.2;
+    margin-top: 1px;
+  }
+
+  .recent-list {
+    max-height: 140px;
+    overflow-y: auto;
+  }
+
   .device-telemetry {
     background-color: var(--surface-elevated);
     border-radius: var(--radius-sm);
@@ -366,6 +681,27 @@
   }
   .device-metric {
     color: var(--amber-highlight);
+  }
+  .dropdown-chevron {
+    background: transparent;
+    border: none;
+    color: var(--parchment-dim);
+    font-size: 11px;
+    margin-left: 2px;
+    padding: 0 4px;
+    cursor: pointer;
+    border-radius: var(--radius-xs);
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .dropdown-chevron:hover {
+    color: var(--amber-highlight);
+    background-color: var(--surface-overlay);
+  }
+  .device-telemetry:hover .dropdown-chevron {
+    color: var(--parchment-bright);
   }
 
   .top-actions {

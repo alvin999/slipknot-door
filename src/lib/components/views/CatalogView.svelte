@@ -30,6 +30,10 @@
     hasApiKey?: boolean;
     onOpenVault?: () => void;
     onPickDirectory: () => void;
+    onAppendDirectory?: () => void;
+    onAppendFiles?: () => void;
+    onRemovePhoto?: (p: CatalogPhotoItem) => void;
+    onBatchRemovePhotos?: (ids: string[]) => void;
     onRefreshMounts: () => void;
     onToggleFlag?: (p: CatalogPhotoItem) => void;
     onFilesDropped?: (dataTransfer: DataTransfer) => void;
@@ -47,6 +51,10 @@
     onOpenRetouch,
     onGoToRetouch,
     onPickDirectory,
+    onAppendDirectory,
+    onAppendFiles,
+    onRemovePhoto,
+    onBatchRemovePhotos,
     onRefreshMounts,
     onToggleFlag,
     onFilesDropped,
@@ -527,6 +535,21 @@
         onGoToRetouch();
       }
     }
+    // Delete / Backspace: Remove / Cull photo from catalog
+    else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      if (isMultiSelectMode && selectedBatchIds.length > 0) {
+        if (onBatchRemovePhotos) {
+          onBatchRemovePhotos([...selectedBatchIds]);
+          exitMultiSelect();
+        }
+      } else {
+        const current = currentIndex >= 0 ? displayedPhotos[currentIndex] : (activePhoto || displayedPhotos[0]);
+        if (current && onRemovePhoto) {
+          onRemovePhoto(current);
+        }
+      }
+    }
   }
 </script>
 
@@ -576,9 +599,47 @@
           <span class="key-cap">Space</span>
           <span class="key-desc">大圖</span>
           <span class="key-sep">·</span>
+          <span class="key-cap">Del</span>
+          <span class="key-desc">排除</span>
+          <span class="key-sep">·</span>
           <span class="key-cap">Enter</span>
           <span class="key-desc">精修</span>
         </div>
+        {/if}
+
+        <!-- Directory & Ingestion Controls -->
+        <button 
+          type="button" 
+          class="tool-btn" 
+          onclick={onPickDirectory} 
+          title="更換相片目錄 (重新載入相卷)"
+        >
+          <span class="material-symbols-outlined" style="font-size: 14px;">folder_open</span>
+          <span>更換目錄</span>
+        </button>
+
+        {#if onAppendDirectory}
+          <button 
+            type="button" 
+            class="tool-btn" 
+            onclick={onAppendDirectory} 
+            title="追加資料夾底片至現有相卷"
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px;">create_new_folder</span>
+            <span>追加目錄</span>
+          </button>
+        {/if}
+
+        {#if onAppendFiles}
+          <button 
+            type="button" 
+            class="tool-btn" 
+            onclick={onAppendFiles} 
+            title="追加個別相片檔案至現有相卷"
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px;">add_photo_alternate</span>
+            <span>追加相片</span>
+          </button>
         {/if}
 
         <!-- Flagging Controls -->
@@ -704,6 +765,21 @@
                     {selectedBatchIds.includes(photo.id) ? 'check_circle' : 'radio_button_unchecked'}
                   </span>
                 </div>
+              {:else if onRemovePhoto}
+                <!-- Quick Exclude Button Floating on Top-Left -->
+                <button 
+                  type="button" 
+                  class="card-remove-btn" 
+                  ontouchstart={(e) => e.stopPropagation()}
+                  ontouchend={(e) => e.stopPropagation()}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    onRemovePhoto(photo);
+                  }}
+                  title="從相卷排除此底片 (Delete / Backspace)"
+                >
+                  <span class="material-symbols-outlined">close</span>
+                </button>
               {/if}
 
               <!-- Quick Flag Button Floating on Top-Right -->
@@ -903,6 +979,23 @@
           </span>
           <span>{selectedBatchIds.length === displayedPhotos.length ? '取消全選' : '全選'}</span>
         </button>
+        {#if onBatchRemovePhotos}
+          <button 
+            type="button" 
+            class="batch-tool-btn danger" 
+            onclick={() => {
+              if (onBatchRemovePhotos) {
+                onBatchRemovePhotos([...selectedBatchIds]);
+                exitMultiSelect();
+              }
+            }}
+            disabled={selectedBatchIds.length === 0}
+            title="將所選相片批次自相卷排除"
+          >
+            <span class="material-symbols-outlined">delete_sweep</span>
+            <span>批次排除 ({selectedBatchIds.length})</span>
+          </button>
+        {/if}
         <button 
           type="button" 
           class="batch-done-btn" 
@@ -1290,6 +1383,17 @@
     color: var(--amber-highlight);
   }
 
+  .batch-tool-btn.danger:not(:disabled) {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #f87171;
+  }
+  .batch-tool-btn.danger:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: #ef4444;
+    color: #ffffff;
+  }
+
   .batch-tool-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
@@ -1399,6 +1503,41 @@
 
   .flag-btn span {
     font-size: 16px;
+  }
+
+  .card-remove-btn {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background-color: rgba(18, 19, 22, 0.75);
+    border: 1px solid var(--hairline-slate);
+    color: var(--parchment-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.15s ease;
+    z-index: 2;
+  }
+
+  .card-remove-btn:hover {
+    background-color: rgba(239, 68, 68, 0.85);
+    color: #ffffff;
+    border-color: #ef4444;
+    transform: scale(1.08);
+  }
+
+  .card-remove-btn span {
+    font-size: 15px;
+  }
+
+  .film-card:hover .card-remove-btn,
+  .film-card.selected .card-remove-btn {
+    opacity: 0.85;
   }
 
   .applied-profile-pill {

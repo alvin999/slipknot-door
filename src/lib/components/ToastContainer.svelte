@@ -16,6 +16,19 @@
     <div class="toast-item {toast.type}" role="status">
       <span class="toast-badge">{getBadgeLabel(toast.type)}</span>
       <span class="toast-message">{toast.message}</span>
+      {#if toast.action}
+        <button
+          type="button"
+          class="toast-action-btn font-mono"
+          onclick={() => {
+            const act = toast.action;
+            toastStore.dismiss(toast.id);
+            act?.onClick();
+          }}
+        >
+          {toast.action.label}
+        </button>
+      {/if}
       <button
         class="toast-close"
         onclick={() => toastStore.dismiss(toast.id)}
@@ -87,6 +100,23 @@
   .toast-close:hover {
     color: var(--parchment-bright);
     background-color: var(--surface-overlay);
+  }
+  .toast-action-btn {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid var(--amber-highlight, #f59e0b);
+    color: var(--amber-highlight, #f59e0b);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    padding: 3px 9px;
+    border-radius: var(--radius-xs, 2px);
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .toast-action-btn:hover {
+    background: var(--amber-highlight, #f59e0b);
+    color: #0b0c10;
   }
   @keyframes toast-slide-in {
     from { opacity: 0; transform: translateY(8px); }

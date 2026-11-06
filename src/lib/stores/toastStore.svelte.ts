@@ -5,19 +5,30 @@
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface ToastItem {
   id: string;
   message: string;
   type: ToastType;
   durationMs: number;
+  action?: ToastAction;
 }
 
 class ToastStore {
   toasts = $state<ToastItem[]>([]);
 
-  show(message: string, type: ToastType = 'info', durationMs: number = 3200) {
+  show(
+    message: string,
+    type: ToastType = 'info',
+    durationMs: number = 3200,
+    action?: ToastAction
+  ) {
     const id = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const newToast: ToastItem = { id, message, type, durationMs };
+    const newToast: ToastItem = { id, message, type, durationMs, action };
 
     this.toasts = [...this.toasts, newToast];
 
