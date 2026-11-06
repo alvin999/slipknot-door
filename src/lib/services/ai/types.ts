@@ -88,6 +88,54 @@ export interface TextInferenceOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * 智慧目錄規劃請求參數與回傳結構
+ */
+export interface DirectoryPlanItem {
+  id: string;
+  filename: string;
+  scene?: string;
+  profile?: string;
+  camera?: string;
+  lens?: string;
+  focalLength?: string;
+  iso?: number;
+  shutter?: string;
+  aperture?: string;
+  dateTime?: string;
+  flagged?: boolean;
+}
+
+export interface DirectoryPlanPayload {
+  sessionDate?: string;
+  userInstruction?: string;
+  strategy?: 'smart_scene' | 'profile_lut' | 'chronological' | 'gear_lens' | 'custom';
+  photos: DirectoryPlanItem[];
+}
+
+export interface DirectoryPlanFolder {
+  subPath: string;
+  description: string;
+  photoIds: string[];
+  renamePattern?: string;
+}
+
+export interface DirectoryPlanResult {
+  projectRootName: string;
+  rationale: string;
+  folders: DirectoryPlanFolder[];
+  rawBackupSubPath?: string;
+  providerUsed: 'groq' | 'gemini' | 'offline';
+}
+
+export interface DirectoryPlanOptions {
+  apiKey: string;
+  modelId: string;
+  payload: DirectoryPlanPayload;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
 export interface RefinementInferenceOptions {
   apiKey: string;
   modelId: string;
@@ -134,6 +182,7 @@ export interface ITextStrategy {
   readonly providerId: string;
   readonly providerName: string;
   generateCopywriting(options: TextInferenceOptions): Promise<CopywritingResult>;
+  planDirectory?(options: DirectoryPlanOptions): Promise<DirectoryPlanResult>;
   testConnection(apiKey: string, modelId: string): Promise<{ success: boolean; latencySec: number; error?: string }>;
 }
 

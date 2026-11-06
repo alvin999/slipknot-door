@@ -89,4 +89,20 @@ export class ExportService {
       return { success: false, error: String(err) };
     }
   }
+
+  /**
+   * Open export destination folder in system file explorer (Finder / File Explorer)
+   */
+  public static async openExportDirectory(targetPath: string): Promise<boolean> {
+    if (this.isTauri()) {
+      try {
+        const { openPath } = await import('@tauri-apps/plugin-opener');
+        await openPath(targetPath);
+        return true;
+      } catch (err) {
+        console.warn('Failed to open export folder via tauri-plugin-opener:', err);
+      }
+    }
+    return false;
+  }
 }

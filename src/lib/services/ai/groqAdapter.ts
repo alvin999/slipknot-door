@@ -20,6 +20,8 @@ import type {
   ITextStrategy,
   VisionInferenceOptions,
   TextInferenceOptions,
+  DirectoryPlanOptions,
+  DirectoryPlanResult,
   RefinementInferenceOptions,
   RefinementDecision,
   GeometryDecision,
@@ -390,6 +392,107 @@ ${userPromptSection}
       caption: parsed.caption || '靜謐的光影，在時間的流隙中凝結成永恆的底片記憶。',
       hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : ['#35mm', '#FilmPhotography'],
       iptcKeywords: Array.isArray(parsed.iptc_keywords) ? parsed.iptc_keywords : ['Analog', 'Photography'],
+      providerUsed: 'groq',
+    };
+  }
+
+  /**
+   * Groq 智慧目錄規劃 (Smart Directory Planning)
+   * 根據照片批次元數據（EXIF、場景標籤、LUT 風格、拍攝時間）與使用者指定策略，秒速回傳結構化子目錄規劃藍圖
+   */
+  public async planDirectory(options: DirectoryPlanOptions): Promise<DirectoryPlanResult> {
+    const { apiKey, modelId, payload } = options;
+    const activeModel = (modelId && modelId.trim()) ? modelId.trim() : 'llama-3.3-70b-versatile';
+    const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
+
+    const sessionDate = payload.sessionDate || new Date().toISOString().slice(0, 10);
+    const strategy = payload.strategy || 'smart_scene';
+    const userPrompt = payload.userInstruction?.trim() || '';
+
+    const systemPrompt = `你是一位資深的數位資產管理 (DAM) 專家與暗房策展人。
+你的任務是根據一組攝影底片相片的 EXIF 元數據、場景辨識與調色風格，規劃最直覺、乾淨、有條理的「匯出目錄結構藍圖」。
+
+【規劃原則】：
+1. 資料夾名稱採用正體中文（台灣習慣用語）與簡潔英文/數字編號組合，例如 "01_街景日常_Street"、"02_溫潤人像_Heartland"。禁止使用簡體中文或中國用語。
+2. 避免過多深層階層，以 1 層子資料夾分類為最佳。
+3. 必須將輸入中的每張照片 id 分配至最合適的子資料夾中的 photoIds 陣列，不遺漏任何一張。
+4. projectRootName 建議格式為 "${sessionDate}_主題名稱"。
+5. 若使用者有特別指定指示，請優先嚴格遵循其自訂要求。
+
+【使用者偏好策略】：${strategy}
+${userPrompt ? `【使用者自訂分類指示】：${userPrompt}` : ''}
+
+請務必嚴格回傳標準 JSON 格式：
+{
+  "projectRootName": "例如：${sessionDate}_街頭光影策展集",
+  "rationale": "簡述目錄規劃的邏輯與分組考量（1-2句正體中文）",
+  "folders": [
+    {
+      "subPath": "子資料夾名稱（如：01_街頭夜景_Night）",
+      "description": "該資料夾包含的主題特色",
+      "photoIds": ["photo_1", "photo_2"],
+      "renamePattern": "{original}_graded"
+    }
+  ],
+  "rawBackupSubPath": "00_RAW_Originals"
+}`;
+
+    const userContent = JSON.stringify({
+      sessionDate,
+      strategy,
+      userInstruction: userPrompt,
+      totalPhotos: payload.photos.length,
+      samplePhotos: payload.photos.map(p => ({
+        id: p.id,
+        filename: p.filename,
+        scene: p.scene || '未標註',
+        profile: p.profile || '標準風格',
+        focal: p.focalLength || '--',
+        iso: p.iso || 100,
+        shutter: p.shutter || '--',
+        time: p.dateTime || '--',
+        flagged: !!p.flagged
+      }))
+    });
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: activeModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
+      }),
+      signal: options.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Groq 目錄規劃失敗: HTTP ${response.status}`);
+    }
+
+    const jsonRes = await response.json();
+    const rawContent = jsonRes.choices?.[0]?.message?.content;
+    const parsed = parseAiJsonString(rawContent);
+
+    return {
+      projectRootName: parsed.projectRootName || `${sessionDate}_底片導出集`,
+      rationale: parsed.rationale || '已依據光影場景與風格屬性完成智慧目錄規劃。',
+      folders: Array.isArray(parsed.folders) && parsed.folders.length > 0 ? parsed.folders : [
+        {
+          subPath: '01_Final_JPG',
+          description: '所有成片',
+          photoIds: payload.photos.map(p => p.id),
+          renamePattern: '{original}_graded'
+        }
+      ],
+      rawBackupSubPath: parsed.rawBackupSubPath || '00_RAW_Originals',
       providerUsed: 'groq',
     };
   }

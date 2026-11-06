@@ -619,4 +619,70 @@ export class AiSceneService {
       timeoutMs: 15000,
     });
   }
+
+  /**
+   * 執行 Groq 智慧目錄規劃 (Smart Directory Planning)
+   * 依據相片批次屬性與指定策略自動劃分資料夾架構
+   */
+  public static async planExportDirectory(payload: import('./ai/types').DirectoryPlanPayload): Promise<import('./ai/types').DirectoryPlanResult> {
+    const { strategy, modelId, apiKey } = await AiEngineFactory.getCopywritingEngine();
+    if (strategy.planDirectory && apiKey && apiKey.trim() !== '') {
+      try {
+        return await strategy.planDirectory({
+          apiKey,
+          modelId,
+          payload,
+          timeoutMs: 20000,
+        });
+      } catch (err) {
+        console.warn('[AI_DIRECTORY] Groq 智慧目錄規劃失敗，降級為啟發式預設：', err);
+      }
+    }
+
+    // 離線/未配置金鑰之啟發式分類兜底 (Local Fallback)
+    const sessionDate = payload.sessionDate || new Date().toISOString().slice(0, 10);
+    const hasMultipleProfiles = new Set(payload.photos.map(p => p.profile || 'Profile_00_StandardNatural')).size > 1;
+
+    if (hasMultipleProfiles) {
+      const groups = new Map<string, string[]>();
+      payload.photos.forEach(p => {
+        const prof = p.profile || '標準風格';
+        const list = groups.get(prof) || [];
+        list.push(p.id);
+        groups.set(prof, list);
+      });
+      let idx = 1;
+      const folders = Array.from(groups.entries()).map(([prof, ids]) => {
+        const cleanName = prof.replace(/^Profile_\d+_/, '');
+        return {
+          subPath: `${String(idx++).padStart(2, '0')}_${cleanName}`,
+          description: `風格檔 ${cleanName} 成片`,
+          photoIds: ids,
+          renamePattern: '{original}_graded'
+        };
+      });
+      return {
+        projectRootName: `${sessionDate}_風格策展集`,
+        rationale: '（離線啟發式）已依據底片風格 (3D LUT) 自動分組歸類。',
+        folders,
+        rawBackupSubPath: '00_RAW_Originals',
+        providerUsed: 'offline'
+      };
+    }
+
+    return {
+      projectRootName: `${sessionDate}_底片導出集`,
+      rationale: '（離線預設）全量集中於單一成片目錄。',
+      folders: [
+        {
+          subPath: '01_Final_JPG',
+          description: '所有成片',
+          photoIds: payload.photos.map(p => p.id),
+          renamePattern: '{original}_graded'
+        }
+      ],
+      rawBackupSubPath: '00_RAW_Originals',
+      providerUsed: 'offline'
+    };
+  }
 }

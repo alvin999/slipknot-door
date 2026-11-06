@@ -30,8 +30,16 @@
   import { WebglLutRenderer } from "$lib/services/webglLutRenderer";
   import { ExportService } from "$lib/services/exportService";
   import { STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
-  import type { StyleKeywordId, StylePresetKey } from "$lib/services/ai/types";
-  import type { CropGeometry, AiScopePreferences, AiTuningSnapshot } from "$lib/types/photo";
+  import type {
+    StyleKeywordId,
+    StylePresetKey,
+    DirectoryPlanResult,
+  } from "$lib/services/ai/types";
+  import type {
+    CropGeometry,
+    AiScopePreferences,
+    AiTuningSnapshot,
+  } from "$lib/types/photo";
 
   // Active module tabs
   type ModuleTab = "catalog" | "retouch" | "profiles" | "export" | "devices";
@@ -143,7 +151,7 @@
   let photoPlates = $state<PhotoPlate[]>([]);
   let activePhoto = $state<PhotoPlate | null>(null);
   let isLoadingPhotos = $state<boolean>(false);
-  let currentDirectoryName = $state<string>('');
+  let currentDirectoryName = $state<string>("");
 
   // Darkroom Tuning Sliders
   // Professional Darkroom Tonal & Color Parameters
@@ -613,7 +621,7 @@
       fadeDefault: 0.0,
       cyanSkyDefault: 0.0,
       foliageDefault: 0.0,
-      lutIntensityDefault: 0.90,
+      lutIntensityDefault: 0.9,
       clarityDefault: 0.0,
       sharpnessDefault: 0.0,
       recommendedScene: "街拍人文 / 日常記事 / 雜誌隨行",
@@ -703,7 +711,7 @@
       fadeDefault: 0.0,
       cyanSkyDefault: 0.1,
       foliageDefault: 0.0,
-      lutIntensityDefault: 0.90,
+      lutIntensityDefault: 0.9,
       clarityDefault: 0.0,
       sharpnessDefault: 0.0,
       recommendedScene: "大逆光風景 / 窗邊人像 / 高反差場景",
@@ -1155,7 +1163,11 @@
       }
 
       // 支援 Ctrl/Cmd + Shift + C 複製調色
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "c" || e.key === "C")) {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        (e.key === "c" || e.key === "C")
+      ) {
         e.preventDefault();
         if (activePhoto) {
           darkroomState.copyCurrentTuning(activePhoto.appliedProfile);
@@ -1165,12 +1177,20 @@
       }
 
       // 支援 Ctrl/Cmd + Shift + V 貼上調色
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "v" || e.key === "V")) {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        (e.key === "v" || e.key === "V")
+      ) {
         e.preventDefault();
         const pasted = darkroomState.pasteCopiedTuning();
         if (pasted) {
           applyProfile(pasted.appliedProfile);
-          toastStore.show("已套用貼上調色參數 (Ctrl+Shift+V) ✓", "success", 2000);
+          toastStore.show(
+            "已套用貼上調色參數 (Ctrl+Shift+V) ✓",
+            "success",
+            2000,
+          );
         }
         return;
       }
@@ -1180,7 +1200,11 @@
         if (activePhoto) {
           e.preventDefault();
           togglePhotoFlag(activePhoto);
-          toastStore.show(activePhoto.flagged ? "已標記為挑選底片 ★" : "已取消挑選標記", "info", 1500);
+          toastStore.show(
+            activePhoto.flagged ? "已標記為挑選底片 ★" : "已取消挑選標記",
+            "info",
+            1500,
+          );
           return;
         }
       }
@@ -1243,7 +1267,7 @@
       photoLibrary.activePhoto.appliedProfile = profileId;
     }
     photoPlates = photoPlates.map((p) =>
-      p.id === activePhoto!.id ? { ...p, appliedProfile: profileId } : p
+      p.id === activePhoto!.id ? { ...p, appliedProfile: profileId } : p,
     );
     const found = profiles.find((p) => p.id === profileId);
     if (found) {
@@ -1497,7 +1521,12 @@
     try {
       // 確保格式為有效之圖片 URI
       let safeSrc = previewSrc;
-      if (!safeSrc.startsWith("data:") && !safeSrc.startsWith("blob:") && !safeSrc.startsWith("http") && !safeSrc.startsWith("asset:")) {
+      if (
+        !safeSrc.startsWith("data:") &&
+        !safeSrc.startsWith("blob:") &&
+        !safeSrc.startsWith("http") &&
+        !safeSrc.startsWith("asset:")
+      ) {
         safeSrc = `data:image/jpeg;base64,${safeSrc}`;
       }
 
@@ -1532,9 +1561,13 @@
 
       const forcedProfileId =
         activeStylePreset !== "auto"
-          ? styleGradingPresets.find((sp) => sp.key === activeStylePreset)?.profileId
+          ? styleGradingPresets.find((sp) => sp.key === activeStylePreset)
+              ?.profileId
           : undefined;
-      const targetProf = forcedProfileId || decision.recommended_profile || "Profile_00_StandardNatural";
+      const targetProf =
+        forcedProfileId ||
+        decision.recommended_profile ||
+        "Profile_00_StandardNatural";
 
       const maxDim = 1024;
       let targetW = img.naturalWidth || 400;
@@ -1723,7 +1756,10 @@
     if (!activePhoto || !activePhoto.aiTuningSnapshot) return;
     const snapshot = activePhoto.aiTuningSnapshot;
 
-    if (snapshot.appliedProfile && snapshot.appliedProfile !== activePhoto.appliedProfile) {
+    if (
+      snapshot.appliedProfile &&
+      snapshot.appliedProfile !== activePhoto.appliedProfile
+    ) {
       applyProfile(snapshot.appliedProfile);
     }
 
@@ -1738,7 +1774,7 @@
         clarity: snapshot.tuning.clarity ?? 0.0,
         sharpness: snapshot.tuning.sharpness ?? 0.0,
       },
-      450
+      450,
     );
 
     clarity = snapshot.tuning.clarity ?? 0.0;
@@ -2128,7 +2164,8 @@
     try {
       const items = await IngestionService.pickWebDirectory();
       if (items.length > 0) {
-        currentDirectoryName = IngestionService.currentDirectoryName || '相片資料夾';
+        currentDirectoryName =
+          IngestionService.currentDirectoryName || "相片資料夾";
       }
       await loadPhotosFromItems(items);
     } finally {
@@ -2142,13 +2179,14 @@
     try {
       const items = await IngestionService.processDataTransfer(dataTransfer);
       if (items.length > 0) {
-        currentDirectoryName = IngestionService.currentDirectoryName || '拖放相片集';
+        currentDirectoryName =
+          IngestionService.currentDirectoryName || "拖放相片集";
         await loadPhotosFromItems(items);
-        toastStore.show(`已成功載入 ${items.length} 幀底片 ✓`, 'success', 2500);
+        toastStore.show(`已成功載入 ${items.length} 幀底片 ✓`, "success", 2500);
       }
     } catch (err) {
-      console.warn('Drag and drop ingestion failed:', err);
-      toastStore.show('載入相片失敗，請重試', 'error', 3000);
+      console.warn("Drag and drop ingestion failed:", err);
+      toastStore.show("載入相片失敗，請重試", "error", 3000);
     } finally {
       isLoadingPhotos = false;
     }
@@ -2161,7 +2199,10 @@
     try {
       const items = await IngestionService.scanDirectory(targetPath);
       if (items.length > 0) {
-        currentDirectoryName = mount.volume_name || IngestionService.currentDirectoryName || '相機外接裝置';
+        currentDirectoryName =
+          mount.volume_name ||
+          IngestionService.currentDirectoryName ||
+          "相機外接裝置";
       }
       await loadPhotosFromItems(items);
     } finally {
@@ -2175,7 +2216,7 @@
       const camera = cameraMounts[0];
       if (photoPlates.length > 0) {
         const confirmLoad = window.confirm(
-          `【偵測到外接相機連線】\n相機名稱：${camera.volume_name}\n可載入底片：${camera.file_count} 幀 RAW\n\n點擊「確定」載入此相機相卷\n點擊「取消」瀏覽挑選其他本機目錄`
+          `【偵測到外接相機連線】\n相機名稱：${camera.volume_name}\n可載入底片：${camera.file_count} 幀 RAW\n\n點擊「確定」載入此相機相卷\n點擊「取消」瀏覽挑選其他本機目錄`,
         );
         if (confirmLoad) {
           await handleLoadCameraMount(camera);
@@ -2482,14 +2523,21 @@
         ? (decision.sharpness ?? 0.0)
         : (photoToProcess.tuning?.sharpness ?? 0.0);
 
-      const origEv = photoToProcess.tuning?.exposure ?? photoToProcess.asShotExposure ?? 0.0;
+      const origEv =
+        photoToProcess.tuning?.exposure ?? photoToProcess.asShotExposure ?? 0.0;
       const origContrast = photoToProcess.tuning?.contrast ?? 0.0;
-      const origShadows = photoToProcess.tuning?.shadows ?? (foundProfile ? (foundProfile.shadowsDefault ?? 0.0) : 0.0);
+      const origShadows =
+        photoToProcess.tuning?.shadows ??
+        (foundProfile ? (foundProfile.shadowsDefault ?? 0.0) : 0.0);
       const origClarity = photoToProcess.tuning?.clarity ?? 0.0;
       const origSharpness = photoToProcess.tuning?.sharpness ?? 0.0;
-      const origTemp = photoToProcess.tuning?.colorTemp ?? photoToProcess.asShotTemp ?? 5500;
-      const origTint = photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0;
-      const origLut = photoToProcess.tuning?.lutIntensity ?? (foundProfile ? foundProfile.lutIntensityDefault : 1.0);
+      const origTemp =
+        photoToProcess.tuning?.colorTemp ?? photoToProcess.asShotTemp ?? 5500;
+      const origTint =
+        photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0;
+      const origLut =
+        photoToProcess.tuning?.lutIntensity ??
+        (foundProfile ? foundProfile.lutIntensityDefault : 1.0);
 
       const fmt = (v: number, unit = "", sign = true, decimals = 2) => {
         const s = sign && v > 0 ? "+" : "";
@@ -2520,13 +2568,20 @@
       // AI 回傳整幅畫面 (或缺漏時的預設值) 代表構圖已佳、無需裁切，不可誤報為「已套用」
       const isFullFrameCrop = (b: number[]) =>
         b[0] <= 0.01 && b[1] <= 0.01 && b[2] >= 0.99 && b[3] >= 0.99;
-      if (aiScope.crop && (!decision.crop_box || isFullFrameCrop(decision.crop_box))) {
+      if (
+        aiScope.crop &&
+        (!decision.crop_box || isFullFrameCrop(decision.crop_box))
+      ) {
         await appendAiLog(
           `> [AI_CROP] AI 判斷構圖已佳，未進行裁切（保留原始構圖）`,
           15,
         );
       }
-      if (aiScope.crop && decision.crop_box && !isFullFrameCrop(decision.crop_box)) {
+      if (
+        aiScope.crop &&
+        decision.crop_box &&
+        !isFullFrameCrop(decision.crop_box)
+      ) {
         targetCrop = {
           x: decision.crop_box[1],
           y: decision.crop_box[0],
@@ -2705,7 +2760,10 @@
 
       await appendAiLog(`> [SUCCESS] 顯影調校完成 ✓`, 10);
       if (!isBatchAiRunning) {
-        toastStore.show(`【${decision.scene_title || decision.scene_type}】AI 顯影調校完成 ✓`, 'success');
+        toastStore.show(
+          `【${decision.scene_title || decision.scene_type}】AI 顯影調校完成 ✓`,
+          "success",
+        );
       }
       return true;
     } catch (err: any) {
@@ -2722,7 +2780,11 @@
         `> [ERROR] 顯影推估異常：${err.message || "未知錯誤"}`,
         20,
       );
-      toastStore.show(`AI 顯影失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
+      toastStore.show(
+        `AI 顯影失敗：${err.message || "雲端推論異常"}`,
+        "error",
+        4500,
+      );
       return false;
     } finally {
       isAiAnalyzing = false;
@@ -2748,7 +2810,13 @@
           focalLength: activePhoto.focalLength,
         },
         {
-          scope: { crop: true, keystone: true, tone: false, whiteBalance: false, lutProfile: false },
+          scope: {
+            crop: true,
+            keystone: true,
+            tone: false,
+            whiteBalance: false,
+            lutProfile: false,
+          },
         },
       );
       if (decision.crop_box) {
@@ -2779,10 +2847,14 @@
       isCropMode = true; // 自動開啟裁切框供檢視
       darkroomState.isCropMode = true;
       await appendAiLog(`> [SUCCESS] 智慧裁切已套用：${aiCropRationale} ✓`);
-      toastStore.show(`智慧構圖已套用：${aiCropRationale} ✓`, 'success');
+      toastStore.show(`智慧構圖已套用：${aiCropRationale} ✓`, "success");
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 裁切分析失敗：${err.message}`);
-      toastStore.show(`AI 裁切失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
+      toastStore.show(
+        `AI 裁切失敗：${err.message || "雲端推論異常"}`,
+        "error",
+        4500,
+      );
     } finally {
       isAiAnalyzing = false;
     }
@@ -2805,7 +2877,13 @@
           focalLength: activePhoto.focalLength,
         },
         {
-          scope: { crop: false, keystone: true, tone: false, whiteBalance: false, lutProfile: false },
+          scope: {
+            crop: false,
+            keystone: true,
+            tone: false,
+            whiteBalance: false,
+            lutProfile: false,
+          },
         },
       );
       cropRotation =
@@ -2817,10 +2895,17 @@
       await appendAiLog(
         `> [SUCCESS] 地平線校正 ${cropRotation.toFixed(1)}°，垂直梯形 ${keystoneV.toFixed(1)}° ✓`,
       );
-      toastStore.show(`地平線校正 ${cropRotation.toFixed(1)}°，垂直梯形 ${keystoneV.toFixed(1)}° ✓`, 'success');
+      toastStore.show(
+        `地平線校正 ${cropRotation.toFixed(1)}°，垂直梯形 ${keystoneV.toFixed(1)}° ✓`,
+        "success",
+      );
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 水平偵測失敗：${err.message}`);
-      toastStore.show(`水平偵測失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
+      toastStore.show(
+        `水平偵測失敗：${err.message || "雲端推論異常"}`,
+        "error",
+        4500,
+      );
     } finally {
       isAiAnalyzing = false;
     }
@@ -2843,7 +2928,13 @@
           focalLength: activePhoto.focalLength,
         },
         {
-          scope: { crop: false, keystone: false, tone: false, whiteBalance: true, lutProfile: false },
+          scope: {
+            crop: false,
+            keystone: false,
+            tone: false,
+            whiteBalance: true,
+            lutProfile: false,
+          },
         },
       );
       animateAdjustmentValues(
@@ -2856,10 +2947,17 @@
       await appendAiLog(
         `> [SUCCESS] 自動白平衡已套用 (${decision.color_temp}K, Tint: ${decision.tint}) ✓`,
       );
-      toastStore.show(`自動白平衡已套用 (${decision.color_temp}K, Tint: ${decision.tint}) ✓`, 'success');
+      toastStore.show(
+        `自動白平衡已套用 (${decision.color_temp}K, Tint: ${decision.tint}) ✓`,
+        "success",
+      );
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 白平衡失敗：${err.message}`);
-      toastStore.show(`白平衡失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
+      toastStore.show(
+        `白平衡失敗：${err.message || "雲端推論異常"}`,
+        "error",
+        4500,
+      );
     } finally {
       isAiAnalyzing = false;
     }
@@ -2882,7 +2980,13 @@
           focalLength: activePhoto.focalLength,
         },
         {
-          scope: { crop: false, keystone: false, tone: true, whiteBalance: false, lutProfile: false },
+          scope: {
+            crop: false,
+            keystone: false,
+            tone: true,
+            whiteBalance: false,
+            lutProfile: false,
+          },
         },
       );
       animateAdjustmentValues(
@@ -2894,21 +2998,28 @@
       );
       shadows = decision.lift_shadows;
       darkroomState.shadows = shadows;
-      if (typeof decision.clarity === 'number') {
+      if (typeof decision.clarity === "number") {
         clarity = decision.clarity;
         darkroomState.clarity = clarity;
       }
-      if (typeof decision.sharpness === 'number') {
+      if (typeof decision.sharpness === "number") {
         sharpness = decision.sharpness;
         darkroomState.sharpness = sharpness;
       }
       await appendAiLog(
         `> [SUCCESS] 自動光比已套用 (EV: ${decision.exposure_compensation > 0 ? "+" : ""}${decision.exposure_compensation}) ✓`,
       );
-      toastStore.show(`自動光比已套用 (EV: ${decision.exposure_compensation > 0 ? "+" : ""}${decision.exposure_compensation}) ✓`, 'success');
+      toastStore.show(
+        `自動光比已套用 (EV: ${decision.exposure_compensation > 0 ? "+" : ""}${decision.exposure_compensation}) ✓`,
+        "success",
+      );
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 光比失敗：${err.message}`);
-      toastStore.show(`光比分析失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
+      toastStore.show(
+        `光比分析失敗：${err.message || "雲端推論異常"}`,
+        "error",
+        4500,
+      );
     } finally {
       isAiAnalyzing = false;
     }
@@ -2931,7 +3042,13 @@
           focalLength: activePhoto.focalLength,
         },
         {
-          scope: { crop: false, keystone: false, tone: false, whiteBalance: false, lutProfile: true },
+          scope: {
+            crop: false,
+            keystone: false,
+            tone: false,
+            whiteBalance: false,
+            lutProfile: true,
+          },
           stylePreset: activeStylePreset,
         },
       );
@@ -2945,10 +3062,17 @@
       await appendAiLog(
         `> [SUCCESS] 已推薦套用：${decision.recommended_profile} ✓`,
       );
-      toastStore.show(`已推薦套用風格：${decision.recommended_profile} ✓`, 'success');
+      toastStore.show(
+        `已推薦套用風格：${decision.recommended_profile} ✓`,
+        "success",
+      );
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 風格推薦失敗：${err.message}`);
-      toastStore.show(`風格推薦失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
+      toastStore.show(
+        `風格推薦失敗：${err.message || "雲端推論異常"}`,
+        "error",
+        4500,
+      );
     } finally {
       isAiAnalyzing = false;
     }
@@ -2970,10 +3094,14 @@
       aiSocialCaption = res.caption;
       aiSocialHashtags = res.hashtags;
       aiIptcKeywords = res.iptcKeywords;
-      toastStore.show("AI 社群文案與標籤已生成 ✓", 'success', 2500);
+      toastStore.show("AI 社群文案與標籤已生成 ✓", "success", 2500);
     } catch (err: any) {
       console.error("Groq copywriting error:", err);
-      toastStore.show(`文案生成失敗：${err.message || "雲端推論異常"}`, 'error', 4500);
+      toastStore.show(
+        `文案生成失敗：${err.message || "雲端推論異常"}`,
+        "error",
+        4500,
+      );
     } finally {
       isGeneratingCopy = false;
     }
@@ -2986,13 +3114,13 @@
     try {
       await navigator.clipboard.writeText(fullText);
       copyNotice = "文案已複製 ✓";
-      toastStore.show("社群文案與標籤已複製至剪貼簿 ✓", 'success', 2500);
+      toastStore.show("社群文案與標籤已複製至剪貼簿 ✓", "success", 2500);
       setTimeout(() => {
         copyNotice = "";
       }, 2500);
     } catch {
       copyNotice = "複製失敗";
-      toastStore.show("文案複製失敗", 'error', 3000);
+      toastStore.show("文案複製失敗", "error", 3000);
       setTimeout(() => {
         copyNotice = "";
       }, 2000);
@@ -3184,6 +3312,7 @@
       targetDir: string;
       autoDateSubdir: boolean;
       backupRawFiles: boolean;
+      directoryPlan?: DirectoryPlanResult | null;
     },
   ) {
     const listToExport =
@@ -3214,9 +3343,19 @@
         : typeof localStorage !== "undefined"
           ? localStorage.getItem("slipknot_export_date_subdir") !== "false"
           : true;
-    const subDir = autoDateSubdir
+    const dateSubDir = autoDateSubdir
       ? new Date().toISOString().slice(0, 10)
       : undefined;
+
+    const directoryPlan = options?.directoryPlan;
+    const photoSubPathMap = new Map<string, string>();
+    if (directoryPlan && directoryPlan.folders) {
+      for (const folder of directoryPlan.folders) {
+        for (const pid of folder.photoIds) {
+          photoSubPathMap.set(pid, folder.subPath);
+        }
+      }
+    }
 
     isExporting = true;
     exportProgress = 5;
@@ -3233,6 +3372,17 @@
         let blobToSave: Blob | null = null;
         const baseName = p.filename.replace(/\.[^/.]+$/, "");
         const filename = `${baseName}_graded.jpg`;
+
+        // 計算該照片實際的目標子路徑 (結合日期子目錄與智慧規劃目錄)
+        const itemPlanSubPath = photoSubPathMap.get(p.id);
+        let actualSubDir: string | undefined = undefined;
+        if (dateSubDir && itemPlanSubPath) {
+          actualSubDir = `${dateSubDir}/${itemPlanSubPath}`;
+        } else if (itemPlanSubPath) {
+          actualSubDir = itemPlanSubPath;
+        } else if (dateSubDir) {
+          actualSubDir = dateSubDir;
+        }
 
         // 若是當前底片，直接透過 webglRenderer 導出高畫質
         if (webglRenderer && activePhoto && p.id === activePhoto.id) {
@@ -3256,7 +3406,7 @@
         if (blobToSave) {
           const saveResult = await ExportService.saveExportedPhoto({
             targetDir,
-            subDir,
+            subDir: actualSubDir,
             filename,
             blob: blobToSave,
           });
@@ -3265,14 +3415,36 @@
           }
         }
 
+        // 原始 RAW 備份處理
+        if (options?.backupRawFiles && p.fileHandle) {
+          try {
+            const rawFile = await p.fileHandle.getFile();
+            const rawSubPath = directoryPlan?.rawBackupSubPath || "Raw_Backup";
+            const actualRawSubDir = dateSubDir
+              ? `${dateSubDir}/${rawSubPath}`
+              : rawSubPath;
+            await ExportService.saveExportedPhoto({
+              targetDir,
+              subDir: actualRawSubDir,
+              filename: rawFile.name || p.filename,
+              blob: rawFile,
+            });
+          } catch (rawErr) {
+            console.warn("備份原始 RAW 檔失敗:", rawErr);
+          }
+        }
+
         await new Promise((r) => setTimeout(r, 60));
       }
 
       exportProgress = 100;
+      const planNotice = directoryPlan
+        ? `（智慧歸檔為 ${directoryPlan.folders.length} 個目錄）`
+        : "";
       exportNotice =
         exportMode === "modeA"
-          ? `已成功批次匯出 ${listToExport.length} 幀 (極速完成) 至 ${lastSavedPath || targetDir}`
-          : `已成功批次儲存 ${listToExport.length} 幀 (典藏模式) 至 ${lastSavedPath || targetDir}`;
+          ? `已成功批次匯出 ${listToExport.length} 幀 (極速完成)${planNotice} 至 ${lastSavedPath || targetDir}`
+          : `已成功批次儲存 ${listToExport.length} 幀 (典藏模式)${planNotice} 至 ${lastSavedPath || targetDir}`;
     } catch {
       exportNotice = "匯出發生錯誤";
     } finally {
@@ -3393,7 +3565,10 @@
   <main class="main-body">
     <!-- LEFT SIDEBAR: AI ASSISTANT PANEL (僅在暗房精修專屬呈現，其他頁面全幅展開) -->
     {#if activeTab === "retouch"}
-      <aside class="left-sidebar hairline-r" class:drawer-open={activeMobileDrawer === "ai"}>
+      <aside
+        class="left-sidebar hairline-r"
+        class:drawer-open={activeMobileDrawer === "ai"}
+      >
         <!-- 行動端抽屜收合把手 (Mobile Drawer Handle) -->
         <div class="mobile-drawer-handle-bar">
           <div class="drawer-drag-pill"></div>
@@ -3403,7 +3578,9 @@
             onclick={() => (activeMobileDrawer = "none")}
           >
             <span>收合面板</span>
-            <span class="material-symbols-outlined" style="font-size: 14px;">keyboard_arrow_down</span>
+            <span class="material-symbols-outlined" style="font-size: 14px;"
+              >keyboard_arrow_down</span
+            >
           </button>
         </div>
 
@@ -3534,7 +3711,10 @@
 
     {#if activeTab === "retouch" || (activeTab === "catalog" && flaggedCount > 0)}
       <!-- RIGHT SIDEBAR: RETOUCH COLOR DOCK OR CATALOG SELECTION RACK (僅在精修或有挑圖時滑出) -->
-      <aside class="right-telemetry hairline-l" class:drawer-open={activeMobileDrawer === "tuning"}>
+      <aside
+        class="right-telemetry hairline-l"
+        class:drawer-open={activeMobileDrawer === "tuning"}
+      >
         <!-- 行動端抽屜收合把手 (Mobile Drawer Handle) -->
         <div class="mobile-drawer-handle-bar">
           <div class="drawer-drag-pill"></div>
@@ -3544,7 +3724,9 @@
             onclick={() => (activeMobileDrawer = "none")}
           >
             <span>收合面板</span>
-            <span class="material-symbols-outlined" style="font-size: 14px;">keyboard_arrow_down</span>
+            <span class="material-symbols-outlined" style="font-size: 14px;"
+              >keyboard_arrow_down</span
+            >
           </button>
         </div>
         {#if activeTab === "retouch"}
@@ -3606,7 +3788,9 @@
         onclick={() =>
           (activeMobileDrawer = activeMobileDrawer === "ai" ? "none" : "ai")}
       >
-        <span class="material-symbols-outlined" style="font-size: 16px;">auto_awesome</span>
+        <span class="material-symbols-outlined" style="font-size: 16px;"
+          >auto_awesome</span
+        >
         <span>AI 風格建議</span>
       </button>
       <button
@@ -3614,9 +3798,12 @@
         class="retouch-action-pill"
         class:active={activeMobileDrawer === "tuning"}
         onclick={() =>
-          (activeMobileDrawer = activeMobileDrawer === "tuning" ? "none" : "tuning")}
+          (activeMobileDrawer =
+            activeMobileDrawer === "tuning" ? "none" : "tuning")}
       >
-        <span class="material-symbols-outlined" style="font-size: 16px;">tune</span>
+        <span class="material-symbols-outlined" style="font-size: 16px;"
+          >tune</span
+        >
         <span>參數微調</span>
       </button>
     </div>
@@ -3781,8 +3968,6 @@
 
   /* ── 行動端暗房佈局與抽屜動效 (Mobile Darkroom Responsive Layout & Bottom Sheet) ── */
   @media (max-width: 768px) {
-    
-
     .left-sidebar,
     .right-telemetry {
       position: fixed;
@@ -3797,7 +3982,10 @@
       box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.85);
       border-top: 1px solid var(--hairline-slate);
       transform: translateY(100%);
-      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease, visibility 0.28s;
+      transition:
+        transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+        opacity 0.2s ease,
+        visibility 0.28s;
       padding: 10px 14px 20px;
       display: flex;
       visibility: hidden;
