@@ -939,7 +939,7 @@
     </div>
   {:else}
     <!-- Empty State -->
-    <div class="empty-stage-box hairline-all">
+    <div class="empty-stage-box">
       <span class="material-symbols-outlined empty-stage-icon">camera_roll</span>
       <h3 class="font-headline empty-stage-title">
         {#if (propsPhotos && propsPhotos.length > 0) || (photoLibrary.photoPlates.length > 0)}
@@ -979,7 +979,7 @@
         {#if onRefreshMounts}
           <button
             type="button"
-            class="archival-btn-secondary"
+            class="empty-ghost-btn font-mono"
             onclick={onRefreshMounts}
             disabled={isScanningMounts}
           >
@@ -990,7 +990,7 @@
       </div>
 
       {#if !hasApiKey && onOpenVault}
-        <div class="key-vault-empty-banner hairline-all font-mono">
+        <div class="key-vault-empty-banner font-mono">
           <div class="banner-left">
             <span class="material-symbols-outlined banner-icon">vpn_key_alert</span>
             <div class="banner-texts">
@@ -998,8 +998,8 @@
               <span class="banner-desc">可預先配置 Gemini / Groq API 金鑰，載入相片後隨即可享受 AI 智慧光學顯影</span>
             </div>
           </div>
-          <button type="button" class="banner-action-btn font-mono" onclick={onOpenVault}>
-            <span>立即配置 🔑</span>
+          <button type="button" class="banner-action-hint font-mono" onclick={onOpenVault}>
+            <span>立即配置 →</span>
           </button>
         </div>
       {/if}
@@ -1514,8 +1514,9 @@
     margin-top: 24px;
     width: 100%;
     padding: 12px 16px;
-    background: rgba(226, 157, 82, 0.08);
-    border: 1px dashed rgba(226, 157, 82, 0.35);
+    background: rgba(226, 157, 82, 0.05);
+    border: none;
+    border-left: 2px solid var(--amber-highlight);
     border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
@@ -1552,23 +1553,20 @@
     color: var(--parchment-muted);
     line-height: 1.4;
   }
-  .key-vault-empty-banner .banner-action-btn {
-    padding: 6px 12px;
-    background: var(--amber-highlight);
-    color: #121214;
+  .key-vault-empty-banner .banner-action-hint {
+    background: transparent;
     border: none;
-    border-radius: var(--radius-xs);
+    color: var(--amber-highlight);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     cursor: pointer;
-    flex-shrink: 0;
-    transition: all 0.15s ease;
     white-space: nowrap;
+    padding: 4px 8px;
+    transition: all 0.15s ease;
   }
-  .key-vault-empty-banner .banner-action-btn:hover {
-    background: #f0a855;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(226, 157, 82, 0.3);
+  .key-vault-empty-banner .banner-action-hint:hover {
+    transform: translateX(2px);
+    color: #f0a855;
   }
 
   /* EMPTY STAGE & STRIP */
@@ -1579,10 +1577,29 @@
     justify-content: center;
     padding: 48px 32px;
     background-color: var(--surface-panel);
+    border: 1px solid var(--hairline-slate);
     border-radius: var(--radius-md);
     max-width: 520px;
     text-align: center;
     box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+  }
+
+  .empty-ghost-btn {
+    background: transparent;
+    border: none;
+    color: var(--parchment-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 8px 12px;
+    transition: all 0.15s ease;
+    border-radius: var(--radius-xs);
+  }
+  .empty-ghost-btn:hover {
+    color: var(--parchment-bright);
+    background: rgba(255, 255, 255, 0.04);
   }
   .empty-stage-icon {
     font-size: 56px;
@@ -1992,9 +2009,9 @@
       gap: 12px;
       padding: 14px;
     }
-    .key-vault-empty-banner .banner-action-btn {
+    .key-vault-empty-banner .banner-action-hint {
       width: 100%;
-      padding: 10px;
+      padding: 8px 10px;
       font-size: 12px;
       text-align: center;
     }

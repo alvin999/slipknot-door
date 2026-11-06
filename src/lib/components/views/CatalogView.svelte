@@ -880,14 +880,9 @@
                 支援 Sony ARW · Canon CR2/CR3 · Nikon NEF · Fuji RAF · DNG · JPEG
               </div>
             </div>
-            <button
-              type="button"
-              class="archival-btn-primary pod-action-btn"
-              onclick={(e) => { e.stopPropagation(); onPickDirectory(); }}
-              disabled={isLoadingPhotos}
-            >
+            <div class="pod-action-hint">
               <span>選取相卷 ↵</span>
-            </button>
+            </div>
           </div>
 
           <!-- 相機隨插即讀即時連線提示 (若有偵測到相機) -->
@@ -1751,11 +1746,8 @@
   }
 
   .pod-icon-box {
-    width: 48px;
-    height: 48px;
-    border-radius: var(--radius-sm);
-    background-color: var(--surface-elevated);
-    border: 1px solid var(--hairline-slate);
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1765,13 +1757,11 @@
   }
 
   .hero-dropzone-pod:hover .pod-icon-box {
-    background-color: var(--surface-overlay);
-    border-color: var(--amber-highlight);
-    transform: scale(1.05);
+    transform: scale(1.08);
   }
 
   .pod-main-icon {
-    font-size: 26px;
+    font-size: 28px;
   }
 
   .pod-meta-info {
@@ -1794,11 +1784,19 @@
     color: var(--parchment-dim);
   }
 
-  .pod-action-btn {
-    padding: 8px 16px !important;
-    font-size: 12px !important;
+  .pod-action-hint {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--amber-highlight);
     white-space: nowrap;
     flex-shrink: 0;
+    transition: all 0.2s ease;
+    opacity: 0.85;
+  }
+
+  .hero-dropzone-pod:hover .pod-action-hint {
+    opacity: 1;
+    transform: translateX(2px);
   }
 
   /* CAMERA DETECTED POD */

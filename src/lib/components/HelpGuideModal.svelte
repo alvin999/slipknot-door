@@ -128,6 +128,18 @@
                   </div>
                 </div>
 
+                <div class="shortcut-row highlight">
+                  <div class="keys">
+                    <kbd class="kbd-chip">Del</kbd>
+                    <span class="or">/</span>
+                    <kbd class="kbd-chip">Backspace</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">排除底片 / 剔除淘汰 (Remove / Cull)</span>
+                    <span class="desc-sub font-mono">自相卷工作區排除並自動移至下一張（保留磁碟原檔，附帶 5 秒一鍵復原 ↺）</span>
+                  </div>
+                </div>
+
                 <div class="shortcut-row">
                   <div class="keys">
                     <kbd class="kbd-chip">Enter</kbd>
@@ -192,6 +204,18 @@
 
                 <div class="shortcut-row">
                   <div class="keys">
+                    <kbd class="kbd-chip">Del</kbd>
+                    <span class="or">/</span>
+                    <kbd class="kbd-chip">Backspace</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">自工作區排除此幀</span>
+                    <span class="desc-sub font-mono">剔除底片並自動推進至下一張（支援一鍵復原 ↺）</span>
+                  </div>
+                </div>
+
+                <div class="shortcut-row">
+                  <div class="keys">
                     <kbd class="kbd-chip">Esc</kbd>
                   </div>
                   <div class="action-desc">
@@ -221,6 +245,18 @@
 
                 <div class="shortcut-row">
                   <div class="keys">
+                    <kbd class="kbd-chip">Del</kbd>
+                    <span class="or">/</span>
+                    <kbd class="kbd-chip">Backspace</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">自工作區排除此幀</span>
+                    <span class="desc-sub font-mono">剔除底片並自動推進至下一張（支援一鍵復原 ↺）</span>
+                  </div>
+                </div>
+
+                <div class="shortcut-row">
+                  <div class="keys">
                     <kbd class="kbd-chip">Esc</kbd>
                   </div>
                   <div class="action-desc">
@@ -245,6 +281,18 @@
                   <div class="action-desc">
                     <span class="desc-main">開啟 / 關閉此指南</span>
                     <span class="desc-sub font-mono">隨時叫出操作指引與快捷鍵速查</span>
+                  </div>
+                </div>
+
+                <div class="shortcut-row">
+                  <div class="keys">
+                    <kbd class="kbd-chip">Del</kbd>
+                    <span class="or">/</span>
+                    <kbd class="kbd-chip">Backspace</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">自工作區排除此幀</span>
+                    <span class="desc-sub font-mono">剔除底片並自動推進至下一張（支援一鍵復原 ↺）</span>
                   </div>
                 </div>
 
