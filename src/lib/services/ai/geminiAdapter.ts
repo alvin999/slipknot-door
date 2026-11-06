@@ -172,7 +172,8 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
     const { instructionBlock, recommendedProfileSchemaHint } = buildStyleInstructionBlock(
       options.stylePreset,
       options.styleKeywords,
-      options.customStylePrompt
+      options.customStylePrompt,
+      options.customLuts
     );
 
     const promptText = `You are a master analog darkroom colorist and curatorial director.

@@ -42,6 +42,7 @@ export interface AnalyzeSceneOptions {
   stylePreset?: import('./ai/types').StylePresetKey;
   styleKeywords?: import('./ai/types').StyleKeywordId[];
   customStylePrompt?: string;
+  customLuts?: import('./customLutService').CustomLutRecord[];
   renderPreview?: (previewSrc: string, decision: AiSceneDecision) => Promise<string | null>;
   scope?: AiScopePreferences;
 }
@@ -313,6 +314,7 @@ export class AiSceneService {
             stylePreset: options?.stylePreset,
             styleKeywords: options?.styleKeywords,
             customStylePrompt: options?.customStylePrompt,
+            customLuts: options?.customLuts,
             scope,
             stage: 'colorGrade',
           });
@@ -386,6 +388,7 @@ export class AiSceneService {
             stylePreset: options?.stylePreset,
             styleKeywords: options?.styleKeywords,
             customStylePrompt: options?.customStylePrompt,
+            customLuts: options?.customLuts,
             scope,
             stage: 'colorGrade',
           });
@@ -424,6 +427,7 @@ export class AiSceneService {
             stylePreset: options?.stylePreset,
             styleKeywords: options?.styleKeywords,
             customStylePrompt: options?.customStylePrompt,
+            customLuts: options?.customLuts,
             timeoutMs: 180000,
           });
         }

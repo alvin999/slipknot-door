@@ -6,6 +6,7 @@
 
 import type { ExifOpticalData, AiScopePreferences } from '../../types/photo';
 import type { AiSceneDecision, CopywritingPayload, CopywritingResult } from '../aiSceneService';
+import type { CustomLutRecord } from '../customLutService';
 
 export type StylePresetKey =
   | 'standard'
@@ -51,6 +52,7 @@ export interface VisionInferenceOptions {
   stylePreset?: StylePresetKey;
   styleKeywords?: StyleKeywordId[];
   customStylePrompt?: string;
+  customLuts?: CustomLutRecord[];
   scope?: AiScopePreferences;
   stage?: 'all' | 'geometry' | 'colorGrade';
 }

@@ -17,6 +17,7 @@
 import type { StylePresetKey, StyleKeywordId, VisionInferenceOptions } from './types';
 import type { ExifOpticalData, AiScopePreferences } from '../../types/photo';
 import type { AiSceneDecision } from '../aiSceneService';
+import type { CustomLutRecord } from '../customLutService';
 
 export interface StyleKeywordEntry {
   id: StyleKeywordId;
@@ -181,21 +182,30 @@ export const LUT_DIRECTIVE_ENTRIES: LutDirectiveEntry[] = [
 ];
 
 /**
- * 產生完整可選 LUT 清單（供 `auto` 自動配對模式放入 Prompt）
+ * 產生完整可選 LUT 清單（供 `auto` 自動配對模式放入 Prompt，支援合併使用者自訂 LUT）
  */
-export function buildLutManifestPrompt(): string {
-  return LUT_DIRECTIVE_ENTRIES.map((e) => {
+export function buildLutManifestPrompt(customLuts?: CustomLutRecord[]): string {
+  const builtinManifest = LUT_DIRECTIVE_ENTRIES.map((e) => {
     return `- "${e.profileId}": ${e.prototypeName}`;
-  }).join('\n');
+  });
+
+  if (Array.isArray(customLuts) && customLuts.length > 0) {
+    for (const lut of customLuts) {
+      builtinManifest.push(`- "${lut.id}": [User Custom 3D LUT] ${lut.name} (${lut.directiveDescription})`);
+    }
+  }
+
+  return builtinManifest.join('\n');
 }
 
 /**
- * 根據使用者選擇的 `stylePreset`、關鍵字按鈕 (`styleKeywords`) 與自訂文字 (`customStylePrompt`) 產生對應的風格背景資訊與調色指令
+ * 根據使用者選擇的 `stylePreset`、關鍵字按鈕 (`styleKeywords`)、自訂文字 (`customStylePrompt`) 與使用者自訂 LUT 清單產生對應的風格背景資訊與調色指令
  */
 export function buildStyleInstructionBlock(
-  preset?: StylePresetKey,
+  preset?: StylePresetKey | string,
   styleKeywords?: StyleKeywordId[],
-  customStylePrompt?: string
+  customStylePrompt?: string,
+  customLuts?: CustomLutRecord[]
 ): {
   instructionBlock: string;
   recommendedProfileSchemaHint: string;
@@ -204,20 +214,28 @@ export function buildStyleInstructionBlock(
   let recommendedProfileSchemaHint = 'string (One ID from Available 3D LUT Profiles)';
 
   if (!preset || preset === 'auto') {
-    const manifest = buildLutManifestPrompt();
+    const manifest = buildLutManifestPrompt(customLuts);
     baseBlock = `Available 3D LUT Profiles:
 ${manifest}`;
     recommendedProfileSchemaHint =
       'string (One ID from Available 3D LUT Profiles above)';
   } else {
+    // 1. 優先檢查是否為內建 10 款 LUT 或別名
     const entry = LUT_DIRECTIVE_ENTRIES.find((e) => e.presetKey === preset);
-    if (!entry) {
-      const manifest = buildLutManifestPrompt();
-      baseBlock = `Available 3D LUT Profiles:\n${manifest}`;
-      recommendedProfileSchemaHint = 'string (One ID from Available 3D LUT Profiles)';
-    } else {
+    if (entry) {
       baseBlock = `Selected 3D LUT Profile: "${entry.profileId}": ${entry.prototypeName}`;
       recommendedProfileSchemaHint = `"${entry.profileId}"`;
+    } else {
+      // 2. 檢查是否為使用者自訂的 LUT (例如 "custom_xxx")
+      const customFound = customLuts?.find((c) => c.id === preset);
+      if (customFound) {
+        baseBlock = `Selected 3D LUT Profile: "${customFound.id}": [User Custom 3D LUT] ${customFound.name} (${customFound.directiveDescription})`;
+        recommendedProfileSchemaHint = `"${customFound.id}"`;
+      } else {
+        const manifest = buildLutManifestPrompt(customLuts);
+        baseBlock = `Available 3D LUT Profiles:\n${manifest}`;
+        recommendedProfileSchemaHint = 'string (One ID from Available 3D LUT Profiles)';
+      }
     }
   }
 
@@ -420,12 +438,13 @@ Respond ONLY with raw JSON matching this schema:
  * 幾何視角已由前置階段或使用者手動固定，專注於物理動態範圍與色調曲線
  */
 export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions): string {
-  const { exif, stylePreset, styleKeywords, customStylePrompt, scope } = options;
+  const { exif, stylePreset, styleKeywords, customStylePrompt, customLuts, scope } = options;
 
   const { instructionBlock, recommendedProfileSchemaHint } = buildStyleInstructionBlock(
     stylePreset,
     styleKeywords,
-    customStylePrompt
+    customStylePrompt,
+    customLuts
   );
 
   // 根據 AiScope 偏好決定啟用的物理通道，若未傳入 scope 則預設全開

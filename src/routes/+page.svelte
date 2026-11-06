@@ -28,6 +28,7 @@
   import { darkroomState } from "$lib/stores/darkroomState.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
   import { WebglLutRenderer } from "$lib/services/webglLutRenderer";
+  import { CustomLutService, type CustomLutRecord } from "$lib/services/customLutService";
   import { ExportService } from "$lib/services/exportService";
   import { STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
   import type {
@@ -69,6 +70,12 @@
   onMount(() => {
     refreshCameraMounts();
     refreshKeyStatus();
+
+    // 載入使用者自訂 3D LUT 並同步至 WebGL 著色器
+    CustomLutService.getAllCustomLuts().then((luts) => {
+      userCustomLuts = luts;
+      syncCustomLutsToRenderers();
+    });
 
     // 背景熱插拔偵測：每 4 秒檢查一次外接相機與儲存裝置連線狀態
     const mountPollTimer = setInterval(() => {
@@ -790,6 +797,77 @@
     },
   ];
 
+  // 使用者自訂 3D LUT 清單與雙向渲染/AI 同步
+  let userCustomLuts = $state<CustomLutRecord[]>([]);
+
+  function syncCustomLutsToRenderers() {
+    if (userCustomLuts.length === 0) return;
+    webglRenderer?.registerCustomLuts(userCustomLuts);
+    offscreenRenderer?.registerCustomLuts(userCustomLuts);
+    stylePreviewRenderer?.registerCustomLuts(userCustomLuts);
+  }
+
+  async function handleImportCustomLut(lut: CustomLutRecord) {
+    await CustomLutService.saveCustomLut(lut);
+    userCustomLuts = await CustomLutService.getAllCustomLuts();
+    syncCustomLutsToRenderers();
+    if (activePhoto?.thumbnail) {
+      generateStylePreviews(activePhoto.thumbnail);
+    }
+  }
+
+  async function handleDeleteCustomLut(id: string) {
+    await CustomLutService.deleteCustomLut(id);
+    userCustomLuts = await CustomLutService.getAllCustomLuts();
+  }
+
+  async function handleUpdateCustomLut(lut: CustomLutRecord) {
+    await CustomLutService.saveCustomLut(lut);
+    userCustomLuts = await CustomLutService.getAllCustomLuts();
+    syncCustomLutsToRenderers();
+    if (activePhoto?.thumbnail) {
+      generateStylePreviews(activePhoto.thumbnail);
+    }
+  }
+
+  // 合併內建與自訂 LUT 供典藏庫與暗房選擇器使用
+  const allProfiles = $derived([
+    ...profiles,
+    ...userCustomLuts.map((lut) => ({
+      id: lut.id,
+      title: lut.name,
+      tone: lut.directiveDescription,
+      badge: "CUSTOM",
+      accent: lut.accent || "#bfa15f",
+      evDefault: 0.0,
+      contrastDefault: 0.0,
+      highlightsDefault: 0.0,
+      shadowsDefault: 0.0,
+      fadeDefault: 0.0,
+      cyanSkyDefault: 0.0,
+      foliageDefault: 0.0,
+      lutIntensityDefault: lut.lutIntensityDefault ?? 0.85,
+      clarityDefault: 0.0,
+      sharpnessDefault: 0.0,
+      recommendedScene: lut.recommendedScene || "使用者自訂風格",
+      isCustom: true,
+      rawCustomLut: lut,
+    })),
+  ]);
+
+  const allStyleGradingPresets = $derived([
+    ...styleGradingPresets,
+    ...userCustomLuts.map((lut) => ({
+      key: lut.id as any,
+      badge: "CUSTOM",
+      shortLabel: lut.name,
+      title: `${lut.name} · 自訂風格`,
+      subtitle: `${lut.directiveDescription} (.cube)`,
+      accent: lut.accent || "#bfa15f",
+      profileId: lut.id,
+    })),
+  ]);
+
   // AI Inference State
   let isAiAnalyzing = $state<boolean>(false);
   let isBatchAiRunning = $state<boolean>(false);
@@ -1091,6 +1169,9 @@
         currentBoundCanvas = webglCanvas;
         webglRenderer = new WebglLutRenderer();
         isWebglActive = webglRenderer.initialize(webglCanvas);
+        if (userCustomLuts.length > 0) {
+          webglRenderer.registerCustomLuts(userCustomLuts);
+        }
       }
       triggerWebglRender();
     });
@@ -1278,7 +1359,7 @@
     photoPlates = photoPlates.map((p) =>
       p.id === activePhoto!.id ? { ...p, appliedProfile: profileId } : p,
     );
-    const found = profiles.find((p) => p.id === profileId);
+    const found = allProfiles.find((p) => p.id === profileId);
     if (found) {
       exposure = found.evDefault;
       contrast = found.contrastDefault || 0.0;
@@ -1318,7 +1399,11 @@
     offscreenCanvas.width = 400;
     offscreenCanvas.height = 300;
     offscreenRenderer = new WebglLutRenderer();
-    return offscreenRenderer.initialize(offscreenCanvas);
+    const ok = offscreenRenderer.initialize(offscreenCanvas);
+    if (ok && userCustomLuts.length > 0) {
+      offscreenRenderer.registerCustomLuts(userCustomLuts);
+    }
+    return ok;
   }
 
   function enqueueThumbnailRender(plate: PhotoPlate) {
@@ -1346,6 +1431,9 @@
       stylePreviewCanvas.height = 107;
       const r = new WebglLutRenderer();
       if (!r.initialize(stylePreviewCanvas)) return;
+      if (userCustomLuts.length > 0) {
+        r.registerCustomLuts(userCustomLuts);
+      }
       stylePreviewRenderer = r;
     }
     try {
@@ -1356,14 +1444,14 @@
         img.src = thumbnail;
       });
       const next: Record<string, string> = {};
-      for (const preset of styleGradingPresets) {
+      for (const preset of allStyleGradingPresets) {
         if (token !== stylePreviewToken) return; // 已切換相片，放棄過期結果
         if (!preset.profileId) continue;
         if (preset.profileId === "Profile_00_StandardNatural") {
           next[preset.key] = thumbnail;
           continue;
         }
-        const prof = profiles.find((p) => p.id === preset.profileId);
+        const prof = allProfiles.find((p) => p.id === preset.profileId);
         stylePreviewRenderer.setImageSource(img);
         stylePreviewRenderer.setProfile(preset.profileId);
         stylePreviewRenderer.render(
@@ -1570,7 +1658,7 @@
 
       const forcedProfileId =
         activeStylePreset !== "auto"
-          ? styleGradingPresets.find((sp) => sp.key === activeStylePreset)
+          ? allStyleGradingPresets.find((sp) => sp.key === activeStylePreset)
               ?.profileId
           : undefined;
       const targetProf =
@@ -1952,6 +2040,9 @@
       currentBoundCanvas = webglCanvas;
       webglRenderer = new WebglLutRenderer();
       isWebglActive = webglRenderer.initialize(webglCanvas);
+      if (userCustomLuts.length > 0) {
+        webglRenderer.registerCustomLuts(userCustomLuts);
+      }
     }
     if (
       webglRenderer &&
@@ -1993,6 +2084,9 @@
       currentBoundCanvas = canvas;
       webglRenderer = new WebglLutRenderer();
       isWebglActive = webglRenderer.initialize(canvas);
+      if (userCustomLuts.length > 0) {
+        webglRenderer.registerCustomLuts(userCustomLuts);
+      }
       lastBoundImageSrc = "";
     }
 
@@ -2593,6 +2687,7 @@
           stylePreset: activeStylePreset,
           styleKeywords: darkroomState.selectedStyleKeywords,
           customStylePrompt: finalStylePrompt || undefined,
+          customLuts: userCustomLuts,
           onLog: async (msg: string) => {
             await appendAiLog(msg, 15);
           },
@@ -2604,7 +2699,7 @@
       // 使用者指定風格（非自動配對）時，強制套用對應 3D LUT，並確保足夠的 LUT 強度
       const forcedProfileId =
         activeStylePreset !== "auto"
-          ? styleGradingPresets.find((sp) => sp.key === activeStylePreset)
+          ? allStyleGradingPresets.find((sp) => sp.key === activeStylePreset)
               ?.profileId
           : undefined;
       if (forcedProfileId) {
@@ -3740,7 +3835,7 @@
 
         <!-- AI Scene Assistant (100% 垂直高度專屬呈現，免去冗長捲動) -->
         <AiAssistPanel
-          {styleGradingPresets}
+          styleGradingPresets={allStyleGradingPresets}
           {stylePreviewThumbs}
           {geminiKeyStatus}
           {activePhoto}
@@ -3824,13 +3919,16 @@
       {:else if activeTab === "profiles"}
         <!-- MODULE 3: 3D LUT PROFILES VAULT -->
         <ProfilesView
-          {profiles}
+          profiles={allProfiles}
           activeProfileId={activePhoto
             ? activePhoto.appliedProfile
             : "Profile_01_Fieldnote"}
           activePhotoTitle={activePhoto ? activePhoto.filename : "尚未選取相片"}
           onApplyProfile={(id) => applyProfile(id)}
           onApplyToAll={(id) => applyProfileToAll(id)}
+          onImportCustomLut={handleImportCustomLut}
+          onUpdateCustomLut={handleUpdateCustomLut}
+          onDeleteCustomLut={handleDeleteCustomLut}
           onGoToRetouch={goToRetouch}
           onGoToCatalog={goToCatalog}
         />
@@ -3889,8 +3987,8 @@
         </div>
         {#if activeTab === "retouch"}
           <TuningPanel
-            {profiles}
-            {styleGradingPresets}
+            profiles={allProfiles}
+            styleGradingPresets={allStyleGradingPresets}
             {hasAiBaseline}
             {isModifiedFromAi}
             {activePhoto}

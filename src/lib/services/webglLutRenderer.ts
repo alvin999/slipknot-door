@@ -4,6 +4,8 @@
  * Pure Volumetric 33x33x33 Trilinear Color Transform without artifact-inducing HSL stacking.
  */
 
+import type { CustomLutRecord } from './customLutService';
+
 export interface TuningParameters {
   exposure: number;     // -2.0 ~ +2.0 EV
   contrast: number;     // -1.0 ~ +1.0
@@ -409,6 +411,18 @@ export class WebglLutRenderer {
     } catch (e) {
       console.error('Failed to parse .cube:', e);
       return false;
+    }
+  }
+
+  /**
+   * 批次載入並註冊使用者自訂 3D LUT (Custom Cube Profiles)
+   */
+  public registerCustomLuts(customLuts: CustomLutRecord[]) {
+    if (!this.gl || !Array.isArray(customLuts)) return;
+    for (const lut of customLuts) {
+      if (lut.id && lut.cubeContent) {
+        this.parseAndRegisterCube(lut.id, lut.cubeContent);
+      }
     }
   }
 
