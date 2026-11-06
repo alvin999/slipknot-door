@@ -313,74 +313,70 @@
 
   <!-- Right Controls: Dynamic Sequential Action Button -->
   <div class="top-actions">
-    <div class="archival-chip font-mono amber">
-      <span class="material-symbols-outlined" style="font-size: 14px;">bolt</span>
-      RAW 預覽 {latestExtractionMs}MS
-    </div>
-    <div class="archival-chip font-mono">
-      <span class="material-symbols-outlined" style="font-size: 14px;">memory</span>
-      GPU 著色器 60FPS
-    </div>
-
     {#if activeTab === 'catalog'}
-      <!-- STEP 1 PRIMARY ACTION -->
-      <button
-        class="archival-btn-primary stepper-cta amber-glow"
-        onclick={onGoToRetouch}
-        disabled={totalPhotos === 0}
-        title="步驟一動作：一鍵進入暗房精修（若有選取則僅精修選取幀，未選取則精修全部）"
-      >
-        <span class="material-symbols-outlined" style="font-size: 16px;">tonality</span>
-        <span class="btn-text-full">
-          {#if flaggedCount > 0}
-            一鍵精修 ({flaggedCount} 幀) →
-          {:else}
-            一鍵精修 (全部) →
-          {/if}
-        </span>
-        <span class="btn-text-short">
-          {#if flaggedCount > 0}
-            精修 ({flaggedCount}) →
-          {:else}
-            精修 (全) →
-          {/if}
-        </span>
-      </button>
+      {#if totalPhotos > 0}
+        <!-- STEP 1 PRIMARY ACTION (僅在已載入照片時顯示) -->
+        <button
+          class="archival-btn-primary stepper-cta amber-glow"
+          onclick={onGoToRetouch}
+          title="步驟一動作：一鍵進入暗房精修（若有選取則僅精修選取幀，未選取則精修全部）"
+        >
+          <span class="material-symbols-outlined" style="font-size: 16px;">tonality</span>
+          <span class="btn-text-full">
+            {#if flaggedCount > 0}
+              一鍵精修 ({flaggedCount} 幀) →
+            {:else}
+              一鍵精修 (全部) →
+            {/if}
+          </span>
+          <span class="btn-text-short">
+            {#if flaggedCount > 0}
+              精修 ({flaggedCount}) →
+            {:else}
+              精修 (全) →
+            {/if}
+          </span>
+        </button>
+      {/if}
     {:else if activeTab === 'retouch'}
-      <button
-        class="archival-btn-secondary"
-        onclick={onOpenQuickExport}
-        title="單張即時出圖 (⌘E)"
-        style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-xs); border: 1px solid var(--hairline-slate); background: var(--surface-panel); color: var(--amber-highlight); cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;"
-      >
-        <span class="material-symbols-outlined" style="font-size: 15px;">bolt</span>
-        <span class="btn-text-full">即時出圖 (⌘E)</span>
-        <span class="btn-text-short">即時出圖</span>
-      </button>
-      <!-- STEP 2 PRIMARY ACTION -->
-      <button
-        class="archival-btn-primary stepper-cta cyan-glow"
-        onclick={onGoToExport}
-        title="步驟二動作：完成調色，前往批次導出"
-      >
-        <span class="material-symbols-outlined" style="font-size: 16px;">output_circle</span>
-        <span class="btn-text-full">完成精修，前往導出 ({activeQueueLength} 幀) →</span>
-        <span class="btn-text-short">導出 ({activeQueueLength}) →</span>
-      </button>
+      {#if activeQueueLength > 0}
+        <button
+          class="archival-btn-secondary"
+          onclick={onOpenQuickExport}
+          title="單張即時出圖 (⌘E)"
+          style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-xs); border: 1px solid var(--hairline-slate); background: var(--surface-panel); color: var(--amber-highlight); cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;"
+        >
+          <span class="material-symbols-outlined" style="font-size: 15px;">bolt</span>
+          <span class="btn-text-full">即時出圖 (⌘E)</span>
+          <span class="btn-text-short">即時出圖</span>
+        </button>
+        <!-- STEP 2 PRIMARY ACTION (僅在精修佇列有照片時顯示) -->
+        <button
+          class="archival-btn-primary stepper-cta cyan-glow"
+          onclick={onGoToExport}
+          title="步驟二動作：完成調色，前往批次導出"
+        >
+          <span class="material-symbols-outlined" style="font-size: 16px;">output_circle</span>
+          <span class="btn-text-full">完成精修，前往導出 ({activeQueueLength} 幀) →</span>
+          <span class="btn-text-short">導出 ({activeQueueLength}) →</span>
+        </button>
+      {/if}
     {:else}
-      <!-- STEP 3 PRIMARY ACTION -->
-      <button
-        class="archival-btn-primary stepper-cta"
-        onclick={onTriggerExport}
-        disabled={isExporting || activeQueueLength === 0}
-        title="步驟三動作：執行批次出圖管線"
-      >
-        <span class="material-symbols-outlined" style="font-size: 16px;">
-          {exportMode === 'modeA' ? 'bolt' : 'hd'}
-        </span>
-        <span class="btn-text-full">{isExporting ? '匯出中...' : `批次導出 (${activeQueueLength} 幀) ⚡`}</span>
-        <span class="btn-text-short">{isExporting ? '匯出中' : `導出 (${activeQueueLength}) ⚡`}</span>
-      </button>
+      <!-- STEP 3 PRIMARY ACTION (僅在導出佇列有照片時顯示) -->
+      {#if activeQueueLength > 0}
+        <button
+          class="archival-btn-primary stepper-cta"
+          onclick={onTriggerExport}
+          disabled={isExporting}
+          title="步驟三動作：執行批次出圖管線"
+        >
+          <span class="material-symbols-outlined" style="font-size: 16px;">
+            {exportMode === 'modeA' ? 'bolt' : 'hd'}
+          </span>
+          <span class="btn-text-full">{isExporting ? '匯出中...' : `批次導出 (${activeQueueLength} 幀) ⚡`}</span>
+          <span class="btn-text-short">{isExporting ? '匯出中' : `導出 (${activeQueueLength}) ⚡`}</span>
+        </button>
+      {/if}
     {/if}
 
     <!-- Module Shortcuts: Profiles & Devices Settings -->
@@ -872,7 +868,6 @@
     .device-metric,
     .divider,
     .stepper-pipeline,
-    .archival-chip,
     .btn-text-full {
       display: none;
     }
