@@ -273,6 +273,70 @@ export class IngestionService {
   }
 
   /**
+   * High-performance asynchronous Base64 to Blob URL decoding
+   * Utilizes native browser background decoding to avoid blocking JS main UI thread
+   */
+  public static async base64ToBlobUrlAsync(base64: string, mimeType: string = 'image/jpeg'): Promise<string> {
+    try {
+      const res = await fetch(`data:${mimeType};base64,${base64}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      this.createdBlobUrls.add(url);
+      return url;
+    } catch {
+      return this.base64ToBlobUrl(base64, mimeType);
+    }
+  }
+
+  /**
+   * Parse authentic JPEG end marker by skipping variable length segments (APPn, Exif)
+   * Prevents premature truncation on embedded Exif thumbnails
+   */
+  private static findJpegEnd(bytes: Uint8Array, soi: number): number | null {
+    const len = bytes.length;
+    if (soi + 4 > len || bytes[soi] !== 0xFF || bytes[soi + 1] !== 0xD8) return null;
+
+    let pos = soi + 2;
+    while (pos + 1 < len) {
+      while (pos < len && bytes[pos] === 0xFF) pos++;
+      if (pos >= len) return null;
+      const marker = bytes[pos];
+      pos++;
+
+      if (marker === 0xD9) return pos; // EOI
+      if (marker === 0xDA) { // SOS (Start of Scan)
+        if (pos + 2 > len) return null;
+        const sosLen = (bytes[pos] << 8) | bytes[pos + 1];
+        pos += sosLen;
+        while (pos + 1 < len) {
+          if (bytes[pos] === 0xFF) {
+            const next = bytes[pos + 1];
+            if (next === 0xD9) return pos + 2;
+            if (next === 0x00 || (next >= 0xD0 && next <= 0xD7)) {
+              pos += 2;
+              continue;
+            }
+            if (next === 0xFF) {
+              pos += 1;
+              continue;
+            }
+            pos += 2;
+            continue;
+          }
+          pos++;
+        }
+        return null;
+      }
+      if ((marker >= 0xD0 && marker <= 0xD7) || marker === 0x01 || marker === 0x00) continue;
+      if (pos + 2 > len) return null;
+      const segmentLen = (bytes[pos] << 8) | bytes[pos + 1];
+      if (segmentLen < 2) return null;
+      pos += segmentLen;
+    }
+    return null;
+  }
+
+  /**
    * Revoke all generated Blob URLs to prevent memory leaks on catalog switch
    */
   public static revokeAllBlobUrls(): void {
@@ -710,8 +774,8 @@ export class IngestionService {
         const { invoke } = await import('@tauri-apps/api/core');
         const res = await invoke<EmbeddedPreviewResult>('extract_embedded_jpeg', { filePath });
         if (res && res.jpeg_base64 && !res.blob_url) {
-          // Immediately convert multi-megabyte Base64 payload into a lightweight Blob URL
-          res.blob_url = this.base64ToBlobUrl(res.jpeg_base64, res.mime_type || 'image/jpeg');
+          // Immediately convert multi-megabyte Base64 payload into a lightweight Blob URL asynchronously via native browser fetch
+          res.blob_url = await this.base64ToBlobUrlAsync(res.jpeg_base64, res.mime_type || 'image/jpeg');
           res.jpeg_base64 = ''; // Release raw base64 string from V8 heap immediately
         }
         return res;
@@ -761,31 +825,25 @@ export class IngestionService {
         for (let i = 0; i + 3 < len; i++) {
           if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8 && bytes[i + 2] === 0xFF) {
             const soi = i;
-            for (let j = soi + 2; j + 1 < len; j++) {
-              if (bytes[j] === 0xFF && bytes[j + 1] === 0xD9) {
-                const eoi = j + 2;
-                const candidateLen = eoi - soi;
-
-                if (candidateLen > 30000) {
-                  let w = 0, h = 0;
-                  for (let k = soi; k < Math.min(eoi, soi + 1024); k++) {
-                    if (bytes[k] === 0xFF && (bytes[k + 1] === 0xC0 || bytes[k + 1] === 0xC2)) {
-                      h = (bytes[k + 5] << 8) | bytes[k + 6];
-                      w = (bytes[k + 7] << 8) | bytes[k + 8];
-                      break;
-                    }
-                  }
-                  const pixels = w * h;
-                  if (pixels > maxPixels || (pixels === 0 && candidateLen > maxLen)) {
-                    maxPixels = pixels;
-                    maxLen = candidateLen;
-                    bestStart = soi;
-                    bestEnd = eoi;
-                  }
+            const eoi = this.findJpegEnd(bytes, soi);
+            if (eoi && eoi > soi + 30000) {
+              const candidateLen = eoi - soi;
+              let w = 0, h = 0;
+              for (let k = soi; k < Math.min(eoi, soi + 1024); k++) {
+                if (bytes[k] === 0xFF && (bytes[k + 1] === 0xC0 || bytes[k + 1] === 0xC2)) {
+                  h = (bytes[k + 5] << 8) | bytes[k + 6];
+                  w = (bytes[k + 7] << 8) | bytes[k + 8];
+                  break;
                 }
-                i = eoi - 1; // Advance outer loop past current image
-                break;
               }
+              const pixels = w * h;
+              if (pixels > maxPixels || (pixels === 0 && candidateLen > maxLen)) {
+                maxPixels = pixels;
+                maxLen = candidateLen;
+                bestStart = soi;
+                bestEnd = eoi;
+              }
+              i = eoi - 1; // Advance outer loop past current image
             }
           }
         }

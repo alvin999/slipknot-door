@@ -58,6 +58,7 @@ export class PhotoLibraryStore {
   cameraMounts = $state<CameraMountInfo[]>([]);
   isScanningMounts = $state<boolean>(false);
   latestExtractionMs = $state<number>(18);
+  private loadToken: number = 0;
 
   // 縮圖著色背景回呼通知（由 Darkroom/WebGL 離線渲染器註冊）
   onThumbnailEnqueue: ((plate: PhotoPlateItem) => void) | null = null;
@@ -212,13 +213,24 @@ export class PhotoLibraryStore {
     this.photoPlates = loaded;
     this.activePhoto = loaded[0];
 
-    // 步驟 2: 漸進式增強解析 EXIF 與縮圖，優先處理首批可見相片
-    const initialBatch = Math.min(items.length, 12);
-    for (let i = 0; i < initialBatch; i++) {
-      const item = items[i];
-      if (!this.photoPlates[i].thumbnail || isTauriEnv || item.fileHandle) {
-        IngestionService.extractPreview(item.file_path, item.fileHandle).then(
-          (preview) => {
+    // 步驟 2: 以受控並行池（限制 3 個 worker 並行）漸進式解析 EXIF 與縮圖
+    // 避免瞬間發起過量 I/O 卡死系統或網路檔案系統（如雲端掛載），同時保證畫面順暢響應
+    const currentToken = ++this.loadToken;
+    const CONCURRENCY = 3;
+    let nextIndex = 0;
+
+    const runWorker = async () => {
+      while (nextIndex < items.length) {
+        if (currentToken !== this.loadToken) return;
+        const i = nextIndex++;
+        const item = items[i];
+        if (!this.photoPlates[i]?.thumbnail || isTauriEnv || item.fileHandle) {
+          try {
+            const preview = await IngestionService.extractPreview(
+              item.file_path,
+              item.fileHandle
+            );
+            if (currentToken !== this.loadToken) return;
             if (this.photoPlates[i]) {
               if (preview.blob_url || preview.jpeg_base64) {
                 this.photoPlates[i].thumbnail =
@@ -267,62 +279,16 @@ export class PhotoLibraryStore {
                 this.activePhoto = { ...this.photoPlates[i] };
               }
             }
-          }
-        );
-      }
-    }
-
-    // 步驟 3: 背景分塊解析後續相片
-    if (items.length > initialBatch) {
-      setTimeout(async () => {
-        for (let i = initialBatch; i < items.length; i++) {
-          const item = items[i];
-          if (!this.photoPlates[i]?.thumbnail || isTauriEnv || item.fileHandle) {
-            const preview = await IngestionService.extractPreview(
-              item.file_path,
-              item.fileHandle
-            );
-            if (this.photoPlates[i]) {
-              if (preview.blob_url || preview.jpeg_base64) {
-                this.photoPlates[i].thumbnail =
-                  preview.blob_url ||
-                  `data:image/jpeg;base64,${preview.jpeg_base64}`;
-                if (
-                  this.photoPlates[i].appliedProfile &&
-                  this.photoPlates[i].appliedProfile !==
-                    "Profile_00_StandardNatural" &&
-                  this.onThumbnailEnqueue
-                ) {
-                  this.onThumbnailEnqueue(this.photoPlates[i]);
-                }
-              }
-              this.photoPlates[i].camera =
-                preview.exif.camera_model || this.photoPlates[i].camera;
-              this.photoPlates[i].lens =
-                preview.exif.lens_model || this.photoPlates[i].lens;
-              this.photoPlates[i].iso =
-                preview.exif.iso || this.photoPlates[i].iso;
-              this.photoPlates[i].shutter =
-                preview.exif.shutter_speed || this.photoPlates[i].shutter;
-              this.photoPlates[i].aperture =
-                preview.exif.aperture || this.photoPlates[i].aperture;
-              this.photoPlates[i].focalLength =
-                preview.exif.focal_length || this.photoPlates[i].focalLength;
-              this.photoPlates[i].exposureBias = preview.exif.exposure_bias ?? 0.0;
-              this.photoPlates[i].exposureProgram =
-                preview.exif.exposure_program || "標準自動";
-              this.photoPlates[i].meteringMode =
-                preview.exif.metering_mode || "多重測光";
-              this.photoPlates[i].colorSpace = preview.exif.color_space || "sRGB";
-              this.photoPlates[i].flash = preview.exif.flash || "未擊發";
-              this.photoPlates[i].asShotTemp = preview.exif.color_temp ?? 5500;
-              this.photoPlates[i].asShotTint = preview.exif.tint ?? 0;
-              this.photoPlates[i].asShotExposure =
-                preview.exif.exposure_bias ?? 0.0;
-            }
+          } catch (err) {
+            console.warn(`[PhotoLibrary] 解析相片預覽失敗 (${item.filename}):`, err);
           }
         }
-      }, 100);
+      }
+    };
+
+    const workerCount = Math.min(items.length, CONCURRENCY);
+    for (let w = 0; w < workerCount; w++) {
+      runWorker();
     }
   }
 

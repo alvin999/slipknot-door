@@ -1,10 +1,10 @@
+use crate::models::{EmbeddedPreviewResult, ExifMetadata};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Instant;
-use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
-use crate::models::{EmbeddedPreviewResult, ExifMetadata};
 
 pub struct RawExtractor;
 
@@ -25,7 +25,9 @@ impl RawExtractor {
             .to_lowercase();
 
         let mut file = File::open(path).map_err(|e| format!("Cannot open file: {}", e))?;
-        let metadata = file.metadata().map_err(|e| format!("Cannot read metadata: {}", e))?;
+        let metadata = file
+            .metadata()
+            .map_err(|e| format!("Cannot read metadata: {}", e))?;
         let file_size = metadata.len();
 
         let (raw_buffer, jpeg_bytes) = match ext.as_str() {
@@ -66,12 +68,35 @@ impl RawExtractor {
     }
 
     /// Extract embedded preview and raw header buffer from TIFF-based RAW files (ARW, NEF, CR2, DNG)
-    fn extract_from_tiff_raw_with_buffer(file: &mut File, file_size: u64) -> Result<(Vec<u8>, Vec<u8>), String> {
-        let read_len = std::cmp::min(file_size, 12 * 1024 * 1024) as usize;
+    fn extract_from_tiff_raw_with_buffer(
+        file: &mut File,
+        file_size: u64,
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let read_len = std::cmp::min(file_size, 16 * 1024 * 1024) as usize;
         let mut buffer = vec![0u8; read_len];
         file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
         file.read_exact(&mut buffer).map_err(|e| e.to_string())?;
 
+        // 1. Direct TIFF Preview Tag Resolution (Exact offset & length, zero guess work)
+        if let Some((offset, length)) = Self::find_tiff_preview_tags(&buffer) {
+            if offset + 2 <= buffer.len() && buffer[offset] == 0xFF && buffer[offset + 1] == 0xD8 {
+                if offset + length <= buffer.len() {
+                    let jpeg_bytes = buffer[offset..offset + length].to_vec();
+                    return Ok((buffer, jpeg_bytes));
+                } else if (offset as u64) < file_size {
+                    let actual_len =
+                        std::cmp::min(length as u64, file_size - offset as u64) as usize;
+                    let mut jpeg_bytes = vec![0u8; actual_len];
+                    file.seek(SeekFrom::Start(offset as u64))
+                        .map_err(|e| e.to_string())?;
+                    file.read_exact(&mut jpeg_bytes)
+                        .map_err(|e| e.to_string())?;
+                    return Ok((buffer, jpeg_bytes));
+                }
+            }
+        }
+
+        // 2. Binary Scan with Authentic JPEG Marker Traversal (Skips embedded Exif thumbnails safely)
         let candidates = Self::find_embedded_jpegs(&buffer)?;
         let largest_jpeg = candidates
             .into_iter()
@@ -79,6 +104,218 @@ impl RawExtractor {
             .ok_or_else(|| "Failed to find preview candidate".to_string())?;
 
         Ok((buffer, largest_jpeg))
+    }
+
+    /// Read preview offset and byte count from TIFF IFD0 and SubIFDs
+    fn find_tiff_preview_tags(buf: &[u8]) -> Option<(usize, usize)> {
+        if buf.len() < 16 {
+            return None;
+        }
+        let is_little_endian = buf[0] == b'I' && buf[1] == b'I';
+        if !is_little_endian && !(buf[0] == b'M' && buf[1] == b'M') {
+            return None;
+        }
+
+        let read_u16 = |offset: usize| -> Option<u16> {
+            if offset + 2 <= buf.len() {
+                if is_little_endian {
+                    Some(u16::from_le_bytes([buf[offset], buf[offset + 1]]))
+                } else {
+                    Some(u16::from_be_bytes([buf[offset], buf[offset + 1]]))
+                }
+            } else {
+                None
+            }
+        };
+
+        let read_u32 = |offset: usize| -> Option<u32> {
+            if offset + 4 <= buf.len() {
+                if is_little_endian {
+                    Some(u32::from_le_bytes([
+                        buf[offset],
+                        buf[offset + 1],
+                        buf[offset + 2],
+                        buf[offset + 3],
+                    ]))
+                } else {
+                    Some(u32::from_be_bytes([
+                        buf[offset],
+                        buf[offset + 1],
+                        buf[offset + 2],
+                        buf[offset + 3],
+                    ]))
+                }
+            } else {
+                None
+            }
+        };
+
+        let ifd0_offset = read_u32(4)? as usize;
+        let mut check_ifds = vec![ifd0_offset];
+        let mut visited = std::collections::HashSet::new();
+        let mut best_preview: Option<(usize, usize)> = None;
+
+        while let Some(ifd_off) = check_ifds.pop() {
+            if !visited.insert(ifd_off) || ifd_off + 2 > buf.len() {
+                continue;
+            }
+
+            let entry_count = match read_u16(ifd_off) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            let mut curr = ifd_off + 2;
+            let mut jpeg_off = None;
+            let mut jpeg_len = None;
+            let mut strip_off = None;
+            let mut strip_len = None;
+
+            for _ in 0..entry_count {
+                if let (Some(tag), Some(count), Some(val_offset)) =
+                    (read_u16(curr), read_u32(curr + 4), read_u32(curr + 8))
+                {
+                    match tag {
+                        0x0201 => {
+                            // JPEGInterchangeFormat
+                            jpeg_off = Some(val_offset as usize);
+                        }
+                        0x0202 => {
+                            // JPEGInterchangeFormatLength
+                            jpeg_len = Some(val_offset as usize);
+                        }
+                        0x0111 => {
+                            // StripOffsets
+                            let off = if count == 1 {
+                                val_offset as usize
+                            } else {
+                                read_u32(val_offset as usize).unwrap_or(0) as usize
+                            };
+                            strip_off = Some(off);
+                        }
+                        0x0117 => {
+                            // StripByteCounts
+                            let len = if count == 1 {
+                                val_offset as usize
+                            } else {
+                                read_u32(val_offset as usize).unwrap_or(0) as usize
+                            };
+                            strip_len = Some(len);
+                        }
+                        0x014A => {
+                            // SubIFDs
+                            for s in 0..count {
+                                let sub_ptr_off = val_offset as usize + (s as usize * 4);
+                                if let Some(sub_ifd) = read_u32(sub_ptr_off) {
+                                    if (sub_ifd as usize) < buf.len() {
+                                        check_ifds.push(sub_ifd as usize);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                curr += 12;
+            }
+
+            if let (Some(off), Some(len)) = (jpeg_off, jpeg_len) {
+                if len > 30000 {
+                    if let Some((_, best_len)) = best_preview {
+                        if len > best_len {
+                            best_preview = Some((off, len));
+                        }
+                    } else {
+                        best_preview = Some((off, len));
+                    }
+                }
+            } else if let (Some(off), Some(len)) = (strip_off, strip_len) {
+                if len > 30000 && off + 2 <= buf.len() && buf[off] == 0xFF && buf[off + 1] == 0xD8 {
+                    if let Some((_, best_len)) = best_preview {
+                        if len > best_len {
+                            best_preview = Some((off, len));
+                        }
+                    } else {
+                        best_preview = Some((off, len));
+                    }
+                }
+            }
+        }
+
+        best_preview
+    }
+
+    /// Parse complete JPEG stream starting at `soi` without being misled by embedded Exif thumbnails
+    fn parse_jpeg_end(buffer: &[u8], soi: usize) -> Option<usize> {
+        let len = buffer.len();
+        if soi + 4 > len || buffer[soi] != 0xFF || buffer[soi + 1] != 0xD8 {
+            return None;
+        }
+
+        let mut pos = soi + 2;
+        while pos + 1 < len {
+            // Skip fill bytes 0xFF
+            while pos < len && buffer[pos] == 0xFF {
+                pos += 1;
+            }
+            if pos >= len {
+                return None;
+            }
+            let marker = buffer[pos];
+            pos += 1;
+
+            if marker == 0xD9 {
+                // EOI (End of Image)
+                return Some(pos);
+            }
+
+            if marker == 0xDA {
+                // SOS (Start of Scan) - compressed entropy data begins after SOS parameters
+                if pos + 2 > len {
+                    return None;
+                }
+                let sos_len = u16::from_be_bytes([buffer[pos], buffer[pos + 1]]) as usize;
+                pos += sos_len;
+
+                // Inside scan data, search for true EOI (0xFF 0xD9)
+                while pos + 1 < len {
+                    if buffer[pos] == 0xFF {
+                        let next = buffer[pos + 1];
+                        if next == 0xD9 {
+                            return Some(pos + 2);
+                        } else if next == 0x00 || (0xD0..=0xD7).contains(&next) {
+                            pos += 2;
+                            continue;
+                        } else if next == 0xFF {
+                            pos += 1;
+                            continue;
+                        } else {
+                            pos += 2;
+                            continue;
+                        }
+                    }
+                    pos += 1;
+                }
+                return None;
+            }
+
+            // Standalone markers without payload
+            if (0xD0..=0xD7).contains(&marker) || marker == 0x01 || marker == 0x00 {
+                continue;
+            }
+
+            // Variable-length markers (APPn, SOFn, DQT, DHT, DRI, etc.)
+            if pos + 2 > len {
+                return None;
+            }
+            let segment_len = u16::from_be_bytes([buffer[pos], buffer[pos + 1]]) as usize;
+            if segment_len < 2 {
+                return None;
+            }
+            pos += segment_len;
+        }
+
+        None
     }
 
     /// Find all embedded JPEG streams in a buffer
@@ -90,18 +327,7 @@ impl RawExtractor {
         while i + 3 < buf_len {
             if buffer[i] == 0xFF && buffer[i + 1] == 0xD8 && buffer[i + 2] == 0xFF {
                 let soi_index = i;
-                let mut j = soi_index + 2;
-                let mut found_eoi = None;
-
-                while j + 1 < buf_len {
-                    if buffer[j] == 0xFF && buffer[j + 1] == 0xD9 {
-                        found_eoi = Some(j + 2);
-                        break;
-                    }
-                    j += 1;
-                }
-
-                if let Some(eoi_index) = found_eoi {
+                if let Some(eoi_index) = Self::parse_jpeg_end(buffer, soi_index) {
                     let len = eoi_index - soi_index;
                     if len > 24 * 1024 {
                         jpeg_candidates.push(buffer[soi_index..eoi_index].to_vec());
@@ -121,21 +347,14 @@ impl RawExtractor {
     }
 
     /// Extract embedded preview from TIFF-based RAW files (ARW, NEF, CR2, DNG)
-    fn extract_from_tiff_raw(file: &mut File, file_size: u64) -> Result<Vec<Vec<u8>>, String> {
-        let read_len = std::cmp::min(file_size, 12 * 1024 * 1024) as usize;
-        let mut buffer = vec![0u8; read_len];
-        file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-        file.read_exact(&mut buffer).map_err(|e| e.to_string())?;
-        Self::find_embedded_jpegs(&buffer)
+    fn extract_from_tiff_raw(file: &mut File, file_size: u64) -> Result<Vec<u8>, String> {
+        let (_, jpeg) = Self::extract_from_tiff_raw_with_buffer(file, file_size)?;
+        Ok(jpeg)
     }
 
     /// Extract largest embedded JPEG from TIFF raw candidates
     fn extract_from_tiff_raw_largest(file: &mut File, file_size: u64) -> Result<Vec<u8>, String> {
-        let candidates = Self::extract_from_tiff_raw(file, file_size)?;
-        candidates
-            .into_iter()
-            .max_by_key(|bytes| bytes.len())
-            .ok_or_else(|| "Failed to find preview candidate".to_string())
+        Self::extract_from_tiff_raw(file, file_size)
     }
 
     /// Fujifilm RAF embedded JPEG parser
@@ -144,13 +363,17 @@ impl RawExtractor {
         file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
         file.read_exact(&mut header).map_err(|e| e.to_string())?;
 
-        let jpeg_offset = u32::from_be_bytes([header[0x54], header[0x55], header[0x56], header[0x57]]) as u64;
-        let jpeg_len = u32::from_be_bytes([header[0x58], header[0x59], header[0x5a], header[0x5b]]) as usize;
+        let jpeg_offset =
+            u32::from_be_bytes([header[0x54], header[0x55], header[0x56], header[0x57]]) as u64;
+        let jpeg_len =
+            u32::from_be_bytes([header[0x58], header[0x59], header[0x5a], header[0x5b]]) as usize;
 
         if jpeg_offset > 0 && jpeg_len > 1024 {
             let mut jpeg_bytes = vec![0u8; jpeg_len];
-            file.seek(SeekFrom::Start(jpeg_offset)).map_err(|e| e.to_string())?;
-            file.read_exact(&mut jpeg_bytes).map_err(|e| e.to_string())?;
+            file.seek(SeekFrom::Start(jpeg_offset))
+                .map_err(|e| e.to_string())?;
+            file.read_exact(&mut jpeg_bytes)
+                .map_err(|e| e.to_string())?;
             return Ok(jpeg_bytes);
         }
 
@@ -169,9 +392,20 @@ impl RawExtractor {
     }
 
     /// Dual-stage parser extracting authentic EXIF directly from RAW TIFF header and embedded JPEG
-    fn extract_comprehensive_exif(raw_buf: Option<&[u8]>, jpeg_bytes: &[u8], path: &Path) -> ExifMetadata {
-        let _filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("RAW_IMAGE");
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_uppercase();
+    fn extract_comprehensive_exif(
+        raw_buf: Option<&[u8]>,
+        jpeg_bytes: &[u8],
+        path: &Path,
+    ) -> ExifMetadata {
+        let _filename = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("RAW_IMAGE");
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_uppercase();
 
         let mut camera_model = format!("{} 相機檔案", ext);
         let mut lens_model = "標準光學鏡頭".to_string();
@@ -190,7 +424,9 @@ impl RawExtractor {
 
         // Stage 1: Parse directly from RAW file binary header (e.g. Sony ARW, Nikon NEF, Canon CR2, DNG)
         if let Some(raw) = raw_buf {
-            if raw.len() >= 8 && ((raw[0] == b'I' && raw[1] == b'I') || (raw[0] == b'M' && raw[1] == b'M')) {
+            if raw.len() >= 8
+                && ((raw[0] == b'I' && raw[1] == b'I') || (raw[0] == b'M' && raw[1] == b'M'))
+            {
                 Self::parse_tiff_exif(
                     raw,
                     &mut camera_model,
@@ -212,7 +448,9 @@ impl RawExtractor {
         }
 
         // Stage 2: Fallback / Merge from embedded JPEG APP1 marker if key tags are still missing
-        if (shutter_speed == "--" || aperture == "--" || iso == 0 || lens_model == "標準光學鏡頭") && !jpeg_bytes.is_empty() {
+        if (shutter_speed == "--" || aperture == "--" || iso == 0 || lens_model == "標準光學鏡頭")
+            && !jpeg_bytes.is_empty()
+        {
             let mut j_camera = camera_model.clone();
             let mut j_lens = lens_model.clone();
             let mut j_iso = iso;
@@ -233,7 +471,8 @@ impl RawExtractor {
 
             while idx + 4 < len {
                 if jpeg_bytes[idx] == 0xFF && jpeg_bytes[idx + 1] == 0xE1 {
-                    let app1_len = u16::from_be_bytes([jpeg_bytes[idx + 2], jpeg_bytes[idx + 3]]) as usize;
+                    let app1_len =
+                        u16::from_be_bytes([jpeg_bytes[idx + 2], jpeg_bytes[idx + 3]]) as usize;
                     let payload_start = idx + 4;
                     let payload_end = std::cmp::min(payload_start + app1_len - 2, len);
 
@@ -265,7 +504,8 @@ impl RawExtractor {
                 } else if jpeg_bytes[idx] == 0xFF && jpeg_bytes[idx + 1] == 0xDA {
                     break;
                 } else if jpeg_bytes[idx] == 0xFF {
-                    let seg_len = u16::from_be_bytes([jpeg_bytes[idx + 2], jpeg_bytes[idx + 3]]) as usize;
+                    let seg_len =
+                        u16::from_be_bytes([jpeg_bytes[idx + 2], jpeg_bytes[idx + 3]]) as usize;
                     idx += 2 + seg_len;
                 } else {
                     idx += 1;
@@ -293,13 +533,27 @@ impl RawExtractor {
             if date_time == "--" && j_date_time != "--" {
                 date_time = j_date_time;
             }
-            if exposure_bias.is_none() { exposure_bias = j_bias; }
-            if exposure_program.is_none() { exposure_program = j_prog; }
-            if metering_mode.is_none() { metering_mode = j_meter; }
-            if color_space.is_none() { color_space = j_space; }
-            if color_temp.is_none() { color_temp = j_temp; }
-            if tint.is_none() { tint = j_tint; }
-            if flash.is_none() { flash = j_flash; }
+            if exposure_bias.is_none() {
+                exposure_bias = j_bias;
+            }
+            if exposure_program.is_none() {
+                exposure_program = j_prog;
+            }
+            if metering_mode.is_none() {
+                metering_mode = j_meter;
+            }
+            if color_space.is_none() {
+                color_space = j_space;
+            }
+            if color_temp.is_none() {
+                color_temp = j_temp;
+            }
+            if tint.is_none() {
+                tint = j_tint;
+            }
+            if flash.is_none() {
+                flash = j_flash;
+            }
         }
 
         // If specific tags were missing from embedded header, format gracefully
@@ -375,9 +629,19 @@ impl RawExtractor {
         let read_u32 = |offset: usize| -> Option<u32> {
             if offset + 4 <= buf.len() {
                 if is_little_endian {
-                    Some(u32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]))
+                    Some(u32::from_le_bytes([
+                        buf[offset],
+                        buf[offset + 1],
+                        buf[offset + 2],
+                        buf[offset + 3],
+                    ]))
                 } else {
-                    Some(u32::from_be_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]))
+                    Some(u32::from_be_bytes([
+                        buf[offset],
+                        buf[offset + 1],
+                        buf[offset + 2],
+                        buf[offset + 3],
+                    ]))
                 }
             } else {
                 None
@@ -387,9 +651,19 @@ impl RawExtractor {
         let read_i32 = |offset: usize| -> Option<i32> {
             if offset + 4 <= buf.len() {
                 if is_little_endian {
-                    Some(i32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]))
+                    Some(i32::from_le_bytes([
+                        buf[offset],
+                        buf[offset + 1],
+                        buf[offset + 2],
+                        buf[offset + 3],
+                    ]))
                 } else {
-                    Some(i32::from_be_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]))
+                    Some(i32::from_be_bytes([
+                        buf[offset],
+                        buf[offset + 1],
+                        buf[offset + 2],
+                        buf[offset + 3],
+                    ]))
                 }
             } else {
                 None
@@ -402,11 +676,7 @@ impl RawExtractor {
                 let slice = &buf[offset..actual_end];
                 let clean: Vec<u8> = slice.iter().copied().take_while(|&c| c != 0).collect();
                 let s = String::from_utf8_lossy(&clean).trim().to_string();
-                if !s.is_empty() {
-                    Some(s)
-                } else {
-                    None
-                }
+                if !s.is_empty() { Some(s) } else { None }
             } else {
                 None
             }
@@ -434,21 +704,33 @@ impl RawExtractor {
                     match tag {
                         0x010F => {
                             // Make (e.g. SONY, Canon, Nikon)
-                            let str_offset = if count <= 4 { curr + 8 } else { val_offset as usize };
+                            let str_offset = if count <= 4 {
+                                curr + 8
+                            } else {
+                                val_offset as usize
+                            };
                             if let Some(val) = read_string(str_offset, count as usize) {
                                 make_str = val;
                             }
                         }
                         0x0110 => {
                             // Model (e.g. ZV-E10, ILCE-7M4)
-                            let str_offset = if count <= 4 { curr + 8 } else { val_offset as usize };
+                            let str_offset = if count <= 4 {
+                                curr + 8
+                            } else {
+                                val_offset as usize
+                            };
                             if let Some(val) = read_string(str_offset, count as usize) {
                                 model_str = val;
                             }
                         }
                         0x0132 => {
                             // DateTime
-                            let str_offset = if count <= 4 { curr + 8 } else { val_offset as usize };
+                            let str_offset = if count <= 4 {
+                                curr + 8
+                            } else {
+                                val_offset as usize
+                            };
                             if let Some(val) = read_string(str_offset, count as usize) {
                                 *date_time = val;
                             }
@@ -466,7 +748,8 @@ impl RawExtractor {
 
         // Formulate refined camera model name
         if !model_str.is_empty() {
-            if !make_str.is_empty() && !model_str.to_lowercase().contains(&make_str.to_lowercase()) {
+            if !make_str.is_empty() && !model_str.to_lowercase().contains(&make_str.to_lowercase())
+            {
                 *camera = format!("{} {}", make_str, model_str);
             } else {
                 *camera = model_str;
@@ -539,7 +822,11 @@ impl RawExtractor {
                             }
                             0xA434 => {
                                 // LensModel
-                                let str_offset = if count <= 4 { curr + 8 } else { val_offset as usize };
+                                let str_offset = if count <= 4 {
+                                    curr + 8
+                                } else {
+                                    val_offset as usize
+                                };
                                 if let Some(val) = read_string(str_offset, count as usize) {
                                     *lens = val;
                                 }
@@ -688,5 +975,49 @@ impl From<std::time::SystemTime> for ChronoFreeDt {
 impl std::fmt::Display for ChronoFreeDt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "時間戳記: {}", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_jpeg_end_skips_embedded_thumbnail() {
+        // Construct a synthetic JPEG with an embedded thumbnail in APP1
+        let mut jpeg = Vec::new();
+        // SOI
+        jpeg.extend_from_slice(&[0xFF, 0xD8]);
+
+        // APP1 with nested thumbnail ending in FF D9
+        jpeg.extend_from_slice(&[0xFF, 0xE1]);
+        let app1_payload = vec![
+            0xFF, 0xD8, // Nested thumbnail SOI
+            0x12, 0x34, 0xFF, 0xD9, // Nested thumbnail EOI (This should be skipped!)
+            0x00, 0x00,
+        ];
+        let app1_len = (app1_payload.len() + 2) as u16;
+        jpeg.extend_from_slice(&app1_len.to_be_bytes());
+        jpeg.extend_from_slice(&app1_payload);
+
+        // SOS (Start of Scan)
+        jpeg.extend_from_slice(&[0xFF, 0xDA]);
+        let sos_payload = vec![0x00, 0x01, 0x02];
+        let sos_len = (sos_payload.len() + 2) as u16;
+        jpeg.extend_from_slice(&sos_len.to_be_bytes());
+        jpeg.extend_from_slice(&sos_payload);
+
+        // Entropy scan data with stuffed FF 00
+        jpeg.extend_from_slice(&[0xAA, 0xBB, 0xFF, 0x00, 0xCC, 0xDD]);
+
+        // True EOI
+        jpeg.extend_from_slice(&[0xFF, 0xD9]);
+
+        let end = RawExtractor::parse_jpeg_end(&jpeg, 0);
+        assert_eq!(
+            end,
+            Some(jpeg.len()),
+            "parse_jpeg_end must return exact end of full JPEG"
+        );
     }
 }

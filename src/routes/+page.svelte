@@ -158,6 +158,7 @@
   let photoPlates = $state<PhotoPlate[]>([]);
   let activePhoto = $state<PhotoPlate | null>(null);
   let isLoadingPhotos = $state<boolean>(false);
+  let photoLoadToken = 0;
   let currentDirectoryName = $state<string>("");
 
   // Darkroom Tuning Sliders
@@ -2170,15 +2171,25 @@
         activeTab = "catalog"; // Switch to catalog grid view immediately
       }
 
-      // Step 2: Progressive enhancement for EXIF and thumbnails
-      // Prioritize the first visible frames immediately
-      const initialBatch = Math.min(itemsToLoad.length, 12);
-      for (let i = 0; i < initialBatch; i++) {
-        const item = itemsToLoad[i];
-        const plateIndex = startIndex + i;
-        if (!photoPlates[plateIndex]?.thumbnail || isTauriEnv || item.fileHandle) {
-          IngestionService.extractPreview(item.file_path, item.fileHandle).then(
-            (preview) => {
+      // Step 2: Progressive enhancement for EXIF and thumbnails with controlled concurrency worker pool
+      // Limits simultaneous I/O to avoid blocking system or network FUSE pipelines while keeping UI responsive
+      const currentToken = ++photoLoadToken;
+      const CONCURRENCY = 3;
+      let nextIndex = 0;
+
+      const runWorker = async () => {
+        while (nextIndex < itemsToLoad.length) {
+          if (currentToken !== photoLoadToken) return;
+          const i = nextIndex++;
+          const item = itemsToLoad[i];
+          const plateIndex = startIndex + i;
+          if (!photoPlates[plateIndex]?.thumbnail || isTauriEnv || item.fileHandle) {
+            try {
+              const preview = await IngestionService.extractPreview(
+                item.file_path,
+                item.fileHandle,
+              );
+              if (currentToken !== photoLoadToken) return;
               if (photoPlates[plateIndex]) {
                 if (preview.blob_url || preview.jpeg_base64) {
                   photoPlates[plateIndex].thumbnail =
@@ -2228,61 +2239,16 @@
                   exposure = photoPlates[plateIndex].asShotExposure ?? 0.0;
                 }
               }
-            },
-          );
-        }
-      }
-
-      // Step 3: Background chunked ingestion for subsequent frames
-      if (itemsToLoad.length > initialBatch) {
-        setTimeout(async () => {
-          for (let i = initialBatch; i < itemsToLoad.length; i++) {
-            const item = itemsToLoad[i];
-            const plateIndex = startIndex + i;
-            if (!photoPlates[plateIndex]?.thumbnail || isTauriEnv || item.fileHandle) {
-              const preview = await IngestionService.extractPreview(
-                item.file_path,
-                item.fileHandle,
-              );
-              if (photoPlates[plateIndex]) {
-                if (preview.blob_url || preview.jpeg_base64) {
-                  photoPlates[plateIndex].thumbnail =
-                    preview.blob_url ||
-                    `data:image/jpeg;base64,${preview.jpeg_base64}`;
-                  if (
-                    photoPlates[plateIndex].appliedProfile &&
-                    photoPlates[plateIndex].appliedProfile !==
-                      "Profile_00_StandardNatural"
-                  ) {
-                    enqueueThumbnailRender(photoPlates[plateIndex]);
-                  }
-                }
-                photoPlates[plateIndex].camera =
-                  preview.exif.camera_model || photoPlates[plateIndex].camera;
-                photoPlates[plateIndex].lens =
-                  preview.exif.lens_model || photoPlates[plateIndex].lens;
-                photoPlates[plateIndex].iso = preview.exif.iso || photoPlates[plateIndex].iso;
-                photoPlates[plateIndex].shutter =
-                  preview.exif.shutter_speed || photoPlates[plateIndex].shutter;
-                photoPlates[plateIndex].aperture =
-                  preview.exif.aperture || photoPlates[plateIndex].aperture;
-                photoPlates[plateIndex].focalLength =
-                  preview.exif.focal_length || photoPlates[plateIndex].focalLength;
-                photoPlates[plateIndex].exposureBias = preview.exif.exposure_bias ?? 0.0;
-                photoPlates[plateIndex].exposureProgram =
-                  preview.exif.exposure_program || "標準自動";
-                photoPlates[plateIndex].meteringMode =
-                  preview.exif.metering_mode || "多重測光";
-                photoPlates[plateIndex].colorSpace = preview.exif.color_space || "sRGB";
-                photoPlates[plateIndex].flash = preview.exif.flash || "未擊發";
-                photoPlates[plateIndex].asShotTemp = preview.exif.color_temp ?? 5500;
-                photoPlates[plateIndex].asShotTint = preview.exif.tint ?? 0;
-                photoPlates[plateIndex].asShotExposure =
-                  preview.exif.exposure_bias ?? 0.0;
-              }
+            } catch (err) {
+              console.warn(`[+page] 解析相片預覽失敗 (${item.filename}):`, err);
             }
           }
-        }, 60);
+        }
+      };
+
+      const workerCount = Math.min(itemsToLoad.length, CONCURRENCY);
+      for (let w = 0; w < workerCount; w++) {
+        runWorker();
       }
     }
   }

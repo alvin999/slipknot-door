@@ -1,26 +1,32 @@
-pub mod models;
-pub mod ingestion;
 pub mod export;
+pub mod ingestion;
+pub mod models;
 
-use models::{CameraMountInfo, EmbeddedPreviewResult, RawPhotoItem};
+use export::{resolve_export_path, save_exported_file};
 use ingestion::{RawExtractor, StorageDetector};
-use export::{save_exported_file, resolve_export_path};
+use models::{CameraMountInfo, EmbeddedPreviewResult, RawPhotoItem};
 
-// Tauri Commands for Phase 2: Ingestion & Fast Preview
+// Tauri Commands for Ingestion & Fast Preview (Executed on dedicated threadpool to keep Webview IPC non-blocking)
 
 #[tauri::command]
-fn detect_camera_mounts() -> Result<Vec<CameraMountInfo>, String> {
-    Ok(StorageDetector::detect_mounts())
+async fn detect_camera_mounts() -> Result<Vec<CameraMountInfo>, String> {
+    tauri::async_runtime::spawn_blocking(|| StorageDetector::detect_mounts())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn scan_dcim_directory(path: String) -> Result<Vec<RawPhotoItem>, String> {
-    StorageDetector::scan_directory(&path)
+async fn scan_dcim_directory(path: String) -> Result<Vec<RawPhotoItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || StorageDetector::scan_directory(&path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn extract_embedded_jpeg(file_path: String) -> Result<EmbeddedPreviewResult, String> {
-    RawExtractor::extract_preview(&file_path)
+async fn extract_embedded_jpeg(file_path: String) -> Result<EmbeddedPreviewResult, String> {
+    tauri::async_runtime::spawn_blocking(move || RawExtractor::extract_preview(&file_path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
