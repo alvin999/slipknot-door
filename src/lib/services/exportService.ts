@@ -6,6 +6,8 @@
  */
 
 import { IngestionService } from './ingestionService';
+import { WebglLutRenderer } from './webglLutRenderer';
+import type { CustomLutRecord } from './customLutService';
 
 export interface SaveExportedPhotoParams {
   targetDir: string;
@@ -20,7 +22,54 @@ export interface SaveExportedPhotoResult {
   error?: string;
 }
 
+export interface RenderPhotoOptions {
+  photo: {
+    id?: string;
+    filename?: string;
+    thumbnail?: string;
+    appliedProfile?: string;
+    asShotExposure?: number;
+    asShotTemp?: number;
+    asShotTint?: number;
+    tuning?: {
+      exposure: number;
+      contrast: number;
+      shadows?: number;
+      colorTemp: number;
+      tint: number;
+      lutIntensity: number;
+      clarity?: number;
+      sharpness?: number;
+    };
+    crop?: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation?: number;
+      keystoneV?: number;
+      keystoneH?: number;
+      flipH?: boolean;
+      flipV?: boolean;
+    };
+  };
+  quality?: number;
+  profileDefaults?: {
+    id: string;
+    evDefault: number;
+    contrastDefault?: number;
+    shadowsDefault?: number;
+    lutIntensityDefault: number;
+    clarityDefault?: number;
+    sharpnessDefault?: number;
+  }[];
+  customLuts?: CustomLutRecord[];
+}
+
 export class ExportService {
+  private static exportCanvas: HTMLCanvasElement | null = null;
+  private static exportRenderer: WebglLutRenderer | null = null;
+
   /**
    * Determine whether execution is currently within a Tauri desktop environment
    */
@@ -104,5 +153,164 @@ export class ExportService {
       }
     }
     return false;
+  }
+
+  /**
+   * Render a photographic plate to a high-resolution JPEG Blob with its full-size
+   * original source, 3D LUT grading, tuning parameters, and geometric crop/rotation.
+   */
+  public static async renderPhotoToBlob(options: RenderPhotoOptions): Promise<Blob | null> {
+    if (typeof document === 'undefined') return null;
+
+    const src = options.photo.thumbnail;
+    if (!src) return null;
+
+    try {
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = (e) => reject(e);
+        img.src = src;
+      });
+
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      if (w === 0 || h === 0) return null;
+
+      const profileId = options.photo.appliedProfile || 'Profile_00_StandardNatural';
+      const profileDefault = options.profileDefaults?.find((p) => p.id === profileId);
+
+      const tuning = options.photo.tuning;
+      const exposure = tuning?.exposure ?? (profileDefault ? profileDefault.evDefault : (options.photo.asShotExposure ?? 0.0));
+      const contrast = tuning?.contrast ?? (profileDefault?.contrastDefault ?? 0.0);
+      const colorTemp = tuning?.colorTemp ?? (options.photo.asShotTemp ?? 5500);
+      const tint = tuning?.tint ?? (options.photo.asShotTint ?? 0.0);
+      const lutIntensity = tuning?.lutIntensity ?? (profileDefault ? profileDefault.lutIntensityDefault : 1.0);
+      const shadows = tuning?.shadows ?? (profileDefault?.shadowsDefault ?? 0.0);
+      const clarity = tuning?.clarity ?? (profileDefault?.clarityDefault ?? 0.0);
+      const sharpness = tuning?.sharpness ?? (profileDefault?.sharpnessDefault ?? 0.0);
+
+      if (!this.exportRenderer) {
+        this.exportCanvas = document.createElement('canvas');
+        this.exportRenderer = new WebglLutRenderer();
+        this.exportRenderer.initialize(this.exportCanvas);
+      }
+
+      if (options.customLuts && options.customLuts.length > 0) {
+        this.exportRenderer.registerCustomLuts(options.customLuts);
+      }
+
+      this.exportRenderer.setImageSource(img);
+      this.exportRenderer.setProfile(profileId);
+      this.exportRenderer.render(
+        {
+          exposure,
+          contrast,
+          colorTemp,
+          tint,
+          shadowLift: shadows,
+          lutIntensity,
+          bypassLut: profileId === 'Profile_00_StandardNatural',
+          clarity,
+          sharpness,
+        },
+        w,
+        h
+      );
+
+      const crop = options.photo.crop;
+      const hasGeometry = crop && (
+        crop.x > 0.001 ||
+        crop.y > 0.001 ||
+        crop.width < 0.999 ||
+        crop.height < 0.999 ||
+        Math.abs(crop.rotation || 0) > 0.05 ||
+        crop.flipH ||
+        crop.flipV
+      );
+
+      const quality = options.quality ?? 0.95;
+
+      if (!hasGeometry || !this.exportCanvas) {
+        return await this.exportRenderer.exportBlob('image/jpeg', quality);
+      }
+
+      // Apply crop / flip / rotation geometry transformation
+      const cropX = Math.max(0, Math.min(1, crop.x || 0));
+      const cropY = Math.max(0, Math.min(1, crop.y || 0));
+      const cropW = Math.max(0.01, Math.min(1 - cropX, crop.width || 1));
+      const cropH = Math.max(0.01, Math.min(1 - cropY, crop.height || 1));
+      const rotDeg = crop.rotation || 0;
+      const flipH = !!crop.flipH;
+      const flipV = !!crop.flipV;
+
+      if (Math.abs(rotDeg) > 0.05 || flipH || flipV) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) return await this.exportRenderer.exportBlob('image/jpeg', quality);
+
+        tempCtx.translate(w / 2, h / 2);
+        if (rotDeg !== 0) {
+          tempCtx.rotate((rotDeg * Math.PI) / 180);
+        }
+        if (flipH || flipV) {
+          tempCtx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
+        }
+        tempCtx.drawImage(this.exportCanvas, -w / 2, -h / 2, w, h);
+
+        const outW = Math.max(1, Math.round(cropW * w));
+        const outH = Math.max(1, Math.round(cropH * h));
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = outW;
+        outCanvas.height = outH;
+        const outCtx = outCanvas.getContext('2d');
+        if (!outCtx) return await this.exportRenderer.exportBlob('image/jpeg', quality);
+
+        outCtx.drawImage(
+          tempCanvas,
+          Math.round(cropX * w),
+          Math.round(cropY * h),
+          outW,
+          outH,
+          0,
+          0,
+          outW,
+          outH
+        );
+
+        return new Promise<Blob | null>((resolve) => {
+          outCanvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
+        });
+      } else {
+        const outW = Math.max(1, Math.round(cropW * w));
+        const outH = Math.max(1, Math.round(cropH * h));
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = outW;
+        outCanvas.height = outH;
+        const outCtx = outCanvas.getContext('2d');
+        if (!outCtx) return await this.exportRenderer.exportBlob('image/jpeg', quality);
+
+        outCtx.drawImage(
+          this.exportCanvas,
+          Math.round(cropX * w),
+          Math.round(cropY * h),
+          outW,
+          outH,
+          0,
+          0,
+          outW,
+          outH
+        );
+
+        return new Promise<Blob | null>((resolve) => {
+          outCanvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
+        });
+      }
+    } catch (err) {
+      console.warn('[ExportService] renderPhotoToBlob error:', err);
+      return null;
+    }
   }
 }

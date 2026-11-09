@@ -3473,37 +3473,67 @@
   async function handleSingleQuickExport(mode: "modeA" | "modeB") {
     if (!activePhoto) return;
     try {
-      if (webglRenderer) {
-        const quality = mode === "modeA" ? 0.95 : 1.0;
-        const blob = await webglRenderer.exportBlob("image/jpeg", quality);
-        if (blob) {
-          const targetDir =
-            typeof localStorage !== "undefined"
-              ? localStorage.getItem("slipknot_export_target_dir") ||
-                "./Exports"
-              : "./Exports";
-          const autoDateSubdir =
-            typeof localStorage !== "undefined"
-              ? localStorage.getItem("slipknot_export_date_subdir") !== "false"
-              : true;
-          const subDir = autoDateSubdir
-            ? new Date().toISOString().slice(0, 10)
-            : undefined;
-          const baseName = activePhoto.filename.replace(/\.[^/.]+$/, "");
-          const suffix = mode === "modeA" ? "_preview" : "_graded";
-          const filename = `${baseName}${suffix}.jpg`;
+      const quality = mode === "modeA" ? 0.95 : 1.0;
+      const currentCrop = activePhoto.crop || (cropWidth < 1 || cropHeight < 1 || cropRotation !== 0 || flipH || flipV ? {
+        x: cropX,
+        y: cropY,
+        width: cropWidth,
+        height: cropHeight,
+        rotation: cropRotation,
+        keystoneV,
+        keystoneH,
+        aspectRatio: cropAspectRatio,
+        flipH,
+        flipV,
+      } : undefined);
 
-          const saveResult = await ExportService.saveExportedPhoto({
-            targetDir,
-            subDir,
-            filename,
-            blob,
-          });
+      const blob = await ExportService.renderPhotoToBlob({
+        photo: {
+          ...activePhoto,
+          tuning: activePhoto.tuning || {
+            exposure,
+            contrast,
+            shadows,
+            colorTemp,
+            tint,
+            lutIntensity,
+            clarity,
+            sharpness,
+          },
+          crop: currentCrop,
+        },
+        quality,
+        profileDefaults: allProfiles,
+        customLuts: userCustomLuts,
+      });
 
-          exportNotice = saveResult.savedPath
-            ? `已即時匯出至 ${saveResult.savedPath}`
-            : `已即時匯出 ${activePhoto.filename} (${mode === "modeA" ? "極速模式" : "滿血典藏"})`;
-        }
+      if (blob) {
+        const targetDir =
+          typeof localStorage !== "undefined"
+            ? localStorage.getItem("slipknot_export_target_dir") ||
+              "./Exports"
+            : "./Exports";
+        const autoDateSubdir =
+          typeof localStorage !== "undefined"
+            ? localStorage.getItem("slipknot_export_date_subdir") !== "false"
+            : true;
+        const subDir = autoDateSubdir
+          ? new Date().toISOString().slice(0, 10)
+          : undefined;
+        const baseName = activePhoto.filename.replace(/\.[^/.]+$/, "");
+        const suffix = mode === "modeA" ? "_preview" : "_graded";
+        const filename = `${baseName}${suffix}.jpg`;
+
+        const saveResult = await ExportService.saveExportedPhoto({
+          targetDir,
+          subDir,
+          filename,
+          blob,
+        });
+
+        exportNotice = saveResult.savedPath
+          ? `已即時匯出至 ${saveResult.savedPath}`
+          : `已即時匯出 ${activePhoto.filename} (${mode === "modeA" ? "極速模式" : "滿血典藏"})`;
       }
     } catch {
       exportNotice = "即時匯出發生錯誤";
@@ -3592,24 +3622,13 @@
           actualSubDir = dateSubDir;
         }
 
-        // 若是當前底片，直接透過 webglRenderer 導出高畫質
-        if (webglRenderer && activePhoto && p.id === activePhoto.id) {
-          blobToSave = await webglRenderer.exportBlob(
-            "image/jpeg",
-            exportMode === "modeA" ? 0.95 : 1.0,
-          );
-        } else {
-          // 其他照片使用 gradedThumbnail 或 thumbnail
-          const targetSrc = p.gradedThumbnail || p.thumbnail;
-          if (targetSrc) {
-            try {
-              const res = await fetch(targetSrc);
-              blobToSave = await res.blob();
-            } catch {
-              blobToSave = null;
-            }
-          }
-        }
+        // 渲染成片：依序以完整解析度、個別調色與幾何裁切算圖
+        blobToSave = await ExportService.renderPhotoToBlob({
+          photo: p,
+          quality: exportMode === "modeA" ? 0.95 : 1.0,
+          profileDefaults: allProfiles,
+          customLuts: userCustomLuts,
+        });
 
         if (blobToSave) {
           const saveResult = await ExportService.saveExportedPhoto({
