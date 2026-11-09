@@ -59,8 +59,11 @@ pub fn save_exported_file(
     Ok(dest_path.to_string_lossy().to_string())
 }
 
-/// Delete photo file from physical disk.
-/// On Windows, attempts to move to Recycle Bin first; falls back to permanent removal.
+/// Delete photo file from physical disk with cross-platform Recycle Bin / Trash support.
+/// - On Windows: attempts to move to Recycle Bin via PowerShell / VisualBasic FileSystem.
+/// - On macOS: attempts to move to Trash via native AppleScript (osascript).
+/// - On Linux: attempts to move to Trash via FreeDesktop gio trash.
+/// - Falls back to permanent removal (fs::remove_file) if trash is unavailable (e.g. FAT32 memory cards).
 #[tauri::command]
 pub fn delete_photo_file(file_path: String) -> Result<(), String> {
     let path = PathBuf::from(file_path.trim());
@@ -68,6 +71,7 @@ pub fn delete_photo_file(file_path: String) -> Result<(), String> {
         return Err("檔案不存在或已被移動".to_string());
     }
 
+    // 1. Windows: 優先移入資源回收筒
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -89,5 +93,39 @@ pub fn delete_photo_file(file_path: String) -> Result<(), String> {
         }
     }
 
+    // 2. macOS: 優先透過 AppleScript 移入廢紙簍 (Trash)
+    #[cfg(target_os = "macos")]
+    {
+        let clean_path = path.to_string_lossy().replace('\"', "\\\"");
+        let script = format!(
+            "tell application \"Finder\" to delete POSIX file \"{}\"",
+            clean_path
+        );
+        let status = std::process::Command::new("osascript")
+            .args(&["-e", &script])
+            .status();
+
+        if let Ok(s) = status {
+            if s.success() && !path.exists() {
+                return Ok(());
+            }
+        }
+    }
+
+    // 3. Linux: 優先透過 FreeDesktop 的 gio trash 移入回收筒
+    #[cfg(target_os = "linux")]
+    {
+        let status = std::process::Command::new("gio")
+            .args(&["trash", &path.to_string_lossy()])
+            .status();
+
+        if let Ok(s) = status {
+            if s.success() && !path.exists() {
+                return Ok(());
+            }
+        }
+    }
+
+    // 4. 降級：若不支援回收筒（例如外接 FAT32 記憶卡）或上述指令失敗，以標準 remove_file 永久刪除
     fs::remove_file(&path).map_err(|e| format!("刪除磁碟檔案失敗 ({}): {}", path.display(), e))
 }

@@ -1993,7 +1993,7 @@
     const names = photos.slice(0, 3).map((p) => p.filename).join("、") + (count > 3 ? ` 等共 ${count} 幀` : "");
 
     const confirmed = window.confirm(
-      `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`
+      `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`
     );
     if (!confirmed) return;
 
@@ -2020,7 +2020,7 @@
 
     if (deletedCount > 0) {
       toastStore.show(
-        `已將 ${deletedCount} 幀底片移入資源回收筒 🗑️`,
+        `已將 ${deletedCount} 幀底片移入資源回收筒 / 廢紙簍 🗑️`,
         "success",
         3500
       );

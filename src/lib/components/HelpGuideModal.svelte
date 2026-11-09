@@ -148,7 +148,7 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">實體刪除磁碟檔案 (Delete from Disk)</span>
-                    <span class="desc-sub font-mono">彈出二次確認後將磁碟 RAW/照片移入資源回收筒（支援多選批次刪除）</span>
+                    <span class="desc-sub font-mono">彈出二次確認後將磁碟 RAW/照片移入資源回收筒 / 廢紙簍（支援多選批次刪除）</span>
                   </div>
                 </div>
 
@@ -280,7 +280,7 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">實體刪除此底片 (Delete from Disk)</span>
-                    <span class="desc-sub font-mono">彈出二次確認後將磁碟原檔移至資源回收筒</span>
+                    <span class="desc-sub font-mono">彈出二次確認後將磁碟原檔移至資源回收筒 / 廢紙簍</span>
                   </div>
                 </div>
 
