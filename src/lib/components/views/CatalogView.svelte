@@ -1217,6 +1217,9 @@
     transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
     position: relative;
     user-select: none;
+    /* 現代瀏覽器原生虛擬化排版渲染：大幅降低數百至千張底片時的 DOM 排版與 GPU 渲染負擔 */
+    content-visibility: auto;
+    contain-intrinsic-size: 260px;
   }
 
   .film-card:hover {
