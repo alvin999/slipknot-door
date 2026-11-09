@@ -191,7 +191,7 @@ graph TD
 | :--- | :--- | :--- | :--- | :--- |
 | **`NATURAL_00`** | `Profile_00_StandardNatural` | **Standard · 原色自然直出** | *(Bypass LUT)* | 零風格偏調、純淨光學原色，保留相機原生寬容度。 |
 | **`FIELD_01`** | `Profile_01_Fieldnote` | **Fieldnote · 日常微負片** | `Fieldnote.cube` | C-41 日常人文負片，長階調長 Toe，板岩青暗部配稻草金高光。 |
-| **`HEART_02`** | `Profile_02_Heartland` | **Heartland · 溫潤人像負片** | `Heartland.cube` | 人像與室內暖光專用，保護健康膚色，溫潤通透不泛髒紅。 |
+| **`HEART_02`** | `Profile_02_Heartland` | **Heartland · 溫潤人像負片** | `Heartland.cube` | 人像與室內暖光專用，保護健康膚色，溫潤通透不泛紅。 |
 | **`MERIDIAN_03`** | `Profile_03_Meridian` | **Meridian · 澄澈天光紀實** | `Meridian.cube` | 中性灰軸零漂移，忠實呈現晴空戶外與建築幾何本相。 |
 | **`MATINEE_04`** | `Profile_04_Matinee` | **Matinee · 放映電影拷貝** | `Matinee.cube` | 電影放映拷貝密度，黑位深沉具階調，內斂故事感光影。 |
 | **`POSTCARD_05`** | `Profile_05_Postcard` | **Postcard · 明信片正片純色** | `Postcard.cube` | 反轉正片色彩提純與微密度強化，鮮明通透而不俗艷。 |

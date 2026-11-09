@@ -21,7 +21,7 @@
 | 序號與代號 (Badge) | 系統 Profile ID | UI 去識別化名稱 | 對應 `.cube` 檔名 | 核心光學色彩科學與場景設計 |
 | :--- | :--- | :--- | :--- | :--- |
 | **`FIELD_01`** | `Profile_01_Fieldnote` | **Fieldnote · 日常微負片** | `Fieldnote.cube` | **C-41 日常人文負片**：長階調長 Toe、板岩青暗部 + 稻草金高光，色彩克制耐看。 |
-| **`HEART_02`** | `Profile_02_Heartland` | **Heartland · 溫潤人像負片** | `Heartland.cube` | **人像與室內暖光專用**：針對健康膚色保護調校，鎢絲燈光感，暗部不泛髒紅。 |
+| **`HEART_02`** | `Profile_02_Heartland` | **Heartland · 溫潤人像負片** | `Heartland.cube` | **人像與室內暖光專用**：針對健康膚色保護調校，鎢絲燈光感，暗部不泛紅。 |
 | **`MERIDIAN_03`** | `Profile_03_Meridian` | **Meridian · 澄澈天光紀實** | `Meridian.cube` | **真實日光紀實**：中性灰軸（Gray Axis）零漂移，忠實呈現晴空澄澈光學本相。 |
 | **`MATINEE_04`** | `Profile_04_Matinee` | **Matinee · 放映電影拷貝** | `Matinee.cube` | **電影放映拷貝感 (Cinema Print Density)**：黑位深沉具階調、內斂細膩色彩。 |
 | **`POSTCARD_05`** | `Profile_05_Postcard` | **Postcard · 明信片正片純色** | `Postcard.cube` | **正片色彩提純**：提高微密度與純淨度而非單純拉高飽和度，鮮活明媚。 |

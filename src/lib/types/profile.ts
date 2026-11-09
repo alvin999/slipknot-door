@@ -55,7 +55,7 @@ export const BUILTIN_PROFILES: LutProfile[] = [
     code: 'HEART_02',
     title: '溫潤人像負片',
     englishTitle: 'Heartland Warm Portrait',
-    toneDescription: '專為健康膚色與室內暖燈調校、溫潤通透、暗部不泛髒紅',
+    toneDescription: '專為健康膚色與室內暖燈調校、溫潤通透、暗部不泛紅',
     technicalCharacteristics: 'Warm portrait negative + delicate skin tone protection + organic shadow roll-off',
     cubeFilePath: '/luts/Heartland.cube',
     lutSize: 33,
