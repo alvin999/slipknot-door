@@ -28,8 +28,12 @@
   import { darkroomState } from "$lib/stores/darkroomState.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
   import { WebglLutRenderer } from "$lib/services/webglLutRenderer";
-  import { CustomLutService, type CustomLutRecord } from "$lib/services/customLutService";
+  import {
+    CustomLutService,
+    type CustomLutRecord,
+  } from "$lib/services/customLutService";
   import { ExportService } from "$lib/services/exportService";
+  import { SessionService } from "$lib/services/sessionService";
   import { STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
   import type {
     StyleKeywordId,
@@ -1093,6 +1097,13 @@
     darkroomState.splitPosition = splitPosition;
     darkroomState.showABComparison = showABComparison;
   }
+
+  // 自動持久化相卷工作區進度至本機快取 (Session Auto-Persistence)
+  $effect(() => {
+    if (currentDirectoryName && photoPlates.length > 0) {
+      SessionService.debouncedSaveSession(currentDirectoryName, photoPlates);
+    }
+  });
 
   // 保持 darkroomState 與主頁面狀態雙向同步，並持久化到 activePhoto.tuning
   $effect(() => {
@@ -2166,13 +2177,28 @@
           photoPlates[0].selected = true;
         }
         photoLibrary.photoPlates = photoPlates as any;
-        toastStore.show(`已成功追加 ${loaded.length} 幀底片 ✓`, "success", 2500);
+        toastStore.show(
+          `已成功追加 ${loaded.length} 幀底片 ✓`,
+          "success",
+          2500,
+        );
       } else {
+        const restoredCount = SessionService.restoreSession(
+          currentDirectoryName,
+          loaded,
+        );
         photoPlates = loaded;
         activePhoto = loaded[0];
         photoLibrary.photoPlates = loaded as any;
         photoLibrary.activePhoto = loaded[0] as any;
         activeTab = "catalog"; // Switch to catalog grid view immediately
+        if (restoredCount > 0) {
+          toastStore.show(
+            `已自動恢復 ${restoredCount} 幀底片的挑圖與調色進度 ✓`,
+            "info",
+            3500,
+          );
+        }
       }
 
       // Step 2: Progressive enhancement for EXIF and thumbnails with controlled concurrency worker pool
@@ -2187,7 +2213,11 @@
           const i = nextIndex++;
           const item = itemsToLoad[i];
           const plateIndex = startIndex + i;
-          if (!photoPlates[plateIndex]?.thumbnail || isTauriEnv || item.fileHandle) {
+          if (
+            !photoPlates[plateIndex]?.thumbnail ||
+            isTauriEnv ||
+            item.fileHandle
+          ) {
             try {
               const preview = await IngestionService.extractPreview(
                 item.file_path,
@@ -2211,21 +2241,26 @@
                   preview.exif.camera_model || photoPlates[plateIndex].camera;
                 photoPlates[plateIndex].lens =
                   preview.exif.lens_model || photoPlates[plateIndex].lens;
-                photoPlates[plateIndex].iso = preview.exif.iso || photoPlates[plateIndex].iso;
+                photoPlates[plateIndex].iso =
+                  preview.exif.iso || photoPlates[plateIndex].iso;
                 photoPlates[plateIndex].shutter =
                   preview.exif.shutter_speed || photoPlates[plateIndex].shutter;
                 photoPlates[plateIndex].aperture =
                   preview.exif.aperture || photoPlates[plateIndex].aperture;
                 photoPlates[plateIndex].focalLength =
-                  preview.exif.focal_length || photoPlates[plateIndex].focalLength;
-                photoPlates[plateIndex].exposureBias = preview.exif.exposure_bias ?? 0.0;
+                  preview.exif.focal_length ||
+                  photoPlates[plateIndex].focalLength;
+                photoPlates[plateIndex].exposureBias =
+                  preview.exif.exposure_bias ?? 0.0;
                 photoPlates[plateIndex].exposureProgram =
                   preview.exif.exposure_program || "標準自動";
                 photoPlates[plateIndex].meteringMode =
                   preview.exif.metering_mode || "多重測光";
-                photoPlates[plateIndex].colorSpace = preview.exif.color_space || "sRGB";
+                photoPlates[plateIndex].colorSpace =
+                  preview.exif.color_space || "sRGB";
                 photoPlates[plateIndex].flash = preview.exif.flash || "未擊發";
-                photoPlates[plateIndex].asShotTemp = preview.exif.color_temp ?? 5500;
+                photoPlates[plateIndex].asShotTemp =
+                  preview.exif.color_temp ?? 5500;
                 photoPlates[plateIndex].asShotTint = preview.exif.tint ?? 0;
                 photoPlates[plateIndex].asShotExposure =
                   preview.exif.exposure_bias ?? 0.0;
@@ -2298,15 +2333,10 @@
     photoLibrary.photoPlates = photoPlates as any;
     photoLibrary.activePhoto = activePhoto as any;
 
-    toastStore.show(
-      `已自相卷排除 ${toRemove.length} 幀底片`,
-      "info",
-      5000,
-      {
-        label: "復原 ↺",
-        onClick: () => handleUndoRemove(),
-      }
-    );
+    toastStore.show(`已自相卷排除 ${toRemove.length} 幀底片`, "info", 5000, {
+      label: "復原 ↺",
+      onClick: () => handleUndoRemove(),
+    });
   }
 
   function handleUndoRemove() {
@@ -2316,7 +2346,9 @@
     photoLibrary.photoPlates = photoPlates as any;
 
     if (lastRemovedSnapshot.prevActiveId) {
-      const found = photoPlates.find((p) => p.id === lastRemovedSnapshot!.prevActiveId);
+      const found = photoPlates.find(
+        (p) => p.id === lastRemovedSnapshot!.prevActiveId,
+      );
       if (found) {
         activePhoto = found;
         found.selected = true;
@@ -2376,7 +2408,8 @@
     try {
       const items = await IngestionService.scanDirectory(path);
       if (items.length > 0) {
-        currentDirectoryName = IngestionService.currentDirectoryName || "相片資料夾";
+        currentDirectoryName =
+          IngestionService.currentDirectoryName || "相片資料夾";
         await loadPhotosFromItems(items, false);
       }
     } finally {
@@ -3478,18 +3511,22 @@
     if (!activePhoto) return;
     try {
       const quality = mode === "modeA" ? 0.95 : 1.0;
-      const currentCrop = activePhoto.crop || (cropWidth < 1 || cropHeight < 1 || cropRotation !== 0 || flipH || flipV ? {
-        x: cropX,
-        y: cropY,
-        width: cropWidth,
-        height: cropHeight,
-        rotation: cropRotation,
-        keystoneV,
-        keystoneH,
-        aspectRatio: cropAspectRatio,
-        flipH,
-        flipV,
-      } : undefined);
+      const currentCrop =
+        activePhoto.crop ||
+        (cropWidth < 1 || cropHeight < 1 || cropRotation !== 0 || flipH || flipV
+          ? {
+              x: cropX,
+              y: cropY,
+              width: cropWidth,
+              height: cropHeight,
+              rotation: cropRotation,
+              keystoneV,
+              keystoneH,
+              aspectRatio: cropAspectRatio,
+              flipH,
+              flipV,
+            }
+          : undefined);
 
       const blob = await ExportService.renderPhotoToBlob({
         photo: {
@@ -3514,8 +3551,7 @@
       if (blob) {
         const targetDir =
           typeof localStorage !== "undefined"
-            ? localStorage.getItem("slipknot_export_target_dir") ||
-              "./Exports"
+            ? localStorage.getItem("slipknot_export_target_dir") || "./Exports"
             : "./Exports";
         const autoDateSubdir =
           typeof localStorage !== "undefined"
@@ -3649,9 +3685,10 @@
         // 原始 RAW 備份處理
         if (options?.backupRawFiles && p.fileHandle) {
           try {
-            const rawFile: File = typeof (p.fileHandle as any).getFile === "function"
-              ? await (p.fileHandle as any).getFile()
-              : p.fileHandle;
+            const rawFile: File =
+              typeof (p.fileHandle as any).getFile === "function"
+                ? await (p.fileHandle as any).getFile()
+                : p.fileHandle;
             const rawSubPath = directoryPlan?.rawBackupSubPath || "Raw_Backup";
             const actualRawSubDir = dateSubDir
               ? `${dateSubDir}/${rawSubPath}`
