@@ -167,32 +167,21 @@
 
   // Darkroom Tuning Sliders
   // Professional Darkroom Tonal & Color Parameters
+    // 專業暗房光影與色彩參數 (與 darkroomState 保持單一真相來源)
   let exposure = $state<number>(0.0);
   let contrast = $state<number>(0.0);
-  let highlights = $state<number>(0.0);
   let shadows = $state<number>(0.0);
-  let fade = $state<number>(0.0);
-
   let colorTemp = $state<number>(5500);
   let tint = $state<number>(0.0);
-  let saturation = $state<number>(0.0);
-  let vibrance = $state<number>(0.0);
-
-  let cyanSkyShift = $state<number>(0.0);
-  let foliageEmerald = $state<number>(0.0);
   let lutIntensity = $state<number>(1.0);
   let clarity = $state<number>(0.0);
   let sharpness = $state<number>(0.0);
-  let showABComparison = $state<boolean>(false);
 
-  // 專業 Diff 視覺比對狀態 (Curatorial Diff Engine)
+  // 專業 Diff 視覺比對狀態 (由 darkroomState 作為單一真相來源)
   type DiffMode = "off" | "split" | "sideBySide";
-  let diffMode = $state<DiffMode>("off");
-  let splitPosition = $state<number>(50); // 0% ~ 100% 簾幕分割線位置
-  let isDraggingSplit = $state<boolean>(false);
 
   function isDiffModeActive(mode: DiffMode): boolean {
-    return diffMode === mode;
+    return darkroomState.isDiffModeActive(mode);
   }
 
   // AI 職責範圍偏好矩陣 (AI Scope Matrix)
@@ -315,144 +304,7 @@
     );
   }
 
-  function applyAspectRatioPreset(ratio: CropRatioPreset) {
-    cropAspectRatio = ratio;
-    isCropMode = true; // 點擊比例時自動啟動裁切模式與構圖框
-
-    if (ratio === "free") {
-      syncCropToActivePhoto();
-      return;
-    }
-
-    if (ratio === "original") {
-      cropX = 0.0;
-      cropY = 0.0;
-      cropWidth = 1.0;
-      cropHeight = 1.0;
-      syncCropToActivePhoto();
-      return;
-    }
-
-    // 計算照片原生寬高比 R_img
-    let imgRatio = 1.5; // 預設 3:2
-    if (
-      sourceImgElement &&
-      sourceImgElement.naturalWidth &&
-      sourceImgElement.naturalHeight
-    ) {
-      imgRatio = sourceImgElement.naturalWidth / sourceImgElement.naturalHeight;
-    } else if (
-      canvasContainerRef &&
-      canvasContainerRef.clientWidth &&
-      canvasContainerRef.clientHeight
-    ) {
-      imgRatio =
-        canvasContainerRef.clientWidth / canvasContainerRef.clientHeight;
-    }
-
-    // 目標長寬比 R_target
-    let targetRatio = 1.0;
-    if (ratio === "1:1") targetRatio = 1.0;
-    else if (ratio === "4:5") targetRatio = 0.8;
-    else if (ratio === "16:9") targetRatio = 16 / 9;
-    else if (ratio === "9:16") targetRatio = 9 / 16;
-
-    // r = targetRatio / imgRatio
-    const r = targetRatio / imgRatio;
-
-    if (r <= 1.0) {
-      // 目標比原圖更窄 / 更高：高度佔滿 1.0，寬度縮減並水平置中
-      cropHeight = 1.0;
-      cropWidth = parseFloat(Math.max(0.1, Math.min(1.0, r)).toFixed(3));
-      cropX = parseFloat(((1.0 - cropWidth) / 2).toFixed(3));
-      cropY = 0.0;
-    } else {
-      // 目標比原圖更寬：寬度佔滿 1.0，高度縮減並垂直置中
-      cropWidth = 1.0;
-      cropHeight = parseFloat(Math.max(0.1, Math.min(1.0, 1.0 / r)).toFixed(3));
-      cropX = 0.0;
-      cropY = parseFloat(((1.0 - cropHeight) / 2).toFixed(3));
-    }
-
-    syncCropToActivePhoto();
-  }
-
-  let canvasContainerRef = $state<HTMLDivElement | null>(null);
-  let isDraggingCrop = $state<string | null>(null); // 'move' | 'nw' | 'se' | 'ne' | 'sw'
-
-  function handleSplitPointerDown(e: MouseEvent) {
-    isDraggingSplit = true;
-    updateSplitFromEvent(e);
-  }
-
-  function handleStagePointerMove(e: MouseEvent) {
-    if (isDraggingSplit && canvasContainerRef) {
-      updateSplitFromEvent(e);
-    }
-    if (isDraggingCrop && canvasContainerRef) {
-      updateCropFromEvent(e);
-    }
-  }
-
-  function handleStagePointerUp() {
-    if (isDraggingCrop) {
-      syncCropToActivePhoto();
-    }
-    isDraggingSplit = false;
-    isDraggingCrop = null;
-  }
-
-  function updateSplitFromEvent(e: MouseEvent) {
-    if (!canvasContainerRef) return;
-    const rect = canvasContainerRef.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const pct = Math.max(3, Math.min(97, (x / rect.width) * 100));
-    splitPosition = Math.round(pct);
-  }
-
-  function handleCropStart(handle: string, e: MouseEvent) {
-    e.stopPropagation();
-    isDraggingCrop = handle;
-  }
-
-  function updateCropFromEvent(e: MouseEvent) {
-    if (!canvasContainerRef || !isDraggingCrop) return;
-    const rect = canvasContainerRef.getBoundingClientRect();
-    const curX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const curY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-
-    if (isDraggingCrop === "move") {
-      const halfW = cropWidth / 2;
-      const halfH = cropHeight / 2;
-      const newX = Math.max(0, Math.min(1 - cropWidth, curX - halfW));
-      const newY = Math.max(0, Math.min(1 - cropHeight, curY - halfH));
-      cropX = parseFloat(newX.toFixed(3));
-      cropY = parseFloat(newY.toFixed(3));
-    } else if (isDraggingCrop === "se") {
-      cropWidth = parseFloat(
-        Math.max(0.1, Math.min(1 - cropX, curX - cropX)).toFixed(3),
-      );
-      cropHeight = parseFloat(
-        Math.max(0.1, Math.min(1 - cropY, curY - cropY)).toFixed(3),
-      );
-    } else if (isDraggingCrop === "nw") {
-      const right = cropX + cropWidth;
-      const bottom = cropY + cropHeight;
-      cropX = parseFloat(Math.max(0, Math.min(right - 0.1, curX)).toFixed(3));
-      cropY = parseFloat(Math.max(0, Math.min(bottom - 0.1, curY)).toFixed(3));
-      cropWidth = parseFloat((right - cropX).toFixed(3));
-      cropHeight = parseFloat((bottom - cropY).toFixed(3));
-    }
-  }
-
-  // WebGL 2.0 3D LUT Hardware Engine State
-  let webglCanvas = $state<HTMLCanvasElement | null>(null);
-  let webglRenderer: WebglLutRenderer | null = null;
-  let currentBoundCanvas: HTMLCanvasElement | null = null;
-  let hasRenderedFirstFrame = $state<boolean>(false);
-  let isWebglActive = $state<boolean>(false);
-  let sourceImgElement = $state<HTMLImageElement | null>(null);
-  let isExifSlateOpen = $state<boolean>(false);
+    // 裁切長寬比由 darkroomState.applyAspectRatioPreset() 統一管理
 
   // Dedicated Offscreen WebGL Renderer for Catalog Thumbnails
   let offscreenCanvas: HTMLCanvasElement | null = null;
@@ -522,7 +374,7 @@
       badge: "HEART_02",
       shortLabel: "Heartland",
       title: "Heartland · 溫潤人像負片",
-      subtitle: "專為健康膚色與暖光調校 · 溫潤通透不泛髒紅 (.cube)",
+      subtitle: "專為健康膚色與暖光調校 · 溫潤通透不泛紅 (.cube)",
       accent: "#c97a5d",
       profileId: "Profile_02_Heartland",
     },
@@ -641,7 +493,7 @@
     {
       id: "Profile_02_Heartland",
       title: "Heartland · 溫潤人像負片",
-      tone: "專為健康膚色與室內暖光調校 · 溫潤通透不泛髒紅",
+      tone: "專為健康膚色與室內暖光調校 · 溫潤通透不泛紅",
       badge: "HEART_02",
       accent: "#c97a5d",
       evDefault: 0.05,
@@ -807,7 +659,6 @@
 
   function syncCustomLutsToRenderers() {
     if (userCustomLuts.length === 0) return;
-    webglRenderer?.registerCustomLuts(userCustomLuts);
     offscreenRenderer?.registerCustomLuts(userCustomLuts);
     stylePreviewRenderer?.registerCustomLuts(userCustomLuts);
   }
@@ -1075,27 +926,7 @@
     // 雙向同步至全域領域 Store
     photoLibrary.activePhoto = plate as any;
     photoLibrary.photoPlates = photoPlates as any;
-    darkroomState.exposure = exposure;
-    darkroomState.contrast = contrast;
-    darkroomState.shadows = shadows;
-    darkroomState.colorTemp = colorTemp;
-    darkroomState.tint = tint;
-    darkroomState.lutIntensity = lutIntensity;
-    darkroomState.clarity = clarity;
-    darkroomState.sharpness = sharpness;
-    darkroomState.cropX = cropX;
-    darkroomState.cropY = cropY;
-    darkroomState.cropWidth = cropWidth;
-    darkroomState.cropHeight = cropHeight;
-    darkroomState.cropRotation = cropRotation;
-    darkroomState.keystoneV = keystoneV;
-    darkroomState.keystoneH = keystoneH;
-    darkroomState.cropAspectRatio = cropAspectRatio;
-    darkroomState.flipH = flipH;
-    darkroomState.flipV = flipV;
-    darkroomState.diffMode = diffMode;
-    darkroomState.splitPosition = splitPosition;
-    darkroomState.showABComparison = showABComparison;
+    darkroomState.loadFromPhoto(plate as any);
   }
 
   // 自動持久化相卷工作區進度至本機快取 (Session Auto-Persistence)
@@ -1139,9 +970,6 @@
     flipV = darkroomState.flipV;
     isCropMode = darkroomState.isCropMode;
     aiCropRationale = darkroomState.aiCropRationale;
-    diffMode = darkroomState.diffMode;
-    splitPosition = darkroomState.splitPosition;
-    showABComparison = darkroomState.showABComparison;
 
     if (!isBatchAiRunning) {
       untrack(() => {
@@ -1155,11 +983,12 @@
     selectPhoto(plate);
     activeTab = "retouch";
     requestAnimationFrame(() => {
-      retouchViewRef?.triggerRender();
+      triggerWebglRender();
     });
   }
 
-  // 步驟一：一鍵進入精修頁面 (優先以當前焦點或選取相片作為首幀)
+  // 步驟二：前往批次導出頁面
+    // 步驟一：一鍵進入精修頁面 (優先以當前焦點或選取相片作為首幀)
   function goToRetouch() {
     const target =
       activePhoto && activeQueue.some((p) => p.id === activePhoto?.id)
@@ -1171,25 +1000,11 @@
       selectPhoto(target);
     }
     activeTab = "retouch";
-    hasRenderedFirstFrame = false;
-    lastBoundImageSrc = "";
     requestAnimationFrame(() => {
-      if (
-        webglCanvas &&
-        (!webglRenderer || webglCanvas !== currentBoundCanvas)
-      ) {
-        currentBoundCanvas = webglCanvas;
-        webglRenderer = new WebglLutRenderer();
-        isWebglActive = webglRenderer.initialize(webglCanvas);
-        if (userCustomLuts.length > 0) {
-          webglRenderer.registerCustomLuts(userCustomLuts);
-        }
-      }
       triggerWebglRender();
     });
   }
 
-  // 步驟二：前往批次導出頁面
   function goToExport() {
     activeTab = "export";
   }
@@ -1321,7 +1136,6 @@
         e.preventDefault();
         // 方案 1：按住 Space 顯示原始本相（避免按鍵長按自動重複 repeat 重複觸發）
         if (!e.repeat) {
-          showABComparison = true;
           darkroomState.showABComparison = true;
         }
       } else if (e.key === "Enter") {
@@ -1348,9 +1162,8 @@
   function handleRetouchKeyup(e: KeyboardEvent) {
     // 放開 Space 鍵時瞬間恢復調色本態
     if (e.key === " " || e.code === "Space") {
-      if (showABComparison || darkroomState.showABComparison) {
+      if (darkroomState.showABComparison) {
         e.preventDefault();
-        showABComparison = false;
         darkroomState.showABComparison = false;
       }
     }
@@ -1358,7 +1171,6 @@
 
   function handleWindowBlur() {
     // 視窗失去焦點時安全復原比對狀態，避免放開事件遺失而卡在原圖
-    showABComparison = false;
     darkroomState.showABComparison = false;
   }
 
@@ -1973,150 +1785,19 @@
     triggerWebglRender();
   }
 
-  let lastBoundImageSrc = "";
-
-  function ensureImageTexture(): boolean {
-    if (
-      !webglRenderer ||
-      !sourceImgElement ||
-      !sourceImgElement.complete ||
-      !sourceImgElement.naturalWidth
-    ) {
-      return false;
-    }
-    const currentSrc = sourceImgElement.currentSrc || sourceImgElement.src;
-    if (lastBoundImageSrc !== currentSrc) {
-      webglRenderer.setImageSource(sourceImgElement);
-      lastBoundImageSrc = currentSrc;
-    }
-    return true;
-  }
-
-  /**
-   * 觸發 WebGL 2.0 3D LUT 純淨色彩著色 (Pure 3D LUT Pipeline)
+    /**
+   * 觸發暗房 WebGL 畫布重繪（委託 RetouchView 內部視圖）
    */
   function triggerWebglRender() {
-    if (!ensureImageTexture() || !webglRenderer || !sourceImgElement) {
-      return;
-    }
-
-    const imgWidth = sourceImgElement.naturalWidth;
-    const imgHeight = sourceImgElement.naturalHeight;
-
-    if (showABComparison) {
-      // 按住 Space A/B 比對：瞬間切回 100% 原始本相
-      webglRenderer.render(
-        {
-          exposure: 0.0,
-          contrast: 0.0,
-          colorTemp: 5500,
-          tint: 0.0,
-          lutIntensity: 0.0,
-          bypassLut: true,
-        },
-        imgWidth,
-        imgHeight,
-      );
-      return;
-    }
-
-    const currentPid = previewHoverProfileId
-      ? previewHoverProfileId
-      : activePhoto
-        ? activePhoto.appliedProfile
-        : "Profile_00_StandardNatural";
-    const isBypass = currentPid === "Profile_00_StandardNatural";
-
-    webglRenderer.setProfile(currentPid);
-    webglRenderer.render(
-      {
-        exposure,
-        contrast,
-        colorTemp,
-        tint,
-        shadowLift: shadows,
-        lutIntensity,
-        bypassLut: isBypass,
-        clarity,
-        sharpness,
-      },
-      imgWidth,
-      imgHeight,
-    );
-    hasRenderedFirstFrame = true;
-  }
-
-  function onSourceImgLoaded() {
-    lastBoundImageSrc = "";
-    if (webglCanvas && (!webglRenderer || webglCanvas !== currentBoundCanvas)) {
-      currentBoundCanvas = webglCanvas;
-      webglRenderer = new WebglLutRenderer();
-      isWebglActive = webglRenderer.initialize(webglCanvas);
-      if (userCustomLuts.length > 0) {
-        webglRenderer.registerCustomLuts(userCustomLuts);
-      }
-    }
-    if (
-      webglRenderer &&
-      sourceImgElement &&
-      sourceImgElement.naturalWidth > 0
-    ) {
-      ensureImageTexture();
-      triggerWebglRender();
-    }
+    retouchViewRef?.triggerRender();
   }
 
   function setDiffMode(mode: DiffMode) {
-    diffMode = mode;
-    // 雙聯並排或簾幕切換時，待 DOM 佈局更新後即刻重繪 WebGL 畫布
+    darkroomState.setDiffMode(mode);
     requestAnimationFrame(() => {
       triggerWebglRender();
     });
   }
-
-  // Svelte 5 響應式追蹤：調色滑桿、相片切換與比對模式切換時即時以 WebGL 60FPS 硬體著色
-  $effect(() => {
-    const _photoId = activePhoto?.id;
-    const _thumb = activePhoto?.thumbnail;
-    const _profile = activePhoto?.appliedProfile;
-    const _exp = exposure;
-    const _contrast = contrast;
-    const _shadows = shadows;
-    const _temp = colorTemp;
-    const _tint = tint;
-    const _lut = lutIntensity;
-    const _clarity = clarity;
-    const _sharpness = sharpness;
-    const _ab = showABComparison;
-    const _diff = diffMode;
-    const canvas = webglCanvas;
-
-    // 關鍵修復：每次 canvas DOM 實例重新掛載（如從目錄進入精修），立即為新 canvas 初始化 WebGL
-    if (canvas && (!webglRenderer || canvas !== currentBoundCanvas)) {
-      currentBoundCanvas = canvas;
-      webglRenderer = new WebglLutRenderer();
-      isWebglActive = webglRenderer.initialize(canvas);
-      if (userCustomLuts.length > 0) {
-        webglRenderer.registerCustomLuts(userCustomLuts);
-      }
-      lastBoundImageSrc = "";
-    }
-
-    // 批次執行中時，主畫布不需要高頻重繪與同步，避免凍結主執行緒
-    if (isBatchAiRunning) return;
-
-    if (
-      isWebglActive &&
-      sourceImgElement &&
-      (sourceImgElement.complete || sourceImgElement.naturalWidth > 0)
-    ) {
-      ensureImageTexture();
-      triggerWebglRender();
-      untrack(() => {
-        syncActivePhotoTuning();
-      });
-    }
-  });
 
   async function loadPhotosFromItems(
     items: import("$lib/services/ingestionService").RawPhotoItem[],
@@ -3483,7 +3164,7 @@
     batchAbortController = null;
 
     // 批次完成後，若當前焦點底片有被處理，重繪畫布一次
-    if (activePhoto && webglRenderer) {
+    if (activePhoto) {
       requestAnimationFrame(() => {
         triggerWebglRender();
       });
@@ -3930,7 +3611,7 @@
           photos={photoPlates}
           {activeQueue}
           {exportNotice}
-          {showABComparison}
+          showABComparison={darkroomState.showABComparison}
           {previewHoverProfileId}
           hasApiKey={hasKey}
           onOpenVault={() => (isVaultOpen = true)}
