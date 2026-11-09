@@ -542,6 +542,7 @@
     // Shift + Delete / Shift + Backspace: Delete from disk (Recycle bin)
     else if (e.shiftKey && (e.key === 'Delete' || e.key === 'Backspace')) {
       e.preventDefault();
+      e.stopPropagation();
       if (isMultiSelectMode && selectedBatchIds.length > 0) {
         const selectedPhotos = displayedPhotos.filter((p) => selectedBatchIds.includes(p.id));
         if (onBatchDeletePhotosFromDisk) {
@@ -558,6 +559,7 @@
     // Delete / Backspace: Remove / Cull photo from catalog
     else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
+      e.stopPropagation();
       if (isMultiSelectMode && selectedBatchIds.length > 0) {
         if (onBatchRemovePhotos) {
           onBatchRemovePhotos([...selectedBatchIds]);

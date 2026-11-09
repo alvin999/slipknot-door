@@ -1118,6 +1118,15 @@
         }
       }
 
+      // 支援 Shift + Delete / Shift + Backspace 鍵實體刪除磁碟底片檔案（移至資源回收筒 / 廢紙簍）
+      if (e.shiftKey && (e.key === "Delete" || e.key === "Backspace")) {
+        if (activePhoto) {
+          e.preventDefault();
+          handleDeletePhotoFromDisk(activePhoto);
+          return;
+        }
+      }
+
       // 支援 Delete / Backspace 鍵從相卷排除相片 (Remove / Cull)
       if (e.key === "Delete" || e.key === "Backspace") {
         if (activePhoto) {
@@ -1992,9 +2001,30 @@
     const count = photos.length;
     const names = photos.slice(0, 3).map((p) => p.filename).join("、") + (count > 3 ? ` 等共 ${count} 幀` : "");
 
-    const confirmed = window.confirm(
-      `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`
-    );
+    let confirmed = false;
+    if (IngestionService.isTauri()) {
+      try {
+        const { confirm } = await import("@tauri-apps/plugin-dialog");
+        confirmed = await confirm(
+          `確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`,
+          {
+            title: "磁碟實體刪除確認",
+            kind: "warning",
+            okLabel: "移至回收筒",
+            cancelLabel: "取消",
+          }
+        );
+      } catch (err) {
+        console.warn("Tauri confirm dialog failed, fallback to window.confirm:", err);
+        confirmed = window.confirm(
+          `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`
+        );
+      }
+    } else {
+      confirmed = window.confirm(
+        `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`
+      );
+    }
     if (!confirmed) return;
 
     let deletedCount = 0;
@@ -2014,9 +2044,24 @@
       }
     }
 
-    // 磁碟刪除成功後，自相卷清單排除
-    const photoIds = photos.map((p) => p.id);
-    handleBatchRemovePhotos(photoIds);
+    // 磁碟刪除成功後，直接自相卷清單移除（切勿呼叫 handleBatchRemovePhotos，以避免產生復原棧與排除提示）
+    const idSet = new Set(photos.map((p) => p.id));
+    let nextActive: PhotoPlate | null = activePhoto;
+    if (activePhoto && idSet.has(activePhoto.id)) {
+      const remaining = photoPlates.filter((p) => !idSet.has(p.id));
+      if (remaining.length > 0) {
+        const curIndex = photoPlates.findIndex((p) => p.id === activePhoto!.id);
+        const nextIndex = Math.min(curIndex, remaining.length - 1);
+        nextActive = remaining[Math.max(0, nextIndex)];
+        nextActive.selected = true;
+      } else {
+        nextActive = null;
+      }
+    }
+    photoPlates = photoPlates.filter((p) => !idSet.has(p.id));
+    activePhoto = nextActive;
+    photoLibrary.photoPlates = photoPlates as any;
+    photoLibrary.activePhoto = activePhoto as any;
 
     if (deletedCount > 0) {
       toastStore.show(
