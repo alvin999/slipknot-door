@@ -253,6 +253,18 @@ function parseTiffExifFromBytes(bytes: Uint8Array): {
 const SUPPORTED_EXTS = ['arw', 'cr2', 'cr3', 'nef', 'raf', 'dng', 'jpg', 'jpeg'];
 
 export class IngestionService {
+  /**
+   * 實體刪除磁碟底片檔案（優先移入系統資源回收筒/垃圾桶）
+   */
+  public static async deleteDiskFile(filePath: string): Promise<void> {
+    if (this.isTauri()) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('delete_photo_file', { filePath });
+    } else {
+      throw new Error('純網頁環境無法直接操作電腦硬碟刪除，請在桌面應用程式端執行。');
+    }
+  }
+
   private static createdBlobUrls: Set<string> = new Set();
 
   /**

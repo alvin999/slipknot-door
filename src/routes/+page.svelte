@@ -135,6 +135,7 @@
     flagged?: boolean;
     appliedProfile: string;
     fileHandle?: File;
+    filePath?: string;
     gradedThumbnail?: string;
     exposureBias?: number;
     exposureProgram?: string;
@@ -1848,6 +1849,7 @@
           selected: !append && i === 0,
           appliedProfile: "Profile_00_StandardNatural",
           fileHandle: item.fileHandle,
+          filePath: item.file_path,
         };
       });
 
@@ -1979,6 +1981,58 @@
     prevActiveId: string | null;
   }
   let lastRemovedSnapshot = $state<RemovedPhotosSnapshot | null>(null);
+
+  async function handleDeletePhotoFromDisk(photo: PhotoPlate) {
+    await handleBatchDeletePhotosFromDisk([photo]);
+  }
+
+  async function handleBatchDeletePhotosFromDisk(photos: PhotoPlate[]) {
+    if (!photos || photos.length === 0) return;
+
+    const count = photos.length;
+    const names = photos.slice(0, 3).map((p) => p.filename).join("、") + (count > 3 ? ` 等共 ${count} 幀` : "");
+
+    const confirmed = window.confirm(
+      `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`
+    );
+    if (!confirmed) return;
+
+    let deletedCount = 0;
+    let failedCount = 0;
+
+    for (const p of photos) {
+      if (p.filePath) {
+        try {
+          await IngestionService.deleteDiskFile(p.filePath);
+          deletedCount++;
+        } catch (err) {
+          console.error(`刪除磁碟檔案失敗 (${p.filePath}):`, err);
+          failedCount++;
+        }
+      } else {
+        failedCount++;
+      }
+    }
+
+    // 磁碟刪除成功後，自相卷清單排除
+    const photoIds = photos.map((p) => p.id);
+    handleBatchRemovePhotos(photoIds);
+
+    if (deletedCount > 0) {
+      toastStore.show(
+        `已將 ${deletedCount} 幀底片移入資源回收筒 🗑️`,
+        "success",
+        3500
+      );
+    }
+    if (failedCount > 0) {
+      toastStore.show(
+        `${failedCount} 幀底片無實體磁碟路徑或刪除失敗`,
+        "error",
+        4000
+      );
+    }
+  }
 
   function handleRemovePhoto(photoId: string) {
     handleBatchRemovePhotos([photoId]);
@@ -3598,6 +3652,8 @@
           onAppendFiles={handleAppendFiles}
           onRemovePhoto={(p) => handleRemovePhoto(p.id)}
           onBatchRemovePhotos={(ids) => handleBatchRemovePhotos(ids)}
+          onDeletePhotoFromDisk={(p) => handleDeletePhotoFromDisk(p)}
+          onBatchDeletePhotosFromDisk={(photos) => handleBatchDeletePhotosFromDisk(photos)}
           onRefreshMounts={refreshCameraMounts}
           onToggleFlag={handleFlagToggled}
           onFilesDropped={handleFilesDropped}

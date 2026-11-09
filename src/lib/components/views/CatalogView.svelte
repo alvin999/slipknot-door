@@ -34,6 +34,8 @@
     onAppendFiles?: () => void;
     onRemovePhoto?: (p: CatalogPhotoItem) => void;
     onBatchRemovePhotos?: (ids: string[]) => void;
+    onDeletePhotoFromDisk?: (p: CatalogPhotoItem) => void;
+    onBatchDeletePhotosFromDisk?: (photos: CatalogPhotoItem[]) => void;
     onRefreshMounts: () => void;
     onToggleFlag?: (p: CatalogPhotoItem) => void;
     onFilesDropped?: (dataTransfer: DataTransfer) => void;
@@ -55,6 +57,8 @@
     onAppendFiles,
     onRemovePhoto,
     onBatchRemovePhotos,
+    onDeletePhotoFromDisk,
+    onBatchDeletePhotosFromDisk,
     onRefreshMounts,
     onToggleFlag,
     onFilesDropped,
@@ -533,6 +537,22 @@
         onOpenRetouch(current);
       } else if (onGoToRetouch) {
         onGoToRetouch();
+      }
+    }
+    // Shift + Delete / Shift + Backspace: Delete from disk (Recycle bin)
+    else if (e.shiftKey && (e.key === 'Delete' || e.key === 'Backspace')) {
+      e.preventDefault();
+      if (isMultiSelectMode && selectedBatchIds.length > 0) {
+        const selectedPhotos = displayedPhotos.filter((p) => selectedBatchIds.includes(p.id));
+        if (onBatchDeletePhotosFromDisk) {
+          onBatchDeletePhotosFromDisk(selectedPhotos);
+          exitMultiSelect();
+        }
+      } else {
+        const current = currentIndex >= 0 ? displayedPhotos[currentIndex] : (activePhoto || displayedPhotos[0]);
+        if (current && onDeletePhotoFromDisk) {
+          onDeletePhotoFromDisk(current);
+        }
       }
     }
     // Delete / Backspace: Remove / Cull photo from catalog

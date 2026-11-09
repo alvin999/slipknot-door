@@ -24,6 +24,7 @@ export interface PhotoPlateItem {
   flagged?: boolean;
   appliedProfile: string;
   fileHandle?: File;
+  filePath?: string;
   gradedThumbnail?: string;
   exposureBias?: number;
   exposureProgram?: string;

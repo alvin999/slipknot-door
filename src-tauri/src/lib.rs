@@ -2,7 +2,7 @@ pub mod export;
 pub mod ingestion;
 pub mod models;
 
-use export::{resolve_export_path, save_exported_file};
+use export::{delete_photo_file, resolve_export_path, save_exported_file};
 use ingestion::{RawExtractor, StorageDetector};
 use models::{CameraMountInfo, EmbeddedPreviewResult, RawPhotoItem};
 
@@ -39,7 +39,8 @@ pub fn run() {
             scan_dcim_directory,
             extract_embedded_jpeg,
             save_exported_file,
-            resolve_export_path
+            resolve_export_path,
+            delete_photo_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running slipknot-door application");

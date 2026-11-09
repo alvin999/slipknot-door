@@ -140,6 +140,18 @@
                   </div>
                 </div>
 
+                <div class="shortcut-row highlight">
+                  <div class="keys">
+                    <kbd class="kbd-chip amber">⇧</kbd>
+                    <span class="or">+</span>
+                    <kbd class="kbd-chip amber">Del</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">實體刪除磁碟檔案 (Delete from Disk)</span>
+                    <span class="desc-sub font-mono">彈出二次確認後將磁碟 RAW/照片移入資源回收筒（支援多選批次刪除）</span>
+                  </div>
+                </div>
+
                 <div class="shortcut-row">
                   <div class="keys">
                     <kbd class="kbd-chip">Enter</kbd>
@@ -257,6 +269,18 @@
                   <div class="action-desc">
                     <span class="desc-main">自工作區排除此幀</span>
                     <span class="desc-sub font-mono">剔除底片並自動推進至下一張（支援一鍵復原 ↺）</span>
+                  </div>
+                </div>
+
+                <div class="shortcut-row highlight">
+                  <div class="keys">
+                    <kbd class="kbd-chip amber">⇧</kbd>
+                    <span class="or">+</span>
+                    <kbd class="kbd-chip amber">Del</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">實體刪除此底片 (Delete from Disk)</span>
+                    <span class="desc-sub font-mono">彈出二次確認後將磁碟原檔移至資源回收筒</span>
                   </div>
                 </div>
 
