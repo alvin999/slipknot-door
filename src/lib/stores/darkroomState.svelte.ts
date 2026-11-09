@@ -12,6 +12,27 @@ import { composeStyleKeywordPrompt, STYLE_KEYWORD_ENTRIES } from "$lib/services/
 export type DiffMode = "off" | "split" | "sideBySide";
 export type CropRatioPreset = "original" | "1:1" | "4:5" | "16:9" | "9:16" | "free";
 
+export interface DarkroomHistorySnapshot {
+  exposure: number;
+  contrast: number;
+  shadows: number;
+  lutIntensity: number;
+  colorTemp: number;
+  tint: number;
+  clarity: number;
+  sharpness: number;
+  cropX: number;
+  cropY: number;
+  cropWidth: number;
+  cropHeight: number;
+  cropRotation: number;
+  keystoneV: number;
+  keystoneH: number;
+  cropAspectRatio: CropRatioPreset;
+  flipH: boolean;
+  flipV: boolean;
+}
+
 export interface StylePresetDefinition {
   key: string;
   badge: string;
@@ -42,6 +63,20 @@ export interface ProfileLutItem {
 }
 
 export class DarkroomStateStore {
+  // 歷史操作記錄棧 (Undo / Redo History)
+  historyStack = $state<DarkroomHistorySnapshot[]>([]);
+  historyIndex = $state<number>(-1);
+  private isTraversingHistory = false;
+  private historyDebounceTimer: any = null;
+
+  get canUndo(): boolean {
+    return this.historyIndex > 0;
+  }
+
+  get canRedo(): boolean {
+    return this.historyIndex >= 0 && this.historyIndex < this.historyStack.length - 1;
+  }
+
   // 基礎光影控制 (Tonal Parameters)
   exposure = $state<number>(0.0);
   contrast = $state<number>(0.0);
@@ -271,6 +306,172 @@ export class DarkroomStateStore {
   /**
    * 載入指定相片的調色與裁切設定
    */
+  /**
+   * 擷取當前所有調色與裁切狀態之快照
+   */
+  captureSnapshot(): DarkroomHistorySnapshot {
+    return {
+      exposure: this.exposure,
+      contrast: this.contrast,
+      shadows: this.shadows,
+      lutIntensity: this.lutIntensity,
+      colorTemp: this.colorTemp,
+      tint: this.tint,
+      clarity: this.clarity,
+      sharpness: this.sharpness,
+      cropX: this.cropX,
+      cropY: this.cropY,
+      cropWidth: this.cropWidth,
+      cropHeight: this.cropHeight,
+      cropRotation: this.cropRotation,
+      keystoneV: this.keystoneV,
+      keystoneH: this.keystoneH,
+      cropAspectRatio: this.cropAspectRatio,
+      flipH: this.flipH,
+      flipV: this.flipV,
+    };
+  }
+
+  /**
+   * 將快照還原至當前暗房狀態
+   */
+  applySnapshot(snap: DarkroomHistorySnapshot): void {
+    this.isTraversingHistory = true;
+    this.exposure = snap.exposure;
+    this.contrast = snap.contrast;
+    this.shadows = snap.shadows;
+    this.lutIntensity = snap.lutIntensity;
+    this.colorTemp = snap.colorTemp;
+    this.tint = snap.tint;
+    this.clarity = snap.clarity;
+    this.sharpness = snap.sharpness;
+    this.cropX = snap.cropX;
+    this.cropY = snap.cropY;
+    this.cropWidth = snap.cropWidth;
+    this.cropHeight = snap.cropHeight;
+    this.cropRotation = snap.cropRotation;
+    this.keystoneV = snap.keystoneV;
+    this.keystoneH = snap.keystoneH;
+    this.cropAspectRatio = snap.cropAspectRatio;
+    this.flipH = snap.flipH;
+    this.flipV = snap.flipV;
+
+    setTimeout(() => {
+      this.isTraversingHistory = false;
+    }, 60);
+  }
+
+  /**
+   * 初始化歷史棧（載入相片時重置）
+   */
+  initHistory(): void {
+    const initial = this.captureSnapshot();
+    this.historyStack = [initial];
+    this.historyIndex = 0;
+  }
+
+  /**
+   * 記錄歷史快照（支援防抖與即刻記錄）
+   */
+  recordSnapshot(immediate = false): void {
+    if (this.isTraversingHistory) return;
+
+    const doRecord = () => {
+      if (this.isTraversingHistory) return;
+      const current = this.captureSnapshot();
+      const prev = this.historyStack[this.historyIndex];
+
+      if (prev && this.isSnapshotEqual(prev, current)) {
+        return;
+      }
+
+      // 截斷分支歷史並推入新快照
+      const newHistory = this.historyStack.slice(0, this.historyIndex + 1);
+      newHistory.push(current);
+
+      // 上限保留 30 步歷史
+      if (newHistory.length > 30) {
+        newHistory.shift();
+      }
+
+      this.historyStack = newHistory;
+      this.historyIndex = newHistory.length - 1;
+    };
+
+    if (immediate) {
+      if (this.historyDebounceTimer) {
+        clearTimeout(this.historyDebounceTimer);
+        this.historyDebounceTimer = null;
+      }
+      doRecord();
+    } else {
+      if (this.historyDebounceTimer) {
+        clearTimeout(this.historyDebounceTimer);
+      }
+      this.historyDebounceTimer = setTimeout(() => {
+        doRecord();
+        this.historyDebounceTimer = null;
+      }, 300);
+    }
+  }
+
+  private isSnapshotEqual(a: DarkroomHistorySnapshot, b: DarkroomHistorySnapshot): boolean {
+    return (
+      Math.abs(a.exposure - b.exposure) < 0.001 &&
+      Math.abs(a.contrast - b.contrast) < 0.001 &&
+      Math.abs(a.shadows - b.shadows) < 0.001 &&
+      Math.abs(a.lutIntensity - b.lutIntensity) < 0.001 &&
+      Math.abs(a.colorTemp - b.colorTemp) < 1 &&
+      Math.abs(a.tint - b.tint) < 0.001 &&
+      Math.abs(a.clarity - b.clarity) < 0.001 &&
+      Math.abs(a.sharpness - b.sharpness) < 0.001 &&
+      Math.abs(a.cropX - b.cropX) < 0.001 &&
+      Math.abs(a.cropY - b.cropY) < 0.001 &&
+      Math.abs(a.cropWidth - b.cropWidth) < 0.001 &&
+      Math.abs(a.cropHeight - b.cropHeight) < 0.001 &&
+      Math.abs(a.cropRotation - b.cropRotation) < 0.01 &&
+      Math.abs(a.keystoneV - b.keystoneV) < 0.01 &&
+      Math.abs(a.keystoneH - b.keystoneH) < 0.01 &&
+      a.cropAspectRatio === b.cropAspectRatio &&
+      a.flipH === b.flipH &&
+      a.flipV === b.flipV
+    );
+  }
+
+  /**
+   * 復原至上一快照 (Undo)
+   */
+  undo(): boolean {
+    if (!this.canUndo) return false;
+    this.historyIndex--;
+    this.applySnapshot(this.historyStack[this.historyIndex]);
+    return true;
+  }
+
+  /**
+   * 重做下一快照 (Redo)
+   */
+  redo(): boolean {
+    if (!this.canRedo) return false;
+    this.historyIndex++;
+    this.applySnapshot(this.historyStack[this.historyIndex]);
+    return true;
+  }
+
+  /**
+   * 單項參數雙擊歸零專用方法
+   */
+  resetExposure(): void { this.exposure = 0.0; this.recordSnapshot(true); }
+  resetContrast(): void { this.contrast = 0.0; this.recordSnapshot(true); }
+  resetShadows(): void { this.shadows = 0.0; this.recordSnapshot(true); }
+  resetLutIntensity(): void { this.lutIntensity = 1.0; this.recordSnapshot(true); }
+  resetColorTemp(def = 5500): void { this.colorTemp = def; this.recordSnapshot(true); }
+  resetTint(def = 0.0): void { this.tint = def; this.recordSnapshot(true); }
+  resetClarity(): void { this.clarity = 0.0; this.recordSnapshot(true); }
+  resetSharpness(): void { this.sharpness = 0.0; this.recordSnapshot(true); }
+  resetRotation(): void { this.cropRotation = 0.0; this.recordSnapshot(true); }
+  resetKeystone(): void { this.keystoneV = 0.0; this.keystoneH = 0.0; this.recordSnapshot(true); }
+
   loadFromPhoto(photo: PhotoPlateItem): void {
     if (photo.tuning) {
       this.exposure = photo.tuning.exposure;
@@ -307,6 +508,7 @@ export class DarkroomStateStore {
     } else {
       this.resetCropState();
     }
+    this.initHistory();
   }
 
   /**

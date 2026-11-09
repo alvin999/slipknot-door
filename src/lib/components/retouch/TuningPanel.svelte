@@ -63,6 +63,70 @@
 
   const activePhoto = $derived(propsActivePhoto ?? photoLibrary.activePhoto);
   const isAiAnalyzing = $derived(aiPipeline.isAiAnalyzing);
+
+  // 監聽各項參數變更以自動記錄快照歷史 (防抖 300ms)
+  $effect(() => {
+    const _exp = darkroomState.exposure;
+    const _con = darkroomState.contrast;
+    const _sha = darkroomState.shadows;
+    const _lut = darkroomState.lutIntensity;
+    const _tem = darkroomState.colorTemp;
+    const _tin = darkroomState.tint;
+    const _cla = darkroomState.clarity;
+    const _shp = darkroomState.sharpness;
+    const _rot = darkroomState.cropRotation;
+    const _kv = darkroomState.keystoneV;
+    const _cx = darkroomState.cropX;
+    const _cy = darkroomState.cropY;
+    const _cw = darkroomState.cropWidth;
+    const _ch = darkroomState.cropHeight;
+    const _fh = darkroomState.flipH;
+    const _fv = darkroomState.flipV;
+
+    darkroomState.recordSnapshot();
+  });
+
+  // 鍵盤復原/重做快速鍵監聽 (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z)
+  $effect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+      ) {
+        return;
+      }
+
+      const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+
+      if (!modKey) return;
+
+      const key = e.key.toLowerCase();
+
+      // Undo: Ctrl+Z
+      if (key === "z" && !e.shiftKey) {
+        if (darkroomState.canUndo) {
+          e.preventDefault();
+          darkroomState.undo();
+          toastStore.show("已復原上一步調色 (Undo)", "info", 1200);
+        }
+      }
+      // Redo: Ctrl+Y 或 Ctrl+Shift+Z
+      else if (key === "y" || (key === "z" && e.shiftKey)) {
+        if (darkroomState.canRedo) {
+          e.preventDefault();
+          darkroomState.redo();
+          toastStore.show("已重做下一步調色 (Redo)", "info", 1200);
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  });
 </script>
 
 <!-- 光學即時直方圖波形 -->
@@ -73,6 +137,39 @@
   <div class="tuning-box-header">
     <div class="box-title font-mono">3D LUT TUNING</div>
     <div style="display: flex; gap: 4px; align-items: center;">
+      <!-- 單步復原 (Undo) 與 重做 (Redo) -->
+      <button
+        type="button"
+        class="reset-tuning-btn font-mono"
+        class:is-disabled={!darkroomState.canUndo}
+        disabled={!darkroomState.canUndo}
+        onclick={() => {
+          if (darkroomState.undo()) {
+            toastStore.show("已復原 (Undo)", "info", 1200);
+          }
+        }}
+        title="復原上一步調色 (Ctrl+Z)"
+      >
+        <span class="material-symbols-outlined" style="font-size: 13px;">undo</span>
+        <span>復原</span>
+      </button>
+
+      <button
+        type="button"
+        class="reset-tuning-btn font-mono"
+        class:is-disabled={!darkroomState.canRedo}
+        disabled={!darkroomState.canRedo}
+        onclick={() => {
+          if (darkroomState.redo()) {
+            toastStore.show("已重做 (Redo)", "info", 1200);
+          }
+        }}
+        title="重做下一步調色 (Ctrl+Y)"
+      >
+        <span class="material-symbols-outlined" style="font-size: 13px;">redo</span>
+        <span>重做</span>
+      </button>
+
       <!-- 複製與貼上調色按鈕 -->
       <button
         type="button"
@@ -446,6 +543,15 @@
     cursor: pointer;
     transition: all 0.15s ease;
   }
+    .reset-tuning-btn:disabled,
+  .reset-tuning-btn.is-disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    border-color: var(--border-hairline);
+    color: var(--parchment-dim);
+    pointer-events: none;
+  }
+
   .reset-tuning-btn:hover {
     border-color: var(--amber-highlight);
     color: var(--amber-highlight);
