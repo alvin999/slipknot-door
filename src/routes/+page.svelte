@@ -1984,9 +1984,13 @@
     }
   }
 
-  // ── 相片工作區排除與復原機制 (Photo Workspace Removal & Undo) ──
+    // ── 相片工作區排除與復原機制 (Photo Workspace Removal & Undo) ──
+  interface RemovedPhotoItemSnapshot {
+    photo: PhotoPlate;
+    originalIndex: number; // 記錄排除前在相卷中的原始索引位置
+  }
   interface RemovedPhotosSnapshot {
-    items: PhotoPlate[];
+    items: RemovedPhotoItemSnapshot[];
     prevActiveId: string | null;
   }
   let lastRemovedSnapshot = $state<RemovedPhotosSnapshot | null>(null);
@@ -2086,11 +2090,18 @@
   function handleBatchRemovePhotos(photoIds: string[]) {
     if (!photoIds || photoIds.length === 0) return;
     const idSet = new Set(photoIds);
-    const toRemove = photoPlates.filter((p) => idSet.has(p.id));
-    if (toRemove.length === 0) return;
+
+    // 依序記錄被排除相片及其原始索引位置，以便復原時精準插回原序
+    const toRemoveWithIndex: RemovedPhotoItemSnapshot[] = [];
+    photoPlates.forEach((p, idx) => {
+      if (idSet.has(p.id)) {
+        toRemoveWithIndex.push({ photo: p, originalIndex: idx });
+      }
+    });
+    if (toRemoveWithIndex.length === 0) return;
 
     lastRemovedSnapshot = {
-      items: toRemove,
+      items: toRemoveWithIndex,
       prevActiveId: activePhoto?.id || null,
     };
 
@@ -2113,7 +2124,7 @@
     photoLibrary.photoPlates = photoPlates as any;
     photoLibrary.activePhoto = activePhoto as any;
 
-    toastStore.show(`已自相卷排除 ${toRemove.length} 幀底片`, "info", 5000, {
+    toastStore.show(`已自相卷排除 ${toRemoveWithIndex.length} 幀底片`, "info", 5000, {
       label: "復原 ↺",
       onClick: () => handleUndoRemove(),
     });
@@ -2121,8 +2132,17 @@
 
   function handleUndoRemove() {
     if (!lastRemovedSnapshot || lastRemovedSnapshot.items.length === 0) return;
-    const restored = lastRemovedSnapshot.items;
-    photoPlates = [...photoPlates, ...restored];
+    const restoredItems = lastRemovedSnapshot.items;
+
+    // 依原始索引升冪排序，並依序精準插回相卷原始位置（保持載入順序不變）
+    const nextPlates = [...photoPlates];
+    const sorted = [...restoredItems].sort((a, b) => a.originalIndex - b.originalIndex);
+    for (const item of sorted) {
+      const insertAt = Math.min(Math.max(0, item.originalIndex), nextPlates.length);
+      nextPlates.splice(insertAt, 0, item.photo);
+    }
+
+    photoPlates = nextPlates;
     photoLibrary.photoPlates = photoPlates as any;
 
     if (lastRemovedSnapshot.prevActiveId) {
@@ -2136,7 +2156,7 @@
       }
     }
 
-    toastStore.show(`已復原 ${restored.length} 幀底片 ✓`, "success", 2500);
+    toastStore.show(`已原位復原 ${restoredItems.length} 幀底片 ✓`, "success", 2500);
     lastRemovedSnapshot = null;
   }
 
