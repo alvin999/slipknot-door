@@ -180,6 +180,9 @@ export class PhotoLibraryStore {
   async loadPhotosFromItems(items: RawPhotoItem[]): Promise<void> {
     if (items.length === 0) return;
 
+    // 清理舊相卷佔用的 Blob URL 記憶體
+    IngestionService.revokeAllBlobUrls();
+
     const isTauriEnv = IngestionService.isTauri();
 
     // 步驟 1: 即時零延遲初始化 (< 5ms) 所有畫格
@@ -187,7 +190,7 @@ export class PhotoLibraryStore {
       let directUrl = "";
       if (item.fileHandle) {
         if (item.extension === "jpg" || item.extension === "jpeg") {
-          directUrl = URL.createObjectURL(item.fileHandle);
+          directUrl = IngestionService.createTrackedBlobUrl(item.fileHandle);
         }
       } else if (!isTauriEnv && item.file_path) {
         directUrl = `/api/extract-preview?path=${encodeURIComponent(item.file_path)}`;

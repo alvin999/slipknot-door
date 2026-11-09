@@ -259,6 +259,20 @@ export class IngestionService {
    * Convert Base64 string directly into a Blob URL and track it
    * Immediately frees the mega-byte string from JS Heap
    */
+  /**
+   * Create a tracked Blob URL and register it for clean lifecycle management
+   */
+  public static createTrackedBlobUrl(blob: Blob): string {
+    if (typeof URL === 'undefined') return '';
+    const url = URL.createObjectURL(blob);
+    this.createdBlobUrls.add(url);
+    return url;
+  }
+
+  /**
+   * Convert Base64 string directly into a Blob URL and track it
+   * Immediately frees the mega-byte string from JS Heap
+   */
   public static base64ToBlobUrl(base64: string, mimeType: string = 'image/jpeg'): string {
     const binary = atob(base64);
     const len = binary.length;
@@ -267,9 +281,7 @@ export class IngestionService {
       buffer[i] = binary.charCodeAt(i);
     }
     const blob = new Blob([buffer], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    this.createdBlobUrls.add(url);
-    return url;
+    return this.createTrackedBlobUrl(blob);
   }
 
   /**
@@ -280,9 +292,7 @@ export class IngestionService {
     try {
       const res = await fetch(`data:${mimeType};base64,${base64}`);
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      this.createdBlobUrls.add(url);
-      return url;
+      return this.createTrackedBlobUrl(blob);
     } catch {
       return this.base64ToBlobUrl(base64, mimeType);
     }
@@ -339,7 +349,24 @@ export class IngestionService {
   /**
    * Revoke all generated Blob URLs to prevent memory leaks on catalog switch
    */
+  /**
+   * Revoke a single tracked Blob URL
+   */
+  public static revokeBlobUrl(url: string): void {
+    if (!url || typeof URL === 'undefined') return;
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+    this.createdBlobUrls.delete(url);
+  }
+
+  /**
+   * Revoke all generated Blob URLs to prevent memory leaks on catalog switch
+   */
   public static revokeAllBlobUrls(): void {
+    if (typeof URL === 'undefined') return;
     for (const url of this.createdBlobUrls) {
       try {
         URL.revokeObjectURL(url);
@@ -790,7 +817,7 @@ export class IngestionService {
       
       // If regular JPEG, standard blob URL is fine
       if (ext === 'jpg' || ext === 'jpeg') {
-        const blobUrl = URL.createObjectURL(fileBlob);
+        const blobUrl = this.createTrackedBlobUrl(fileBlob);
         return {
           file_path: filePath,
           mime_type: 'image/jpeg',
@@ -851,7 +878,7 @@ export class IngestionService {
         if (bestStart !== -1 && bestEnd !== -1) {
           const jpegBytes = bytes.subarray(bestStart, bestEnd);
           const jpegBlob = new Blob([jpegBytes], { type: 'image/jpeg' });
-          const blobUrl = URL.createObjectURL(jpegBlob);
+          const blobUrl = this.createTrackedBlobUrl(jpegBlob);
 
           // Dynamically parse full optical EXIF using standard TIFF tags from the 16MB raw buffer
           const parsedExif = parseTiffExifFromBytes(bytes);

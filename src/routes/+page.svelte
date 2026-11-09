@@ -2112,6 +2112,10 @@
     append = false,
   ) {
     if (items.length > 0) {
+      if (!append) {
+        // 清理前一個相卷所佔用的 Blob URL，防止記憶體洩漏
+        IngestionService.revokeAllBlobUrls();
+      }
       const isTauriEnv = IngestionService.isTauri();
 
       // 追加模式下，過濾掉已存在於目前相卷中的相片（以檔名比對）
@@ -2131,7 +2135,7 @@
         let directUrl = "";
         if (item.fileHandle) {
           if (item.extension === "jpg" || item.extension === "jpeg") {
-            directUrl = URL.createObjectURL(item.fileHandle);
+            directUrl = IngestionService.createTrackedBlobUrl(item.fileHandle);
           }
         } else if (!isTauriEnv && item.file_path) {
           directUrl = `/api/extract-preview?path=${encodeURIComponent(item.file_path)}`;
