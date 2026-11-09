@@ -103,6 +103,7 @@
 
   // ── 多選模式與批次選取狀態 (Multi-Select & Batch Action Mode) ──
   let isMultiSelectMode = $state(false);
+  let lastAnchorPhotoId = $state<string | null>(null);
   let selectedBatchIds = $state<string[]>([]);
   let isSwipeSelecting = $state(false);
   let swipeSelectAction = $state<'select' | 'deselect'>('select');
@@ -148,6 +149,72 @@
 
   function deselectAllBatch() {
     selectedBatchIds = [];
+  }
+
+  // ── 滑鼠點擊相片：支援 Ctrl (Cmd) 個別選取 / 反選 與 Shift 連續區間連選 ──
+  function handleCardClick(photo: CatalogPhotoItem, e: MouseEvent) {
+    if (isCoarsePointer) return;
+    (e.currentTarget as HTMLElement)?.blur();
+
+    const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+    const isShift = e.shiftKey;
+
+    // 1. Shift + 點擊：連續區間連選 (Range Select)
+    if (isShift) {
+      e.preventDefault();
+      isMultiSelectMode = true;
+
+      const anchorId = lastAnchorPhotoId || activePhoto?.id || displayedPhotos[0]?.id;
+      const anchorIdx = displayedPhotos.findIndex(p => p.id === anchorId);
+      const targetIdx = displayedPhotos.findIndex(p => p.id === photo.id);
+
+      if (anchorIdx >= 0 && targetIdx >= 0) {
+        const minIdx = Math.min(anchorIdx, targetIdx);
+        const maxIdx = Math.max(anchorIdx, targetIdx);
+        const rangePhotos = displayedPhotos.slice(minIdx, maxIdx + 1);
+        const rangeIds = rangePhotos.map(p => p.id);
+
+        const newSet = new Set(selectedBatchIds);
+        if (anchorId) newSet.add(anchorId);
+        rangeIds.forEach(id => newSet.add(id));
+        selectedBatchIds = Array.from(newSet);
+      } else {
+        selectedBatchIds = [photo.id];
+      }
+
+      onSelectPhoto(photo);
+      return;
+    }
+
+    // 2. Ctrl / Cmd + 點擊：個別多選 / 反選 (Toggle Select)
+    if (isCtrlOrCmd) {
+      e.preventDefault();
+      isMultiSelectMode = true;
+
+      const baseIds = selectedBatchIds.length > 0 
+        ? [...selectedBatchIds] 
+        : (activePhoto ? [activePhoto.id] : []);
+
+      if (baseIds.includes(photo.id)) {
+        selectedBatchIds = baseIds.filter(id => id !== photo.id);
+        if (selectedBatchIds.length === 0) {
+          exitMultiSelect();
+        }
+      } else {
+        selectedBatchIds = [...baseIds, photo.id];
+      }
+
+      lastAnchorPhotoId = photo.id;
+      onSelectPhoto(photo);
+      return;
+    }
+
+    // 3. 一般左鍵點選 (無修飾鍵)：回歸單選焦點，若原處於多選模式則退出多選
+    if (isMultiSelectMode) {
+      exitMultiSelect();
+    }
+    lastAnchorPhotoId = photo.id;
+    onSelectPhoto(photo);
   }
 
   function batchSetFlagged(flagVal: boolean) {
@@ -481,6 +548,23 @@
     // === 狀態二：目錄網格瀏覽中 ===
     const currentIndex = displayedPhotos.findIndex(p => p.id === activePhoto?.id);
 
+    // Ctrl/Cmd + A: 全選相卷底片
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      e.stopPropagation();
+      isMultiSelectMode = true;
+      selectAllBatch();
+      return;
+    }
+
+    // Escape: 退出多選模式
+    if (e.key === 'Escape' && isMultiSelectMode) {
+      e.preventDefault();
+      e.stopPropagation();
+      exitMultiSelect();
+      return;
+    }
+
     // Space: 開啟快速大圖預覽
     if (e.key === ' ' || e.code === 'Space') {
       e.preventDefault();
@@ -491,12 +575,18 @@
       isQuickLookOpen = true;
       return;
     }
-    // P: Toggle Pick / Flag selection
+    // P: Toggle Pick / Flag selection (支援單張與批次多選)
     else if (e.key === 'p' || e.key === 'P') {
       e.preventDefault();
-      const current = currentIndex >= 0 ? displayedPhotos[currentIndex] : displayedPhotos[0];
-      if (current) {
-        toggleFlag(current);
+      if (isMultiSelectMode && selectedBatchIds.length > 0) {
+        const selected = photos.filter(p => selectedBatchIds.includes(p.id));
+        const allFlagged = selected.every(p => p.flagged);
+        batchSetFlagged(!allFlagged);
+      } else {
+        const current = currentIndex >= 0 ? displayedPhotos[currentIndex] : displayedPhotos[0];
+        if (current) {
+          toggleFlag(current);
+        }
       }
     } 
     // H / Left Arrow: Previous photo
@@ -749,11 +839,7 @@
             class:flagged={photo.flagged}
             role="gridcell"
             tabindex="0"
-            onclick={(e) => {
-              if (isCoarsePointer) return;
-              (e.currentTarget as HTMLElement).blur();
-              onSelectPhoto(photo);
-            }}
+            onclick={(e) => handleCardClick(photo, e)}
             ontouchstart={(e) => handleTouchStart(photo, e)}
             ontouchmove={handleTouchMove}
             ontouchend={(e) => handleTouchEnd(photo, e)}
@@ -782,7 +868,25 @@
               
               <!-- Multi-Select Checkbox Floating on Top-Left -->
               {#if isMultiSelectMode}
-                <div class="batch-checkbox" class:checked={selectedBatchIds.includes(photo.id)}>
+                <div 
+                  class="batch-checkbox" 
+                  class:checked={selectedBatchIds.includes(photo.id)}
+                  role="button"
+                  tabindex="0"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    toggleBatchSelect(photo.id);
+                    if (selectedBatchIds.length === 0) exitMultiSelect();
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      toggleBatchSelect(photo.id);
+                      if (selectedBatchIds.length === 0) exitMultiSelect();
+                    }
+                  }}
+                  title={selectedBatchIds.includes(photo.id) ? "取消選取此相片" : "選取此相片"}
+                >
                   <span class="material-symbols-outlined">
                     {selectedBatchIds.includes(photo.id) ? 'check_circle' : 'radio_button_unchecked'}
                   </span>

@@ -128,6 +128,42 @@
                   </div>
                 </div>
 
+                <div class="shortcut-row">
+                  <div class="keys">
+                    <kbd class="kbd-chip font-mono">Ctrl</kbd>
+                    <span class="or">+</span>
+                    <span class="action-mouse">點選</span>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">個別多選 / 退選底片</span>
+                    <span class="desc-sub font-mono">按住 Ctrl (或 macOS ⌘) 點擊相片，不連續加選或單獨剔除</span>
+                  </div>
+                </div>
+
+                <div class="shortcut-row">
+                  <div class="keys">
+                    <kbd class="kbd-chip font-mono">Shift</kbd>
+                    <span class="or">+</span>
+                    <span class="action-mouse">點選</span>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">連續區間範圍連選</span>
+                    <span class="desc-sub font-mono">按住 Shift 點擊相片，一次選取與起點之間的整段底片</span>
+                  </div>
+                </div>
+
+                <div class="shortcut-row">
+                  <div class="keys">
+                    <kbd class="kbd-chip font-mono">Ctrl</kbd>
+                    <span class="or">+</span>
+                    <kbd class="kbd-chip font-mono">A</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">全選所有底片 (Select All)</span>
+                    <span class="desc-sub font-mono">一鍵全選相卷所有相片，進入多選批次工作列</span>
+                  </div>
+                </div>
+
                 <div class="shortcut-row highlight">
                   <div class="keys">
                     <kbd class="kbd-chip">Del</kbd>
