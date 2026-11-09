@@ -182,6 +182,52 @@
 
                 <div class="shortcut-row highlight">
                   <div class="keys">
+                    <kbd class="kbd-chip amber">Ctrl+Z</kbd>
+                    <span class="or">/</span>
+                    <kbd class="kbd-chip">⌘Z</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">復原上一步調色 (Undo)</span>
+                    <span class="desc-sub font-mono">復原上一步曝光、對比、陰影、色溫或構圖調整</span>
+                  </div>
+                </div>
+
+                <div class="shortcut-row highlight">
+                  <div class="keys">
+                    <kbd class="kbd-chip amber">Ctrl+Y</kbd>
+                    <span class="or">/</span>
+                    <kbd class="kbd-chip">⌘⇧Z</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">重做下一步調色 (Redo)</span>
+                    <span class="desc-sub font-mono">重做調色步進（亦支援 Ctrl+Shift+Z / ⌘Shift+Z）</span>
+                  </div>
+                </div>
+
+                <div class="shortcut-row">
+                  <div class="keys">
+                    <kbd class="kbd-chip">雙擊滑桿</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">單項參數快速歸零 (Reset to Default)</span>
+                    <span class="desc-sub font-mono">點兩下滑桿標籤、數值或軌道即刻還原標準基準值</span>
+                  </div>
+                </div>
+
+                <div class="shortcut-row">
+                  <div class="keys">
+                    <kbd class="kbd-chip">滾輪</kbd>
+                    <kbd class="kbd-chip">⇧</kbd>
+                    <kbd class="kbd-chip">⌥</kbd>
+                  </div>
+                  <div class="action-desc">
+                    <span class="desc-main">懸停滾輪微調 (Wheel Scrubbing)</span>
+                    <span class="desc-sub font-mono">滑鼠懸停滾輪微調，按住 Shift (5x 快速) / Alt (0.2x 細微)</span>
+                  </div>
+                </div>
+
+                <div class="shortcut-row highlight">
+                  <div class="keys">
                     <kbd class="kbd-chip amber">⌘E</kbd>
                     <span class="or">/</span>
                     <kbd class="kbd-chip">Ctrl+E</kbd>

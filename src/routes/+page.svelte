@@ -3188,6 +3188,7 @@
   let isExporting = $state<boolean>(false);
   let exportNotice = $state<string>("");
 
+  // Single photo export
   async function handleSingleQuickExport(mode: "modeA" | "modeB") {
     if (!activePhoto) return;
     try {
