@@ -187,6 +187,23 @@ void main() {
 `;
 
 export class WebglLutRenderer {
+  // 全域靜態 3D LUT 解析快取與單一 Flight 請求映射，避免多個 Renderer 實例重複下載與 CPU 解析
+  private static parsedLutCache = new Map<string, { data: Float32Array; size: number }>();
+  private static cubeFetchPromiseMap = new Map<string, Promise<{ data: Float32Array; size: number } | null>>();
+
+  private static readonly BUILTIN_LUTS: { profileId: string; url: string; aliases?: string[] }[] = [
+    { profileId: 'Profile_01_Fieldnote', url: '/luts/Fieldnote.cube', aliases: ['Profile_01_MatteShadow', 'Profile_06_ClassicNeg'] },
+    { profileId: 'Profile_02_Heartland', url: '/luts/Heartland.cube', aliases: ['Profile_02_RealaTone', 'Profile_03_TungstenSoft', 'Profile_08_WarmAstia'] },
+    { profileId: 'Profile_03_Meridian', url: '/luts/Meridian.cube', aliases: ['Profile_05_DocumentaryChrome'] },
+    { profileId: 'Profile_04_Matinee', url: '/luts/Matinee.cube', aliases: ['Profile_04_HighContrastMono', 'Profile_10_PlatinumAcros'] },
+    { profileId: 'Profile_05_Postcard', url: '/luts/Postcard.cube', aliases: ['Profile_07_VelvetSlide'] },
+    { profileId: 'Profile_06_Skylight', url: '/luts/Skylight.cube' },
+    { profileId: 'Profile_07_NightMarket', url: '/luts/NightMarket.cube' },
+    { profileId: 'Profile_08_DuskTide', url: '/luts/DuskTide.cube' },
+    { profileId: 'Profile_09_Canopy', url: '/luts/Canopy.cube' },
+    { profileId: 'Profile_10_Lowsun', url: '/luts/Lowsun.cube', aliases: ['Profile_09_NostalgicNeg'] },
+  ];
+
   private gl: WebGL2RenderingContext | null = null;
   private program: WebGLProgram | null = null;
   private vao: WebGLVertexArrayObject | null = null;
@@ -365,10 +382,9 @@ export class WebglLutRenderer {
     this.activeLutId = profileId;
   }
   /**
-   * Parse standard .cube 3D LUT (Adobe / DaVinci Resolve)
+   * Parse standard .cube 3D LUT (Adobe / DaVinci Resolve) into Float32Array
    */
-  public parseAndRegisterCube(profileId: string, cubeContent: string): boolean {
-    if (!this.gl) return false;
+  public static parseCubeData(cubeContent: string): { data: Float32Array; size: number } | null {
     try {
       const lines = cubeContent.split(/\r?\n/);
       let size = 33;
@@ -392,7 +408,7 @@ export class WebglLutRenderer {
 
       if (rgbValues.length < size * size * size * 3) {
         console.warn('Incomplete .cube data');
-        return false;
+        return null;
       }
 
       // Float data: no 8-bit quantization (uploaded as RGBA16F)
@@ -406,12 +422,22 @@ export class WebglLutRenderer {
         rgbaData[dstIdx++] = 1.0;
       }
 
-      this.registerLut(profileId, rgbaData, size);
-      return true;
+      return { data: rgbaData, size };
     } catch (e) {
       console.error('Failed to parse .cube:', e);
-      return false;
+      return null;
     }
+  }
+
+  /**
+   * Parse standard .cube 3D LUT (Adobe / DaVinci Resolve) and register
+   */
+  public parseAndRegisterCube(profileId: string, cubeContent: string): boolean {
+    if (!this.gl) return false;
+    const parsed = WebglLutRenderer.parseCubeData(cubeContent);
+    if (!parsed) return false;
+    this.registerLut(profileId, parsed.data, parsed.size);
+    return true;
   }
 
   /**
@@ -436,41 +462,57 @@ export class WebglLutRenderer {
     this.registerLut('Profile_04_HighContrastMono', this.generateMonoSilverLut(), 33);
     this.registerLut('Profile_05_DocumentaryChrome', this.generateDocumentaryChromeLut(), 33);
 
-    // 2. 自動非同步升級載入真實 3D .cube 紋理 (來自 t0saki/lumix-original-looks OKLab 空間純數學模型)
-    this.loadCubeFileIfAvailable('Profile_01_Fieldnote', '/luts/Fieldnote.cube');
-    this.loadCubeFileIfAvailable('Profile_02_Heartland', '/luts/Heartland.cube');
-    this.loadCubeFileIfAvailable('Profile_03_Meridian', '/luts/Meridian.cube');
-    this.loadCubeFileIfAvailable('Profile_04_Matinee', '/luts/Matinee.cube');
-    this.loadCubeFileIfAvailable('Profile_05_Postcard', '/luts/Postcard.cube');
-    this.loadCubeFileIfAvailable('Profile_06_Skylight', '/luts/Skylight.cube');
-    this.loadCubeFileIfAvailable('Profile_07_NightMarket', '/luts/NightMarket.cube');
-    this.loadCubeFileIfAvailable('Profile_08_DuskTide', '/luts/DuskTide.cube');
-    this.loadCubeFileIfAvailable('Profile_09_Canopy', '/luts/Canopy.cube');
-    this.loadCubeFileIfAvailable('Profile_10_Lowsun', '/luts/Lowsun.cube');
-
-    // 向下相容歷史 Profile ID 映射 (Backward compatibility alias)
-    this.loadCubeFileIfAvailable('Profile_01_MatteShadow', '/luts/Fieldnote.cube');
-    this.loadCubeFileIfAvailable('Profile_02_RealaTone', '/luts/Heartland.cube');
-    this.loadCubeFileIfAvailable('Profile_03_TungstenSoft', '/luts/Heartland.cube');
-    this.loadCubeFileIfAvailable('Profile_04_HighContrastMono', '/luts/Matinee.cube');
-    this.loadCubeFileIfAvailable('Profile_05_DocumentaryChrome', '/luts/Meridian.cube');
-    this.loadCubeFileIfAvailable('Profile_06_ClassicNeg', '/luts/Fieldnote.cube');
-    this.loadCubeFileIfAvailable('Profile_07_VelvetSlide', '/luts/Postcard.cube');
-    this.loadCubeFileIfAvailable('Profile_08_WarmAstia', '/luts/Heartland.cube');
-    this.loadCubeFileIfAvailable('Profile_09_NostalgicNeg', '/luts/Lowsun.cube');
-    this.loadCubeFileIfAvailable('Profile_10_PlatinumAcros', '/luts/Matinee.cube');
+    // 2. 自動非同步升級載入真實 3D .cube 紋理 (全域靜態快取，同一 .cube 僅載入與解析一次)
+    for (const item of WebglLutRenderer.BUILTIN_LUTS) {
+      this.loadCubeFileWithCache(item.profileId, item.url, item.aliases);
+    }
   }
 
-  private async loadCubeFileIfAvailable(profileId: string, url: string) {
-    if (typeof fetch === 'undefined') return;
-    try {
-      const res = await fetch(url);
-      if (res.ok) {
-        const text = await res.text();
-        this.parseAndRegisterCube(profileId, text);
+  private async loadCubeFileWithCache(profileId: string, url: string, aliases?: string[]) {
+    // 優先命中全域記憶體快取 (0ms 瞬時載入)
+    const cached = WebglLutRenderer.parsedLutCache.get(url);
+    if (cached) {
+      this.registerLut(profileId, cached.data, cached.size);
+      if (aliases) {
+        for (const alias of aliases) {
+          this.registerLut(alias, cached.data, cached.size);
+        }
       }
-    } catch {
-      // 離線或檔案未找到時靜默略過，維持即時數學兜底紋理
+      return;
+    }
+
+    if (typeof fetch === 'undefined') return;
+
+    // 確保同一 URL 同時間僅發起一次單一網路請求 (Single-flight Promise deduplication)
+    let fetchPromise = WebglLutRenderer.cubeFetchPromiseMap.get(url);
+    if (!fetchPromise) {
+      fetchPromise = (async () => {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const text = await res.text();
+            const parsed = WebglLutRenderer.parseCubeData(text);
+            if (parsed) {
+              WebglLutRenderer.parsedLutCache.set(url, parsed);
+              return parsed;
+            }
+          }
+        } catch {
+          // 離線或檔案未找到時靜默略過，維持即時數學兜底紋理
+        }
+        return null;
+      })();
+      WebglLutRenderer.cubeFetchPromiseMap.set(url, fetchPromise);
+    }
+
+    const parsed = await fetchPromise;
+    if (parsed && this.gl) {
+      this.registerLut(profileId, parsed.data, parsed.size);
+      if (aliases) {
+        for (const alias of aliases) {
+          this.registerLut(alias, parsed.data, parsed.size);
+        }
+      }
     }
   }
 
