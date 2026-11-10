@@ -25,6 +25,8 @@ export interface PhotoPlateItem {
   appliedProfile: string;
   fileHandle?: File;
   filePath?: string;
+  sidecarPath?: string;
+  formatType?: 'raw' | 'jpeg' | 'pair';
   gradedThumbnail?: string;
   exposureBias?: number;
   exposureProgram?: string;
@@ -211,6 +213,9 @@ export class PhotoLibraryStore {
         selected: i === 0,
         appliedProfile: "Profile_00_StandardNatural",
         fileHandle: item.fileHandle,
+        filePath: item.file_path,
+        sidecarPath: item.sidecar_path,
+        formatType: item.format_type || (item.extension.toLowerCase() === "jpg" || item.extension.toLowerCase() === "jpeg" ? "jpeg" : "raw"),
       };
     });
 

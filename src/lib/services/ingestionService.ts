@@ -25,6 +25,8 @@ export interface RawPhotoItem {
   frame_no: string;
   blobUrl?: string;
   fileHandle?: File;
+  sidecar_path?: string;
+  format_type?: 'raw' | 'jpeg' | 'pair';
 }
 
 export interface EmbeddedPreviewResult {

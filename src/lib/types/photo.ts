@@ -45,6 +45,8 @@ export interface PhotoPlate {
   gradedThumbnail?: string;
   previewUrl?: string;
   fullRawPath?: string;
+  sidecarPath?: string;
+  formatType?: 'raw' | 'jpeg' | 'pair';
   sceneTag?: string;
   selected?: boolean;
   appliedProfile?: string;

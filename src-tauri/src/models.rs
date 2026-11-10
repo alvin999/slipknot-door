@@ -35,6 +35,8 @@ pub struct RawPhotoItem {
     pub extension: String,
     pub frame_no: String,
     pub exif: Option<ExifMetadata>,
+    pub sidecar_path: Option<String>,
+    pub format_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

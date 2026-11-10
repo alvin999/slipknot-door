@@ -1,9 +1,12 @@
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use crate::models::{CameraMountInfo, RawPhotoItem};
 use crate::ingestion::raw_extractor::RawExtractor;
 
 const RAW_EXTENSIONS: &[&str] = &["arw", "cr2", "cr3", "nef", "raf", "dng", "jpg", "jpeg"];
+const RAW_ONLY_EXTENSIONS: &[&str] = &["arw", "cr2", "cr3", "nef", "raf", "dng"];
+const JPEG_EXTENSIONS: &[&str] = &["jpg", "jpeg"];
 
 pub struct StorageDetector;
 
@@ -161,20 +164,27 @@ impl StorageDetector {
         None
     }
 
-    /// Count supported RAW & JPEG images in directory recursively
+    /// Count supported RAW & JPEG images in directory recursively.
+    /// Deduplicates RAW+JPEG pairs sharing the same file stem to report authentic shutter exposures.
     fn count_raw_files(dir: &Path) -> usize {
         let mut count = 0;
         if let Ok(entries) = fs::read_dir(dir) {
+            let mut stems = HashSet::new();
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
                     count += Self::count_raw_files(&path);
                 } else if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                     if RAW_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
-                        count += 1;
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            stems.insert(stem.to_uppercase());
+                        } else {
+                            count += 1;
+                        }
                     }
                 }
             }
+            count += stems.len();
         }
         count
     }
@@ -198,27 +208,94 @@ impl StorageDetector {
         }
 
         if let Ok(entries) = fs::read_dir(dir) {
+            // Group files in current directory by file stem to seamlessly pair RAW + JPEG
+            let mut sub_dirs = Vec::new();
+            let mut stem_groups: HashMap<String, (Option<(PathBuf, String, u64)>, Option<(PathBuf, String, u64)>)> = HashMap::new();
+
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    Self::collect_photos(&path, items, depth + 1);
+                    sub_dirs.push(path);
                 } else if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                     let ext_lower = ext.to_lowercase();
-                    if RAW_EXTENSIONS.contains(&ext_lower.as_str()) {
+                    let is_raw = RAW_ONLY_EXTENSIONS.contains(&ext_lower.as_str());
+                    let is_jpeg = JPEG_EXTENSIONS.contains(&ext_lower.as_str());
+
+                    if is_raw || is_jpeg {
                         let filename = entry.file_name().to_string_lossy().to_string();
                         let file_size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                        let frame_no = format!("{:02}A", items.len() + 1);
+                        let stem = path.file_stem()
+                            .map(|s| s.to_string_lossy().to_string().to_uppercase())
+                            .unwrap_or_else(|| filename.to_uppercase());
 
-                        items.push(RawPhotoItem {
-                            file_path: path.to_string_lossy().to_string(),
-                            filename,
-                            file_size,
-                            extension: ext_lower,
-                            frame_no,
-                            exif: None,
-                        });
+                        let entry_slot = stem_groups.entry(stem).or_insert((None, None));
+                        if is_raw {
+                            entry_slot.0 = Some((path, ext_lower, file_size));
+                        } else if is_jpeg {
+                            entry_slot.1 = Some((path, ext_lower, file_size));
+                        }
                     }
                 }
+            }
+
+            // Convert pairs/singles into RawPhotoItem entries
+            // Sort keys to maintain deterministic chronological / filename ordering
+            let mut sorted_stems: Vec<String> = stem_groups.keys().cloned().collect();
+            sorted_stems.sort();
+
+            for stem in sorted_stems {
+                if let Some((raw_opt, jpeg_opt)) = stem_groups.remove(&stem) {
+                    let frame_no = format!("{:02}A", items.len() + 1);
+                    match (raw_opt, jpeg_opt) {
+                        (Some((raw_path, raw_ext, raw_size)), Some((jpg_path, _jpg_ext, _jpg_size))) => {
+                            // RAW + JPEG Pair (Prioritize RAW as primary plate, attach JPEG as sidecar)
+                            let filename = raw_path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                            items.push(RawPhotoItem {
+                                file_path: raw_path.to_string_lossy().to_string(),
+                                filename,
+                                file_size: raw_size,
+                                extension: raw_ext,
+                                frame_no,
+                                exif: None,
+                                sidecar_path: Some(jpg_path.to_string_lossy().to_string()),
+                                format_type: "pair".to_string(),
+                            });
+                        }
+                        (Some((raw_path, raw_ext, raw_size)), None) => {
+                            // Single RAW
+                            let filename = raw_path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                            items.push(RawPhotoItem {
+                                file_path: raw_path.to_string_lossy().to_string(),
+                                filename,
+                                file_size: raw_size,
+                                extension: raw_ext,
+                                frame_no,
+                                exif: None,
+                                sidecar_path: None,
+                                format_type: "raw".to_string(),
+                            });
+                        }
+                        (None, Some((jpg_path, jpg_ext, jpg_size))) => {
+                            // Single JPEG
+                            let filename = jpg_path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                            items.push(RawPhotoItem {
+                                file_path: jpg_path.to_string_lossy().to_string(),
+                                filename,
+                                file_size: jpg_size,
+                                extension: jpg_ext,
+                                frame_no,
+                                exif: None,
+                                sidecar_path: None,
+                                format_type: "jpeg".to_string(),
+                            });
+                        }
+                        (None, None) => {}
+                    }
+                }
+            }
+
+            for sub_dir in sub_dirs {
+                Self::collect_photos(&sub_dir, items, depth + 1);
             }
         }
     }

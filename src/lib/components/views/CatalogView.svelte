@@ -18,6 +18,8 @@
     appliedProfile: string;
     gradedThumbnail?: string;
     aiDecision?: any;
+    sidecarPath?: string;
+    formatType?: 'raw' | 'jpeg' | 'pair';
   }
 
   interface Props {
@@ -94,6 +96,8 @@
   // Grid density: 'small' (dense) | 'medium' (standard) | 'large' (spacious)
   let gridDensity = $state<'small' | 'medium' | 'large'>('medium');
   let filterFlaggedOnly = $state<boolean>(false);
+  // Format filter: 'all' (all paired/single) | 'raw' (raw & pairs) | 'jpeg' (jpeg & pairs)
+  let formatFilter = $state<'all' | 'raw' | 'jpeg'>('all');
   let isQuickLookOpen = $state<boolean>(false);
 
   // ── 裝置與指標能力動態感應 (Adaptive Input & Device Sensing) ──
@@ -391,9 +395,18 @@
   }
 
   // Derived filtered photos
-  let displayedPhotos = $derived(
-    filterFlaggedOnly ? photos.filter(p => p.flagged) : photos
-  );
+  let displayedPhotos = $derived.by(() => {
+    let result = photos;
+    if (filterFlaggedOnly) {
+      result = result.filter(p => p.flagged);
+    }
+    if (formatFilter === 'raw') {
+      result = result.filter(p => p.formatType === 'raw' || p.formatType === 'pair');
+    } else if (formatFilter === 'jpeg') {
+      result = result.filter(p => p.formatType === 'jpeg' || p.formatType === 'pair');
+    }
+    return result;
+  });
 
   let flaggedCount = $derived(
     photos.filter(p => p.flagged).length
@@ -775,6 +788,40 @@
           <span>清除標記</span>
         </button>
 
+        <!-- RAW / JPEG Format Filter Selector -->
+        <div class="density-switch hairline-all font-mono" style="font-size: 11px;">
+          <button 
+            type="button" 
+            class="density-btn" 
+            class:active={formatFilter === 'all'}
+            onclick={() => formatFilter = 'all'}
+            title="顯示全部（包含成對合併底片）"
+            style="padding: 0 8px; width: auto;"
+          >
+            全部
+          </button>
+          <button 
+            type="button" 
+            class="density-btn" 
+            class:active={formatFilter === 'raw'}
+            onclick={() => formatFilter = 'raw'}
+            title="僅顯示包含 RAW 格式之底片"
+            style="padding: 0 8px; width: auto;"
+          >
+            RAW
+          </button>
+          <button 
+            type="button" 
+            class="density-btn" 
+            class:active={formatFilter === 'jpeg'}
+            onclick={() => formatFilter = 'jpeg'}
+            title="僅顯示包含 JPEG 格式之底片"
+            style="padding: 0 8px; width: auto;"
+          >
+            JPG
+          </button>
+        </div>
+
         <!-- Grid Density Selector -->
         <div class="density-switch hairline-all">
           <button 
@@ -947,7 +994,16 @@
 
             <!-- Footer Meta Bar -->
             <div class="film-card-footer font-mono">
-              <span class="filename-text truncate">{photo.filename}</span>
+              <span class="filename-text truncate">
+                {#if photo.formatType === 'pair'}
+                  <span class="format-tag-inline pair" title="RAW + JPEG 雙格式">RAW+JPG</span>
+                {:else if photo.formatType === 'raw'}
+                  <span class="format-tag-inline raw" title="RAW 光學數位底片">RAW</span>
+                {:else if photo.formatType === 'jpeg'}
+                  <span class="format-tag-inline jpg" title="JPEG 直出底片">JPG</span>
+                {/if}
+                {photo.filename}
+              </span>
               {#if showKeyboardHints}
                 <span class="hint-dblclick">雙擊精修 ↵</span>
               {:else if isMultiSelectMode}
@@ -1698,6 +1754,36 @@
 
   .filename-text {
     color: var(--parchment-muted);
+  }
+
+  .format-tag-inline {
+    display: inline-block;
+    font-size: 8px;
+    line-height: 1;
+    padding: 1px 4px;
+    border-radius: 2px;
+    margin-right: 4px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+  }
+
+  .format-tag-inline.pair {
+    background: rgba(229, 169, 59, 0.2);
+    color: #e5a93b;
+    border: 1px solid rgba(229, 169, 59, 0.4);
+  }
+
+  .format-tag-inline.raw {
+    background: rgba(100, 149, 237, 0.2);
+    color: #6495ed;
+    border: 1px solid rgba(100, 149, 237, 0.4);
+  }
+
+  .format-tag-inline.jpg {
+    background: rgba(160, 160, 160, 0.15);
+    color: #a0a0a0;
+    border: 1px solid rgba(160, 160, 160, 0.3);
   }
 
   .hint-dblclick {
