@@ -694,7 +694,7 @@
       <div class="drag-drop-modal hairline-all font-mono">
         <span class="material-symbols-outlined drag-drop-icon">cloud_upload</span>
         <h3 class="drag-drop-title font-headline">釋放以載入相片或相卷資料夾</h3>
-        <p class="drag-drop-desc">支援光學 RAW (.ARW · .CR2 · .CR3 · .NEF · .RAF · .DNG) 及標準 JPEG</p>
+        <p class="drag-drop-desc">將相片或相卷資料夾釋放至此即可載入暗房</p>
       </div>
     </div>
   {/if}
@@ -1059,7 +1059,7 @@
                 {isLoadingPhotos ? '正在解析光學 RAW / JPG 底片...' : '開啟相片目錄，或將資料夾 / 檔案拖放至此'}
               </div>
               <div class="pod-formats">
-                支援 Sony ARW · Canon CR2/CR3 · Nikon NEF · Fuji RAF · DNG · JPEG
+                點擊瀏覽選取，或直接拖放相片至暗房
               </div>
             </div>
             <div class="pod-action-hint">

@@ -2160,6 +2160,43 @@
     lastRemovedSnapshot = null;
   }
 
+  // Ingestion 反饋通知輔助函式：讓使用者清楚了解載入結果或未支援原因
+  function notifyIngestionResult(loadedCount: number, actionName: string = "相片") {
+    const summary = IngestionService.lastSummary;
+    const skipped = summary?.skippedCount || 0;
+    const skippedExts = summary?.skippedExtensions || [];
+    const extsText = skippedExts.length > 0
+      ? `（如 ${skippedExts.slice(0, 3).map((e) => "." + e.toUpperCase()).join(", ")}${skippedExts.length > 3 ? " 等" : ""}）`
+      : "";
+
+    if (loadedCount > 0) {
+      if (skipped > 0) {
+        toastStore.show(
+          `已成功載入 ${loadedCount} 幀底片（已略過 ${skipped} 個不支援或非影像檔案${extsText}）`,
+          "info",
+          4000
+        );
+      } else {
+        toastStore.show(`已成功載入 ${loadedCount} 幀底片 ✓`, "success", 2500);
+      }
+    } else {
+      // 未讀到任何相片
+      if (skipped > 0) {
+        toastStore.show(
+          `未在此${actionName}中找到支援的底片格式（已略過 ${skipped} 個不相容檔案${extsText}）。支援各大廠相機 RAW 及主流影像。`,
+          "warning",
+          5000
+        );
+      } else {
+        toastStore.show(
+          `未找到相片檔案。請確認目錄或檔案是否包含支援的相機 RAW 或影像。`,
+          "warning",
+          4000
+        );
+      }
+    }
+  }
+
   // Open directory and load real photos (Replace)
   async function handlePickDirectory() {
     isLoadingPhotos = true;
@@ -2170,6 +2207,7 @@
           IngestionService.currentDirectoryName || "相片資料夾";
         await loadPhotosFromItems(items, false);
       }
+      notifyIngestionResult(items.length, "目錄");
     } finally {
       isLoadingPhotos = false;
     }
@@ -2183,6 +2221,7 @@
       if (items.length > 0) {
         await loadPhotosFromItems(items, true);
       }
+      notifyIngestionResult(items.length, "目錄");
     } finally {
       isLoadingPhotos = false;
     }
@@ -2196,6 +2235,7 @@
       if (items.length > 0) {
         await loadPhotosFromItems(items, true);
       }
+      notifyIngestionResult(items.length, "選取項目");
     } finally {
       isLoadingPhotos = false;
     }
@@ -2212,6 +2252,7 @@
           IngestionService.currentDirectoryName || "相片資料夾";
         await loadPhotosFromItems(items, false);
       }
+      notifyIngestionResult(items.length, "目錄");
     } finally {
       isLoadingPhotos = false;
     }
@@ -2226,8 +2267,8 @@
         currentDirectoryName =
           IngestionService.currentDirectoryName || "拖放相片集";
         await loadPhotosFromItems(items);
-        toastStore.show(`已成功載入 ${items.length} 幀底片 ✓`, "success", 2500);
       }
+      notifyIngestionResult(items.length, "拖放內容");
     } catch (err) {
       console.warn("Drag and drop ingestion failed:", err);
       toastStore.show("載入相片失敗，請重試", "error", 3000);
@@ -2247,8 +2288,9 @@
           mount.volume_name ||
           IngestionService.currentDirectoryName ||
           "相機外接裝置";
+        await loadPhotosFromItems(items);
       }
-      await loadPhotosFromItems(items);
+      notifyIngestionResult(items.length, "相機裝置");
     } finally {
       isLoadingPhotos = false;
     }

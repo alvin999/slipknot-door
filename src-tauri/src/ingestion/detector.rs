@@ -1,12 +1,44 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::models::{CameraMountInfo, RawPhotoItem};
+use crate::models::{CameraMountInfo, RawPhotoItem, ScanDirectoryResult};
 use crate::ingestion::raw_extractor::RawExtractor;
 
-const RAW_EXTENSIONS: &[&str] = &["arw", "cr2", "cr3", "nef", "raf", "dng", "jpg", "jpeg"];
-const RAW_ONLY_EXTENSIONS: &[&str] = &["arw", "cr2", "cr3", "nef", "raf", "dng"];
-const JPEG_EXTENSIONS: &[&str] = &["jpg", "jpeg"];
+const RAW_EXTENSIONS: &[&str] = &[
+    "arw", "srf", "sr2", // Sony
+    "cr2", "cr3", "crw", // Canon
+    "nef", "nrw",        // Nikon
+    "raf",               // Fujifilm
+    "rw2",               // Panasonic / Lumix
+    "orf",               // Olympus / OM System
+    "pef", "ptx",        // Pentax / Ricoh
+    "rwl",               // Leica
+    "3fr", "fff",        // Hasselblad
+    "iiq",               // Phase One
+    "srw",               // Samsung
+    "x3f",               // Sigma
+    "dng",               // Adobe DNG
+    "jpg", "jpeg",       // Standard JPEG
+    "png", "webp",       // Standard Image
+];
+
+const RAW_ONLY_EXTENSIONS: &[&str] = &[
+    "arw", "srf", "sr2",
+    "cr2", "cr3", "crw",
+    "nef", "nrw",
+    "raf",
+    "rw2",
+    "orf",
+    "pef", "ptx",
+    "rwl",
+    "3fr", "fff",
+    "iiq",
+    "srw",
+    "x3f",
+    "dng",
+];
+
+const STANDARD_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp"];
 
 pub struct StorageDetector;
 
@@ -189,26 +221,53 @@ impl StorageDetector {
         count
     }
 
-    /// Scan directory and list raw photos
-    pub fn scan_directory(dir_path: &str) -> Result<Vec<RawPhotoItem>, String> {
+    /// Scan directory and list raw photos with diagnostic summary
+    pub fn scan_directory_with_summary(dir_path: &str) -> Result<ScanDirectoryResult, String> {
         let path = Path::new(dir_path);
         if !path.exists() || !path.is_dir() {
             return Err(format!("Directory does not exist: {}", dir_path));
         }
 
         let mut items = Vec::new();
-        Self::collect_photos(path, &mut items, 0);
+        let mut skipped_count = 0;
+        let mut skipped_exts_set = HashSet::new();
 
-        Ok(items)
+        Self::collect_photos_with_stats(
+            path,
+            &mut items,
+            &mut skipped_count,
+            &mut skipped_exts_set,
+            0,
+        );
+
+        let mut skipped_extensions: Vec<String> = skipped_exts_set.into_iter().collect();
+        skipped_extensions.sort();
+
+        Ok(ScanDirectoryResult {
+            items,
+            skipped_count,
+            skipped_extensions,
+        })
     }
 
-    fn collect_photos(dir: &Path, items: &mut Vec<RawPhotoItem>, depth: usize) {
+    /// Scan directory and list raw photos (legacy compatible interface)
+    pub fn scan_directory(dir_path: &str) -> Result<Vec<RawPhotoItem>, String> {
+        Self::scan_directory_with_summary(dir_path).map(|res| res.items)
+    }
+
+    fn collect_photos_with_stats(
+        dir: &Path,
+        items: &mut Vec<RawPhotoItem>,
+        skipped_count: &mut usize,
+        skipped_exts: &mut HashSet<String>,
+        depth: usize,
+    ) {
         if depth > 4 {
             return; // prevent excessive depth recursion
         }
 
         if let Ok(entries) = fs::read_dir(dir) {
-            // Group files in current directory by file stem to seamlessly pair RAW + JPEG
+            // Group files in current directory by file stem to seamlessly pair RAW + JPEG/Image
             let mut sub_dirs = Vec::new();
             let mut stem_groups: HashMap<String, (Option<(PathBuf, String, u64)>, Option<(PathBuf, String, u64)>)> = HashMap::new();
 
@@ -219,9 +278,9 @@ impl StorageDetector {
                 } else if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                     let ext_lower = ext.to_lowercase();
                     let is_raw = RAW_ONLY_EXTENSIONS.contains(&ext_lower.as_str());
-                    let is_jpeg = JPEG_EXTENSIONS.contains(&ext_lower.as_str());
+                    let is_img = STANDARD_IMAGE_EXTENSIONS.contains(&ext_lower.as_str());
 
-                    if is_raw || is_jpeg {
+                    if is_raw || is_img {
                         let filename = entry.file_name().to_string_lossy().to_string();
                         let file_size = entry.metadata().map(|m| m.len()).unwrap_or(0);
                         let stem = path.file_stem()
@@ -231,10 +290,16 @@ impl StorageDetector {
                         let entry_slot = stem_groups.entry(stem).or_insert((None, None));
                         if is_raw {
                             entry_slot.0 = Some((path, ext_lower, file_size));
-                        } else if is_jpeg {
+                        } else if is_img {
                             entry_slot.1 = Some((path, ext_lower, file_size));
                         }
+                    } else {
+                        // 記錄未支援或略過的檔案格式，提供載入精準反饋
+                        *skipped_count += 1;
+                        skipped_exts.insert(ext_lower);
                     }
+                } else {
+                    *skipped_count += 1;
                 }
             }
 
@@ -276,7 +341,7 @@ impl StorageDetector {
                             });
                         }
                         (None, Some((jpg_path, jpg_ext, jpg_size))) => {
-                            // Single JPEG
+                            // Single Image / JPEG
                             let filename = jpg_path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
                             items.push(RawPhotoItem {
                                 file_path: jpg_path.to_string_lossy().to_string(),
@@ -286,7 +351,7 @@ impl StorageDetector {
                                 frame_no,
                                 exif: None,
                                 sidecar_path: None,
-                                format_type: "jpeg".to_string(),
+                                format_type: "image".to_string(),
                             });
                         }
                         (None, None) => {}
@@ -295,7 +360,7 @@ impl StorageDetector {
             }
 
             for sub_dir in sub_dirs {
-                Self::collect_photos(&sub_dir, items, depth + 1);
+                Self::collect_photos_with_stats(&sub_dir, items, skipped_count, skipped_exts, depth + 1);
             }
         }
     }

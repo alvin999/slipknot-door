@@ -30,37 +30,66 @@ impl RawExtractor {
             .map_err(|e| format!("Cannot read metadata: {}", e))?;
         let file_size = metadata.len();
 
-        let (raw_buffer, jpeg_bytes) = match ext.as_str() {
+        let (raw_buffer, jpeg_bytes, mime_type) = match ext.as_str() {
             "jpg" | "jpeg" => {
                 let mut buffer = Vec::with_capacity(file_size as usize);
                 file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
-                (None, buffer)
+                (None, buffer, "image/jpeg".to_string())
+            }
+            "png" => {
+                let mut buffer = Vec::with_capacity(file_size as usize);
+                file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+                (None, buffer, "image/png".to_string())
+            }
+            "webp" => {
+                let mut buffer = Vec::with_capacity(file_size as usize);
+                file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+                (None, buffer, "image/webp".to_string())
             }
             "raf" => {
                 let bytes = Self::extract_from_fuji_raf(&mut file)?;
-                (None, bytes)
+                (None, bytes, "image/jpeg".to_string())
             }
             "cr3" => {
                 let bytes = Self::extract_from_cr3(&mut file, file_size)?;
-                (None, bytes)
+                (None, bytes, "image/jpeg".to_string())
             }
             _ => {
-                // TIFF-based RAW files (ARW, NEF, CR2, DNG, etc.)
+                // TIFF-based RAW files (ARW, NEF, CR2, DNG, RW2, ORF, PEF, RWL, 3FR, IIQ, etc.)
                 let (buf, jpeg) = Self::extract_from_tiff_raw_with_buffer(&mut file, file_size)?;
-                (Some(buf), jpeg)
+                (Some(buf), jpeg, "image/jpeg".to_string())
             }
         };
 
         let extraction_time_ms = start_time.elapsed().as_millis() as u64;
 
         // Extract real optical EXIF metadata directly from RAW TIFF header, falling back to JPEG payload
-        let exif = Self::extract_comprehensive_exif(raw_buffer.as_deref(), &jpeg_bytes, path);
+        let exif = if ext == "png" || ext == "webp" {
+            ExifMetadata {
+                camera_model: format!("{} 影像", ext.to_uppercase()),
+                lens_model: "標準鏡頭".to_string(),
+                iso: 100,
+                shutter_speed: "--".to_string(),
+                aperture: "--".to_string(),
+                focal_length: "--".to_string(),
+                date_time: "--".to_string(),
+                color_space: Some("sRGB".to_string()),
+                exposure_bias: None,
+                exposure_program: None,
+                metering_mode: None,
+                color_temp: None,
+                tint: None,
+                flash: None,
+            }
+        } else {
+            Self::extract_comprehensive_exif(raw_buffer.as_deref(), &jpeg_bytes, path)
+        };
 
         let jpeg_base64 = BASE64.encode(&jpeg_bytes);
 
         Ok(EmbeddedPreviewResult {
             file_path: file_path_str.to_string(),
-            mime_type: "image/jpeg".to_string(),
+            mime_type,
             jpeg_base64,
             extraction_time_ms,
             exif,

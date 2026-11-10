@@ -47,3 +47,10 @@ pub struct EmbeddedPreviewResult {
     pub extraction_time_ms: u64,
     pub exif: ExifMetadata,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanDirectoryResult {
+    pub items: Vec<RawPhotoItem>,
+    pub skipped_count: usize,
+    pub skipped_extensions: Vec<String>,
+}

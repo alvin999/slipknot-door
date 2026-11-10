@@ -4,7 +4,7 @@ pub mod models;
 
 use export::{delete_photo_file, resolve_export_path, save_exported_file};
 use ingestion::{RawExtractor, StorageDetector};
-use models::{CameraMountInfo, EmbeddedPreviewResult, RawPhotoItem};
+use models::{CameraMountInfo, EmbeddedPreviewResult, RawPhotoItem, ScanDirectoryResult};
 
 // Tauri Commands for Ingestion & Fast Preview (Executed on dedicated threadpool to keep Webview IPC non-blocking)
 
@@ -18,6 +18,13 @@ async fn detect_camera_mounts() -> Result<Vec<CameraMountInfo>, String> {
 #[tauri::command]
 async fn scan_dcim_directory(path: String) -> Result<Vec<RawPhotoItem>, String> {
     tauri::async_runtime::spawn_blocking(move || StorageDetector::scan_directory(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn scan_directory_with_summary(path: String) -> Result<ScanDirectoryResult, String> {
+    tauri::async_runtime::spawn_blocking(move || StorageDetector::scan_directory_with_summary(&path))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -37,6 +44,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             detect_camera_mounts,
             scan_dcim_directory,
+            scan_directory_with_summary,
             extract_embedded_jpeg,
             save_exported_file,
             resolve_export_path,

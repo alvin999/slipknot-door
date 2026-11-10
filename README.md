@@ -166,12 +166,20 @@ graph TD
 
 ## 支援格式與相容性矩陣
 
-* **Sony**：`.ARW`
-* **Canon**：`.CR2`, `.CR3`
-* **Nikon**：`.NEF`
+* **Sony**：`.ARW`, `.SRF`, `.SR2`
+* **Canon**：`.CR2`, `.CR3`, `.CRW`
+* **Nikon**：`.NEF`, `.NRW`
 * **Fujifilm**：`.RAF`
-* **Leica / Ricoh / 通用數位負片**：`.DNG`
-* **標準影像格式**：`.JPG`, `.JPEG`
+* **Panasonic / Lumix**：`.RW2`
+* **Olympus / OM System**：`.ORF`
+* **Pentax / Ricoh**：`.PEF`, `.PTX`
+* **Leica**：`.RWL`, `.DNG`
+* **Hasselblad (哈蘇)**：`.3FR`, `.FFF`
+* **Phase One (飛思)**：`.IIQ`
+* **Samsung**：`.SRW`
+* **Sigma (適馬)**：`.X3F`
+* **通用數位負片 / 開放標準 RAW**：`.DNG`
+* **標準影像格式**：`.JPG`, `.JPEG`, `.PNG`, `.WEBP`
 
 ---
 

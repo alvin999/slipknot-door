@@ -252,9 +252,39 @@ function parseTiffExifFromBytes(bytes: Uint8Array): {
   return result;
 }
 
-const SUPPORTED_EXTS = ['arw', 'cr2', 'cr3', 'nef', 'raf', 'dng', 'jpg', 'jpeg'];
+export const SUPPORTED_RAW_EXTS = [
+  'arw', 'srf', 'sr2', // Sony
+  'cr2', 'cr3', 'crw', // Canon
+  'nef', 'nrw',        // Nikon
+  'raf',               // Fujifilm
+  'rw2',               // Panasonic / Lumix
+  'orf',               // Olympus / OM System
+  'pef', 'ptx',        // Pentax / Ricoh
+  'rwl',               // Leica
+  '3fr', 'fff',        // Hasselblad
+  'iiq',               // Phase One
+  'srw',               // Samsung
+  'x3f',               // Sigma
+  'dng'                // Adobe / Open RAW
+];
+
+export const SUPPORTED_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
+
+export const SUPPORTED_EXTS = [...SUPPORTED_RAW_EXTS, ...SUPPORTED_IMAGE_EXTS];
+
+export const ACCEPTED_EXTENSIONS_STRING = SUPPORTED_EXTS.map((ext) => `.${ext}`).join(',');
+
+export interface IngestionSummary {
+  loadedCount: number;
+  skippedCount: number;
+  skippedExtensions: string[];
+}
 
 export class IngestionService {
+  /**
+   * 最近一次載入的診斷摘要（包含載入相片數與略過的未支援檔案資訊）
+   */
+  public static lastSummary: IngestionSummary | null = null;
   /**
    * 實體刪除磁碟底片檔案（優先移入系統資源回收筒/垃圾桶）
    */
@@ -467,9 +497,29 @@ export class IngestionService {
     if (this.isTauri()) {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
-        return await invoke<RawPhotoItem[]>('scan_dcim_directory', { path });
+        const res = await invoke<any>('scan_directory_with_summary', { path });
+        if (res && Array.isArray(res.items)) {
+          this.lastSummary = {
+            loadedCount: res.items.length,
+            skippedCount: res.skipped_count || 0,
+            skippedExtensions: res.skipped_extensions || []
+          };
+          return res.items;
+        }
       } catch (err) {
-        console.warn('Tauri scan_dcim_directory failed:', err);
+        console.warn('Tauri scan_directory_with_summary failed, falling back to legacy scan:', err);
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const legacyItems = await invoke<RawPhotoItem[]>('scan_dcim_directory', { path });
+          this.lastSummary = {
+            loadedCount: legacyItems.length,
+            skippedCount: 0,
+            skippedExtensions: []
+          };
+          return legacyItems;
+        } catch (legacyErr) {
+          console.warn('Tauri scan_dcim_directory failed:', legacyErr);
+        }
       }
     }
 
@@ -479,6 +529,11 @@ export class IngestionService {
       if (res.ok) {
         const items = await res.json();
         if (Array.isArray(items)) {
+          this.lastSummary = {
+            loadedCount: items.length,
+            skippedCount: 0,
+            skippedExtensions: []
+          };
           return items;
         }
       }
@@ -486,6 +541,7 @@ export class IngestionService {
       // Ignored
     }
 
+    this.lastSummary = { loadedCount: 0, skippedCount: 0, skippedExtensions: [] };
     return [];
   }
 
@@ -524,6 +580,8 @@ export class IngestionService {
         this.addRecentDirectory(dirHandle.name, dirHandle.name || '相片資料夾');
         const items: RawPhotoItem[] = [];
         let index = 1;
+        let skippedCount = 0;
+        const skippedExts = new Set<string>();
 
         for await (const entry of dirHandle.values()) {
           if (entry.kind === 'file') {
@@ -539,9 +597,17 @@ export class IngestionService {
                 fileHandle: file
               });
               index++;
+            } else {
+              skippedCount++;
+              if (ext) skippedExts.add(ext);
             }
           }
         }
+        this.lastSummary = {
+          loadedCount: items.length,
+          skippedCount,
+          skippedExtensions: Array.from(skippedExts).sort()
+        };
         return items;
       } catch (err: any) {
         if (err.name === 'AbortError') return [];
@@ -568,6 +634,8 @@ export class IngestionService {
         }
         const items: RawPhotoItem[] = [];
         let index = 1;
+        let skippedCount = 0;
+        const skippedExts = new Set<string>();
 
         for (const file of files) {
           const ext = file.name.split('.').pop()?.toLowerCase() || '';
@@ -581,8 +649,16 @@ export class IngestionService {
               fileHandle: file
             });
             index++;
+          } else {
+            skippedCount++;
+            if (ext) skippedExts.add(ext);
           }
         }
+        this.lastSummary = {
+          loadedCount: items.length,
+          skippedCount,
+          skippedExtensions: Array.from(skippedExts).sort()
+        };
         if (input.parentNode) {
           document.body.removeChild(input);
         }
@@ -613,11 +689,11 @@ export class IngestionService {
         const selected = await open({
           directory: false,
           multiple: true,
-          title: '選取相片底片 (RAW / JPG)',
+          title: '選取相片底片 (相機 RAW / 影像)',
           filters: [
             {
-              name: 'Photographic Plates',
-              extensions: ['arw', 'cr2', 'cr3', 'nef', 'raf', 'dng', 'jpg', 'jpeg']
+              name: 'Photographic Plates & RAW',
+              extensions: SUPPORTED_EXTS
             }
           ]
         });
@@ -636,6 +712,11 @@ export class IngestionService {
               frame_no: `${String(i + 1).padStart(2, '0')}A`
             });
           }
+          this.lastSummary = {
+            loadedCount: items.length,
+            skippedCount: 0,
+            skippedExtensions: []
+          };
           return items;
         }
         return [];
@@ -653,14 +734,17 @@ export class IngestionService {
             {
               description: 'Photos & RAW Plates',
               accept: {
-                'image/*': ['.jpg', '.jpeg', '.dng'],
-                'application/octet-stream': ['.arw', '.cr2', '.cr3', '.nef', '.raf']
+                'image/*': ['.jpg', '.jpeg', '.png', '.webp', '.dng'],
+                'application/octet-stream': SUPPORTED_RAW_EXTS.filter((e) => e !== 'dng').map((e) => `.${e}`)
               }
             }
           ]
         });
         const items: RawPhotoItem[] = [];
         let index = 1;
+        let skippedCount = 0;
+        const skippedExts = new Set<string>();
+
         for (const handle of handles) {
           const file: File = await handle.getFile();
           const ext = file.name.split('.').pop()?.toLowerCase() || '';
@@ -674,8 +758,16 @@ export class IngestionService {
               fileHandle: file
             });
             index++;
+          } else {
+            skippedCount++;
+            if (ext) skippedExts.add(ext);
           }
         }
+        this.lastSummary = {
+          loadedCount: items.length,
+          skippedCount,
+          skippedExtensions: Array.from(skippedExts).sort()
+        };
         return items;
       } catch (err: any) {
         if (err.name === 'AbortError') return [];
@@ -688,7 +780,7 @@ export class IngestionService {
       const input = document.createElement('input');
       input.type = 'file';
       input.multiple = true;
-      input.accept = '.jpg,.jpeg,.arw,.cr2,.cr3,.nef,.raf,.dng';
+      input.accept = ACCEPTED_EXTENSIONS_STRING;
       input.style.display = 'none';
       document.body.appendChild(input);
 
@@ -696,6 +788,9 @@ export class IngestionService {
         const files = Array.from(input.files || []);
         const items: RawPhotoItem[] = [];
         let index = 1;
+        let skippedCount = 0;
+        const skippedExts = new Set<string>();
+
         for (const file of files) {
           const ext = file.name.split('.').pop()?.toLowerCase() || '';
           if (SUPPORTED_EXTS.includes(ext)) {
@@ -708,8 +803,16 @@ export class IngestionService {
               fileHandle: file
             });
             index++;
+          } else {
+            skippedCount++;
+            if (ext) skippedExts.add(ext);
           }
         }
+        this.lastSummary = {
+          loadedCount: items.length,
+          skippedCount,
+          skippedExtensions: Array.from(skippedExts).sort()
+        };
         if (input.parentNode) document.body.removeChild(input);
         resolve(items);
       };
@@ -728,6 +831,8 @@ export class IngestionService {
    */
   public static async processDataTransfer(dataTransfer: DataTransfer): Promise<RawPhotoItem[]> {
     const rawFiles: File[] = [];
+    let skippedCount = 0;
+    const skippedExts = new Set<string>();
 
     // 1. Check if webkitGetAsEntry is available for directory traversal
     const items = dataTransfer.items;
@@ -745,6 +850,9 @@ export class IngestionService {
               const ext = file.name.split('.').pop()?.toLowerCase() || '';
               if (SUPPORTED_EXTS.includes(ext)) {
                 rawFiles.push(file);
+              } else {
+                skippedCount++;
+                if (ext) skippedExts.add(ext);
               }
               resolve();
             }, () => resolve());
@@ -776,9 +884,18 @@ export class IngestionService {
         const ext = file.name.split('.').pop()?.toLowerCase() || '';
         if (SUPPORTED_EXTS.includes(ext)) {
           rawFiles.push(file);
+        } else {
+          skippedCount++;
+          if (ext) skippedExts.add(ext);
         }
       }
     }
+
+    this.lastSummary = {
+      loadedCount: rawFiles.length,
+      skippedCount,
+      skippedExtensions: Array.from(skippedExts).sort()
+    };
 
     if (rawFiles.length > 0) {
       this.currentDirectoryName = rawFiles.length === 1 ? rawFiles[0].name : '拖入相片集';
@@ -829,17 +946,18 @@ export class IngestionService {
     if (fileBlob) {
       const ext = fileBlob.name.split('.').pop()?.toLowerCase() || '';
       
-      // If regular JPEG, standard blob URL is fine
-      if (ext === 'jpg' || ext === 'jpeg') {
+      // If standard image (JPEG, PNG, WebP), standard blob URL is fine
+      if (SUPPORTED_IMAGE_EXTS.includes(ext)) {
+        const mime = ext === 'png' ? 'image/png' : (ext === 'webp' ? 'image/webp' : 'image/jpeg');
         const blobUrl = this.createTrackedBlobUrl(fileBlob);
         return {
           file_path: filePath,
-          mime_type: 'image/jpeg',
+          mime_type: mime,
           jpeg_base64: '',
           blob_url: blobUrl,
           extraction_time_ms: Math.round(performance.now() - startTime) || 8,
           exif: {
-            camera_model: 'JPEG 相片',
+            camera_model: `${ext.toUpperCase()} 相片`,
             lens_model: '標準鏡頭',
             iso: 100,
             shutter_speed: '--',
