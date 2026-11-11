@@ -28,7 +28,7 @@
   import { darkroomState } from "$lib/stores/darkroomState.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
   import { lutCatalog } from "$lib/stores/lutCatalog.svelte";
-  import { WebglLutRenderer } from "$lib/services/webglLutRenderer";
+  import { thumbnailRenderService } from "$lib/services/thumbnailRenderService.svelte";
   import { type CustomLutRecord } from "$lib/services/customLutService";
   import {
     ExportService,
@@ -81,9 +81,23 @@
     refreshCameraMounts();
     refreshKeyStatus();
 
+    // 註冊離屏縮圖渲染完成後的狀態同步回呼
+    thumbnailRenderService.onThumbnailRendered = (photoId, dataUrl) => {
+      photoPlates = photoPlates.map((p) =>
+        p.id === photoId ? { ...p, gradedThumbnail: dataUrl } : p,
+      );
+      if (
+        activePhoto &&
+        activePhoto.id === photoId &&
+        activePhoto.gradedThumbnail !== dataUrl
+      ) {
+        activePhoto.gradedThumbnail = dataUrl;
+      }
+    };
+
     // 載入使用者自訂 3D LUT 並同步至 WebGL 著色器
     lutCatalog.loadCustomLuts().then(() => {
-      syncCustomLutsToRenderers();
+      thumbnailRenderService.syncCustomLuts();
     });
 
     // 背景熱插拔偵測：每 4 秒檢查一次外接相機與儲存裝置連線狀態
@@ -341,13 +355,6 @@
 
   // 裁切長寬比由 darkroomState.applyAspectRatioPreset() 統一管理
 
-  // Dedicated Offscreen WebGL Renderer for Catalog Thumbnails
-  let offscreenCanvas: HTMLCanvasElement | null = null;
-  let offscreenRenderer: WebglLutRenderer | null = null;
-  const thumbnailRenderQueue: PhotoPlate[] = [];
-  let isProcessingQueue = false;
-  let sliderThumbnailTimer: ReturnType<typeof setTimeout> | null = null;
-
   // AI 風格調色狀態 (Neural Bespoke Style Grading)
   let activeStylePreset = $state<StylePresetKey>("auto"); // 每次載入預設為 AI 自動配對
   let previewHoverProfileId = $state<string | null>(null);
@@ -374,18 +381,16 @@
   const userCustomLuts = $derived(lutCatalog.userCustomLuts);
   const allProfiles = $derived(lutCatalog.allProfiles);
   const allStyleGradingPresets = $derived(lutCatalog.allStyleGradingPresets);
-
-  function syncCustomLutsToRenderers() {
-    if (userCustomLuts.length === 0) return;
-    offscreenRenderer?.registerCustomLuts(userCustomLuts);
-    stylePreviewRenderer?.registerCustomLuts(userCustomLuts);
-  }
+  const stylePreviewThumbs = $derived(thumbnailRenderService.stylePreviewThumbs);
 
   async function handleImportCustomLut(lut: CustomLutRecord) {
     await lutCatalog.importCustomLut(lut);
-    syncCustomLutsToRenderers();
+    thumbnailRenderService.syncCustomLuts();
     if (activePhoto?.thumbnail) {
-      generateStylePreviews(activePhoto.thumbnail);
+      thumbnailRenderService.updateStylePreviewsForThumbnail(
+        activePhoto.thumbnail,
+        true,
+      );
     }
   }
 
@@ -395,9 +400,12 @@
 
   async function handleUpdateCustomLut(lut: CustomLutRecord) {
     await lutCatalog.updateCustomLut(lut);
-    syncCustomLutsToRenderers();
+    thumbnailRenderService.syncCustomLuts();
     if (activePhoto?.thumbnail) {
-      generateStylePreviews(activePhoto.thumbnail);
+      thumbnailRenderService.updateStylePreviewsForThumbnail(
+        activePhoto.thumbnail,
+        true,
+      );
     }
   }
 
@@ -1005,388 +1013,15 @@
     }
   }
 
-  /**
-   * 離屏 WebGL 縮圖批次渲染管線 (方案 B)
-   */
-  function ensureOffscreenRenderer(): boolean {
-    if (offscreenRenderer) return true;
-    if (typeof document === "undefined") return false;
-    offscreenCanvas = document.createElement("canvas");
-    offscreenCanvas.width = 400;
-    offscreenCanvas.height = 300;
-    offscreenRenderer = new WebglLutRenderer();
-    const ok = offscreenRenderer.initialize(offscreenCanvas);
-    if (ok && userCustomLuts.length > 0) {
-      offscreenRenderer.registerCustomLuts(userCustomLuts);
-    }
-    return ok;
-  }
-
   function enqueueThumbnailRender(plate: PhotoPlate) {
-    if (!thumbnailRenderQueue.some((p) => p.id === plate.id)) {
-      thumbnailRenderQueue.push(plate);
-    }
-    if (!isProcessingQueue) {
-      processThumbnailQueue();
-    }
-  }
-
-  // 風格卡片小預覽：以當前相片縮圖套用各風格 LUT 後的結果（獨立小型渲染器，避免干擾縮圖佇列）
-  let stylePreviewThumbs = $state<Record<string, string>>({});
-  let stylePreviewCanvas: HTMLCanvasElement | null = null;
-  let stylePreviewRenderer: WebglLutRenderer | null = null;
-  let stylePreviewToken = 0;
-  let lastStylePreviewSource = "";
-
-  async function generateStylePreviews(thumbnail: string) {
-    const token = ++stylePreviewToken;
-    if (typeof document === "undefined" || !thumbnail) return;
-    if (!stylePreviewRenderer) {
-      stylePreviewCanvas = document.createElement("canvas");
-      stylePreviewCanvas.width = 160;
-      stylePreviewCanvas.height = 107;
-      const r = new WebglLutRenderer();
-      if (!r.initialize(stylePreviewCanvas)) return;
-      if (userCustomLuts.length > 0) {
-        r.registerCustomLuts(userCustomLuts);
-      }
-      stylePreviewRenderer = r;
-    }
-    try {
-      const img = new Image();
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = (e) => reject(e);
-        img.src = thumbnail;
-      });
-      const next: Record<string, string> = {};
-      for (const preset of allStyleGradingPresets) {
-        if (token !== stylePreviewToken) return; // 已切換相片，放棄過期結果
-        if (!preset.profileId) continue;
-        if (preset.profileId === "Profile_00_StandardNatural") {
-          next[preset.key] = thumbnail;
-          continue;
-        }
-        const prof = allProfiles.find((p) => p.id === preset.profileId);
-        stylePreviewRenderer.setImageSource(img);
-        stylePreviewRenderer.setProfile(preset.profileId);
-        stylePreviewRenderer.render(
-          {
-            exposure: prof?.evDefault ?? 0,
-            contrast: prof?.contrastDefault ?? 0,
-            colorTemp: 5500,
-            tint: 0,
-            shadowLift: prof?.shadowsDefault ?? 0,
-            lutIntensity: prof?.lutIntensityDefault ?? 1,
-            bypassLut: false,
-            clarity: 0,
-            sharpness: 0,
-          },
-          160,
-          107,
-        );
-        const url = stylePreviewRenderer.exportDataUrl("image/jpeg", 0.7);
-        if (url) next[preset.key] = url;
-        // 讓出主執行緒，避免卡住 UI
-        await new Promise((r) => setTimeout(r, 0));
-      }
-      if (token === stylePreviewToken) stylePreviewThumbs = next;
-    } catch (err) {
-      console.warn("[StylePreview] 風格預覽生成失敗:", err);
-    }
+    thumbnailRenderService.enqueueThumbnailRender(plate);
   }
 
   $effect(() => {
-    const thumb = activePhoto?.thumbnail;
-    if (thumb) {
-      if (thumb !== lastStylePreviewSource) {
-        lastStylePreviewSource = thumb;
-        generateStylePreviews(thumb);
-      }
-    } else {
-      lastStylePreviewSource = "";
-      stylePreviewToken++;
-      stylePreviewThumbs = {};
-    }
+    thumbnailRenderService.updateStylePreviewsForThumbnail(
+      activePhoto?.thumbnail,
+    );
   });
-
-  async function processThumbnailQueue() {
-    if (thumbnailRenderQueue.length === 0) {
-      isProcessingQueue = false;
-      return;
-    }
-    isProcessingQueue = true;
-
-    if (!ensureOffscreenRenderer() || !offscreenRenderer) {
-      isProcessingQueue = false;
-      return;
-    }
-
-    const plate = thumbnailRenderQueue.shift();
-    if (plate && plate.thumbnail) {
-      if (
-        plate.appliedProfile === "Profile_00_StandardNatural" &&
-        !plate.tuning
-      ) {
-        if (plate.gradedThumbnail !== undefined) {
-          plate.gradedThumbnail = undefined;
-          photoPlates = photoPlates.map((p) =>
-            p.id === plate.id ? { ...p, gradedThumbnail: undefined } : p,
-          );
-        }
-        if (
-          activePhoto &&
-          activePhoto.id === plate.id &&
-          activePhoto.gradedThumbnail !== undefined
-        ) {
-          activePhoto.gradedThumbnail = undefined;
-        }
-      } else {
-        try {
-          const img = new Image();
-          await new Promise<void>((resolve, reject) => {
-            img.onload = () => resolve();
-            img.onerror = (e) => reject(e);
-            img.src = plate.thumbnail;
-          });
-
-          const isCurrentActive = activePhoto && activePhoto.id === plate.id;
-          const found = profiles.find((p) => p.id === plate.appliedProfile);
-          const currentEv = isCurrentActive
-            ? exposure
-            : (plate.tuning?.exposure ??
-              (found ? found.evDefault : (plate.asShotExposure ?? 0.0)));
-          const currentContrast = isCurrentActive
-            ? contrast
-            : (plate.tuning?.contrast ??
-              (found ? found.contrastDefault || 0.0 : 0.0));
-          const currentTemp = isCurrentActive
-            ? colorTemp
-            : (plate.tuning?.colorTemp ?? plate.asShotTemp ?? 5500);
-          const currentTint = isCurrentActive
-            ? tint
-            : (plate.tuning?.tint ?? plate.asShotTint ?? 0.0);
-          const currentLut = isCurrentActive
-            ? lutIntensity
-            : (plate.tuning?.lutIntensity ??
-              (found ? found.lutIntensityDefault : 1.0));
-          const currentShadows = isCurrentActive
-            ? shadows
-            : (plate.tuning?.shadows ??
-              (found ? (found.shadowsDefault ?? 0.0) : 0.0));
-          const currentClarity = isCurrentActive
-            ? clarity
-            : (plate.tuning?.clarity ??
-              (found ? (found.clarityDefault ?? 0.0) : 0.0));
-          const currentSharpness = isCurrentActive
-            ? sharpness
-            : (plate.tuning?.sharpness ??
-              (found ? (found.sharpnessDefault ?? 0.0) : 0.0));
-          const currentColorDensity = isCurrentActive
-            ? colorDensity
-            : (plate.tuning?.colorDensity ?? 0.0);
-          const currentShadowHue = isCurrentActive
-            ? shadowHue
-            : (plate.tuning?.shadowHue ?? 200);
-          const currentShadowTintAmount = isCurrentActive
-            ? shadowTintAmount
-            : (plate.tuning?.shadowTintAmount ?? 0.0);
-          const currentHighlightHue = isCurrentActive
-            ? highlightHue
-            : (plate.tuning?.highlightHue ?? 40);
-          const currentHighlightTintAmount = isCurrentActive
-            ? highlightTintAmount
-            : (plate.tuning?.highlightTintAmount ?? 0.0);
-          const currentHalation = isCurrentActive
-            ? halation
-            : (plate.tuning?.halation ?? 0.0);
-          const currentGrainAmount = isCurrentActive
-            ? grainAmount
-            : (plate.tuning?.grainAmount ?? 0.15);
-          const currentHighlights = isCurrentActive
-            ? highlights
-            : (plate.tuning?.highlights ??
-              (found ? (found.highlightsDefault ?? 0.0) : 0.0));
-          const currentBlacks = isCurrentActive
-            ? blacks
-            : (plate.tuning?.blacks ?? 0.0);
-          const currentVibrance = isCurrentActive
-            ? vibrance
-            : (plate.tuning?.vibrance ?? 0.0);
-          const currentVignette = isCurrentActive
-            ? vignette
-            : (plate.tuning?.vignette ?? 0.0);
-          const currentMonochrome = isCurrentActive
-            ? monochrome
-            : (plate.tuning?.monochrome ?? false);
-          const currentHsl = isCurrentActive ? hsl : plate.tuning?.hsl;
-
-          offscreenRenderer.setImageSource(img);
-          offscreenRenderer.setProfile(plate.appliedProfile);
-          offscreenRenderer.render(
-            {
-              exposure: currentEv,
-              highlights: currentHighlights,
-              contrast: currentContrast,
-              blacks: currentBlacks,
-              colorTemp: currentTemp,
-              tint: currentTint,
-              vibrance: currentVibrance,
-              shadowLift: currentShadows,
-              lutIntensity: currentLut,
-              bypassLut: plate.appliedProfile === "Profile_00_StandardNatural",
-              clarity: currentClarity,
-              sharpness: currentSharpness,
-              colorDensity: currentColorDensity,
-              shadowHue: currentShadowHue,
-              shadowTintAmount: currentShadowTintAmount,
-              highlightHue: currentHighlightHue,
-              highlightTintAmount: currentHighlightTintAmount,
-              halation: currentHalation,
-              grainAmount: currentGrainAmount,
-              vignette: currentVignette,
-              monochrome: currentMonochrome,
-              hsl: currentHsl,
-            },
-            img.naturalWidth || 400,
-            img.naturalHeight || 300,
-          );
-
-          const dataUrl = offscreenRenderer.exportDataUrl("image/jpeg", 0.85);
-          if (dataUrl && plate.gradedThumbnail !== dataUrl) {
-            plate.gradedThumbnail = dataUrl;
-            photoPlates = photoPlates.map((p) =>
-              p.id === plate.id ? { ...p, gradedThumbnail: dataUrl } : p,
-            );
-            if (
-              activePhoto &&
-              activePhoto.id === plate.id &&
-              activePhoto.gradedThumbnail !== dataUrl
-            ) {
-              activePhoto.gradedThumbnail = dataUrl;
-            }
-          }
-        } catch (err) {
-          console.warn("[ThumbnailRenderer] 縮圖渲染略過或失敗:", err);
-        }
-      }
-    }
-
-    // 稍微延遲讓出主執行緒，確保 60FPS 流暢（批次時拉長間隔防止吃滿 GPU 與 CPU 資源）
-    const queueInterval = isBatchAiRunning ? 100 : 25;
-    setTimeout(processThumbnailQueue, queueInterval);
-  }
-
-  /**
-   * 雙圖閉環覆審專用：以 Pass 1 決策參數極速渲染 1024px 預覽縮圖供 AI 覆審比對
-   */
-  async function renderPass1PreviewForCritic(
-    previewSrc: string,
-    decision: any,
-    targetMonochrome = false,
-  ): Promise<string | null> {
-    if (!ensureOffscreenRenderer() || !offscreenRenderer) return null;
-    try {
-      // 確保格式為有效之圖片 URI
-      let safeSrc = previewSrc;
-      if (
-        !safeSrc.startsWith("data:") &&
-        !safeSrc.startsWith("blob:") &&
-        !safeSrc.startsWith("http") &&
-        !safeSrc.startsWith("asset:")
-      ) {
-        safeSrc = `data:image/jpeg;base64,${safeSrc}`;
-      }
-
-      const img = new Image();
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          img.onload = null;
-          img.onerror = null;
-          if (img.naturalWidth > 0) {
-            resolve();
-          } else {
-            reject(new Error("覆審縮圖載入逾時 (>3s)"));
-          }
-        }, 3000);
-
-        img.onload = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-        img.onerror = (e) => {
-          clearTimeout(timer);
-          reject(e);
-        };
-        img.src = safeSrc;
-
-        // 若圖片已在快取完成解碼，立即推進
-        if (img.complete && img.naturalWidth > 0) {
-          clearTimeout(timer);
-          resolve();
-        }
-      });
-
-      const forcedProfileId =
-        activeStylePreset !== "auto"
-          ? allStyleGradingPresets.find((sp) => sp.key === activeStylePreset)
-              ?.profileId
-          : undefined;
-      const targetProf =
-        forcedProfileId ||
-        decision.recommended_profile ||
-        "Profile_00_StandardNatural";
-
-      const maxDim = 1024;
-      let targetW = img.naturalWidth || 400;
-      let targetH = img.naturalHeight || 300;
-      if (targetW > maxDim || targetH > maxDim) {
-        if (targetW > targetH) {
-          targetH = Math.round((targetH * maxDim) / targetW);
-          targetW = maxDim;
-        } else {
-          targetW = Math.round((targetW * maxDim) / targetH);
-          targetH = maxDim;
-        }
-      }
-
-      offscreenRenderer.setImageSource(img);
-      offscreenRenderer.setProfile(targetProf);
-      offscreenRenderer.render(
-        {
-          exposure: decision.exposure_compensation ?? 0.0,
-          highlights: decision.highlights ?? 0.0,
-          contrast: decision.contrast ?? 0.0,
-          blacks: decision.blacks ?? 0.0,
-          colorTemp: decision.color_temp ?? 5500,
-          tint: decision.tint ?? 0.0,
-          vibrance: decision.vibrance ?? 0.0,
-          shadowLift: decision.lift_shadows ?? 0.0,
-          lutIntensity: decision.lut_intensity ?? 1.0,
-          bypassLut: targetProf === "Profile_00_StandardNatural",
-          clarity: decision.clarity ?? 0.0,
-          sharpness: decision.sharpness ?? 0.0,
-          colorDensity: decision.color_density ?? 0.0,
-          shadowHue: decision.shadow_hue ?? 200,
-          shadowTintAmount: decision.shadow_tint_amount ?? 0.0,
-          highlightHue: decision.highlight_hue ?? 40,
-          highlightTintAmount: decision.highlight_tint_amount ?? 0.0,
-          halation: decision.halation ?? 0.0,
-          grainAmount: decision.grain_amount ?? 0.15,
-          vignette: decision.vignette ?? 0.0,
-          monochrome: targetMonochrome,
-          hsl: decision.hsl,
-        },
-        targetW,
-        targetH,
-      );
-
-      return offscreenRenderer.exportDataUrl("image/jpeg", 0.8);
-    } catch (err) {
-      console.warn("[Pass1CriticRenderer] 預覽生成失敗:", err);
-      return null;
-    }
-  }
 
   /**
    * 一鍵還原為相機原生拍攝參數（As Shot WB & Exposure）
@@ -2721,7 +2356,12 @@
             await appendAiLog(msg, 15);
           },
           renderPreview: (src, dec) =>
-            renderPass1PreviewForCritic(src, dec, targetMonochrome),
+            thumbnailRenderService.renderPass1PreviewForCritic(
+              src,
+              dec,
+              targetMonochrome,
+              activeStylePreset,
+            ),
           scope: aiScope,
         },
       );
