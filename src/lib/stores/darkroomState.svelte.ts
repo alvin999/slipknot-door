@@ -13,6 +13,7 @@ import {
   type HslAdjustments,
 } from "$lib/types/photo";
 import type { PhotoPlateItem } from "./photoLibrary.svelte";
+import { lutCatalog } from "./lutCatalog.svelte";
 import type { StyleKeywordId } from "$lib/services/ai/types";
 import { composeStyleKeywordPrompt, STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
 
@@ -882,6 +883,222 @@ export class DarkroomStateStore {
     this.vignette = tuning.vignette ?? 0.0;
     this.hsl = cloneHslAdjustments(tuning.hsl);
     return this.copiedTuning;
+  }
+
+  /**
+   * 判定指定相片目前調色是否相較於 AI 基準已被使用者手動更動過
+   */
+  isModifiedFromAi(photo: PhotoPlateItem | null): boolean {
+    if (!photo?.aiTuningSnapshot) return false;
+    const snap = photo.aiTuningSnapshot;
+    const t = snap.tuning;
+    const hslModified = HSL_BAND_KEYS.some((k) => {
+      const a = this.hsl?.[k];
+      const b = t.hsl?.[k];
+      return (
+        Math.abs((a?.hue ?? 0) - (b?.hue ?? 0)) > 0.001 ||
+        Math.abs((a?.sat ?? 0) - (b?.sat ?? 0)) > 0.001 ||
+        Math.abs((a?.lum ?? 0) - (b?.lum ?? 0)) > 0.001
+      );
+    });
+    return (
+      hslModified ||
+      this.monochrome !== (t.monochrome ?? false) ||
+      Math.abs(this.exposure - t.exposure) > 0.001 ||
+      Math.abs(this.highlights - (t.highlights ?? 0.0)) > 0.001 ||
+      Math.abs(this.contrast - t.contrast) > 0.001 ||
+      Math.abs(this.shadows - (t.shadows ?? 0.0)) > 0.001 ||
+      Math.abs(this.blacks - (t.blacks ?? 0.0)) > 0.001 ||
+      Math.abs(this.colorTemp - t.colorTemp) > 1 ||
+      Math.abs(this.tint - (t.tint ?? 0.0)) > 0.001 ||
+      Math.abs(this.vibrance - (t.vibrance ?? 0.0)) > 0.001 ||
+      Math.abs(this.lutIntensity - t.lutIntensity) > 0.001 ||
+      Math.abs(this.clarity - (t.clarity ?? 0.0)) > 0.001 ||
+      Math.abs(this.sharpness - (t.sharpness ?? 0.0)) > 0.001 ||
+      Math.abs(this.colorDensity - (t.colorDensity ?? 0.0)) > 0.001 ||
+      Math.abs(this.shadowHue - (t.shadowHue ?? 200)) > 0.5 ||
+      Math.abs(this.shadowTintAmount - (t.shadowTintAmount ?? 0.0)) > 0.001 ||
+      Math.abs(this.highlightHue - (t.highlightHue ?? 40)) > 0.5 ||
+      Math.abs(this.highlightTintAmount - (t.highlightTintAmount ?? 0.0)) > 0.001 ||
+      Math.abs(this.halation - (t.halation ?? 0.0)) > 0.001 ||
+      Math.abs(this.grainAmount - (t.grainAmount ?? 0.15)) > 0.001 ||
+      Math.abs(this.vignette - (t.vignette ?? 0.0)) > 0.001 ||
+      photo.appliedProfile !== snap.appliedProfile
+    );
+  }
+
+  /**
+   * 根據指定 3D LUT Profile ID 套用其預設調色參數至暗房滑桿
+   */
+  applyProfileDefaults(profileId: string): void {
+    const found = lutCatalog.allProfiles.find((p) => p.id === profileId);
+    if (!found) return;
+    this.exposure = found.evDefault;
+    this.highlights = found.highlightsDefault ?? 0.0;
+    this.contrast = found.contrastDefault || 0.0;
+    this.shadows = found.shadowsDefault ?? 0.0;
+    this.blacks = 0.0;
+    this.lutIntensity = found.lutIntensityDefault;
+    this.vibrance = 0.0;
+    this.clarity = found.clarityDefault ?? 0.0;
+    this.sharpness = found.sharpnessDefault ?? 0.0;
+    this.colorDensity = 0.0;
+    this.shadowHue = 200;
+    this.shadowTintAmount = 0.0;
+    this.highlightHue = 40;
+    this.highlightTintAmount = 0.0;
+    this.halation = 0.0;
+    this.grainAmount = 0.15;
+    this.vignette = 0.0;
+    this.hsl = createDefaultHslAdjustments();
+  }
+
+  /**
+   * AI Adjustment Slider Organic Tween Animation (AI 手動推拉滑桿感)
+   */
+  animateAdjustmentValues(
+    target: {
+      exposure?: number;
+      highlights?: number;
+      contrast?: number;
+      shadows?: number;
+      blacks?: number;
+      lutIntensity?: number;
+      colorTemp?: number;
+      tint?: number;
+      vibrance?: number;
+      clarity?: number;
+      sharpness?: number;
+      colorDensity?: number;
+      shadowHue?: number;
+      shadowTintAmount?: number;
+      highlightHue?: number;
+      highlightTintAmount?: number;
+      halation?: number;
+      grainAmount?: number;
+      vignette?: number;
+      hsl?: HslAdjustments;
+    },
+    durationMs = 650,
+    onComplete?: () => void
+  ): void {
+    const startExposure = this.exposure;
+    const startHighlights = this.highlights;
+    const startContrast = this.contrast;
+    const startShadows = this.shadows;
+    const startBlacks = this.blacks;
+    const startLutIntensity = this.lutIntensity;
+    const startColorTemp = this.colorTemp;
+    const startTint = this.tint;
+    const startVibrance = this.vibrance;
+    const startClarity = this.clarity;
+    const startSharpness = this.sharpness;
+    const startColorDensity = this.colorDensity;
+    const startShadowHue = this.shadowHue;
+    const startShadowTintAmount = this.shadowTintAmount;
+    const startHighlightHue = this.highlightHue;
+    const startHighlightTintAmount = this.highlightTintAmount;
+    const startHalation = this.halation;
+    const startGrainAmount = this.grainAmount;
+    const startVignette = this.vignette;
+
+    const targetExposure = target.exposure ?? startExposure;
+    const targetHighlights = target.highlights ?? startHighlights;
+    const targetContrast = target.contrast ?? startContrast;
+    const targetShadows = target.shadows ?? startShadows;
+    const targetBlacks = target.blacks ?? startBlacks;
+    const targetLutIntensity = target.lutIntensity ?? startLutIntensity;
+    const targetColorTemp = target.colorTemp ?? startColorTemp;
+    const targetTint = target.tint ?? startTint;
+    const targetVibrance = target.vibrance ?? startVibrance;
+    const targetClarity = target.clarity ?? startClarity;
+    const targetSharpness = target.sharpness ?? startSharpness;
+    const targetColorDensity = target.colorDensity ?? startColorDensity;
+    const targetShadowHue = target.shadowHue ?? startShadowHue;
+    const targetShadowTintAmount = target.shadowTintAmount ?? startShadowTintAmount;
+    const targetHighlightHue = target.highlightHue ?? startHighlightHue;
+    const targetHighlightTintAmount = target.highlightTintAmount ?? startHighlightTintAmount;
+    const targetHalation = target.halation ?? startHalation;
+    const targetGrainAmount = target.grainAmount ?? startGrainAmount;
+    const targetVignette = target.vignette ?? startVignette;
+
+    if (target.hsl) {
+      this.hsl = cloneHslAdjustments(target.hsl);
+    }
+
+    const startTime = performance.now();
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / durationMs, 1.0);
+      // Ease-out cubic for realistic organic dial resistance
+      const ease = 1 - Math.pow(1 - progress, 3);
+
+      this.exposure = parseFloat(
+        (startExposure + (targetExposure - startExposure) * ease).toFixed(2)
+      );
+      this.highlights = parseFloat(
+        (startHighlights + (targetHighlights - startHighlights) * ease).toFixed(2)
+      );
+      this.contrast = parseFloat(
+        (startContrast + (targetContrast - startContrast) * ease).toFixed(2)
+      );
+      this.shadows = parseFloat(
+        (startShadows + (targetShadows - startShadows) * ease).toFixed(2)
+      );
+      this.blacks = parseFloat(
+        (startBlacks + (targetBlacks - startBlacks) * ease).toFixed(2)
+      );
+      this.lutIntensity = parseFloat(
+        (startLutIntensity + (targetLutIntensity - startLutIntensity) * ease).toFixed(2)
+      );
+      this.colorTemp = Math.round(
+        startColorTemp + (targetColorTemp - startColorTemp) * ease
+      );
+      this.tint = parseFloat(
+        (startTint + (targetTint - startTint) * ease).toFixed(1)
+      );
+      this.vibrance = parseFloat(
+        (startVibrance + (targetVibrance - startVibrance) * ease).toFixed(2)
+      );
+      this.clarity = parseFloat(
+        (startClarity + (targetClarity - startClarity) * ease).toFixed(2)
+      );
+      this.sharpness = parseFloat(
+        (startSharpness + (targetSharpness - startSharpness) * ease).toFixed(2)
+      );
+      this.colorDensity = parseFloat(
+        (startColorDensity + (targetColorDensity - startColorDensity) * ease).toFixed(2)
+      );
+      this.shadowHue = Math.round(
+        startShadowHue + (targetShadowHue - startShadowHue) * ease
+      );
+      this.shadowTintAmount = parseFloat(
+        (startShadowTintAmount + (targetShadowTintAmount - startShadowTintAmount) * ease).toFixed(2)
+      );
+      this.highlightHue = Math.round(
+        startHighlightHue + (targetHighlightHue - startHighlightHue) * ease
+      );
+      this.highlightTintAmount = parseFloat(
+        (startHighlightTintAmount + (targetHighlightTintAmount - startHighlightTintAmount) * ease).toFixed(2)
+      );
+      this.halation = parseFloat(
+        (startHalation + (targetHalation - startHalation) * ease).toFixed(2)
+      );
+      this.grainAmount = parseFloat(
+        (startGrainAmount + (targetGrainAmount - startGrainAmount) * ease).toFixed(2)
+      );
+      this.vignette = parseFloat(
+        (startVignette + (targetVignette - startVignette) * ease).toFixed(2)
+      );
+
+      if (progress < 1.0) {
+        requestAnimationFrame(step);
+      } else {
+        onComplete?.();
+      }
+    };
+    requestAnimationFrame(step);
   }
 }
 

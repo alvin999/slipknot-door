@@ -198,32 +198,7 @@
   let photoLoadToken = 0;
   let currentDirectoryName = $state<string>("");
 
-  // Darkroom Tuning Sliders
-  // Professional Darkroom Tonal & Color Parameters
-  // 專業暗房光影與色彩參數 (與 darkroomState 保持單一真相來源)
-  let exposure = $state<number>(0.0);
-  let contrast = $state<number>(0.0);
-  let shadows = $state<number>(0.0);
-  let colorTemp = $state<number>(5500);
-  let tint = $state<number>(0.0);
-  let lutIntensity = $state<number>(1.0);
-  let clarity = $state<number>(0.0);
-  let sharpness = $state<number>(0.0);
-  let colorDensity = $state<number>(0.0);
-  let shadowHue = $state<number>(200);
-  let shadowTintAmount = $state<number>(0.0);
-  let highlightHue = $state<number>(40);
-  let highlightTintAmount = $state<number>(0.0);
-  let halation = $state<number>(0.0);
-  let grainAmount = $state<number>(0.15);
-  let highlights = $state<number>(0.0);
-  let blacks = $state<number>(0.0);
-  let vibrance = $state<number>(0.0);
-  let vignette = $state<number>(0.0);
-  let monochrome = $state<boolean>(false);
-  let hsl = $state<HslAdjustments>(createDefaultHslAdjustments());
-
-  // 專業 Diff 視覺比對狀態 (由 darkroomState 作為單一真相來源)
+  // 專業暗房光影與色彩參數由 darkroomState 作為單一真相來源
   type DiffMode = "off" | "split" | "sideBySide";
 
   function isDiffModeActive(mode: DiffMode): boolean {
@@ -280,63 +255,14 @@
     saveAiScope();
   }
 
-  // 幾何構圖與裁切狀態 (Crop & Geometry State)
-  let isCropMode = $state<boolean>(false);
-  let cropX = $state<number>(0.0); // 0.0 ~ 1.0 (左上角 X 比例)
-  let cropY = $state<number>(0.0); // 0.0 ~ 1.0 (左上角 Y 比例)
-  let cropWidth = $state<number>(1.0); // 0.0 ~ 1.0 (寬度比例)
-  let cropHeight = $state<number>(1.0); // 0.0 ~ 1.0 (高度比例)
-  let cropRotation = $state<number>(0.0); // -45 ~ +45 度 (水平校正)
-  let keystoneV = $state<number>(0.0); // -45 ~ +45 度 (垂直透視梯形)
-  let keystoneH = $state<number>(0.0); // -45 ~ +45 度 (水平透視梯形)
-  let cropAspectRatio = $state<
-    "original" | "1:1" | "4:5" | "16:9" | "9:16" | "free"
-  >("original");
-  let flipH = $state<boolean>(false);
-  let flipV = $state<boolean>(false);
-  let aiCropRationale = $state<string>(""); // AI 建議裁切說明
-
   function resetCropState() {
-    cropX = 0.0;
-    cropY = 0.0;
-    cropWidth = 1.0;
-    cropHeight = 1.0;
-    cropRotation = 0.0;
-    keystoneV = 0.0;
-    keystoneH = 0.0;
-    cropAspectRatio = "original";
-    flipH = false;
-    flipV = false;
-    aiCropRationale = "";
+    darkroomState.resetCropState();
     syncCropToActivePhoto();
   }
 
-  type CropRatioPreset = "original" | "1:1" | "4:5" | "16:9" | "9:16" | "free";
-
   function syncCropToActivePhoto() {
     if (!activePhoto) return;
-    const isDefaultCrop =
-      cropX === 0.0 &&
-      cropY === 0.0 &&
-      cropWidth === 1.0 &&
-      cropHeight === 1.0 &&
-      cropRotation === 0.0;
-
-    const targetCrop = isDefaultCrop
-      ? undefined
-      : {
-          x: cropX,
-          y: cropY,
-          width: cropWidth,
-          height: cropHeight,
-          rotation: cropRotation,
-          keystoneV,
-          keystoneH,
-          aspectRatio: cropAspectRatio,
-          flipH,
-          flipV,
-          rationale: aiCropRationale,
-        };
+    const targetCrop = darkroomState.buildCropSnapshot();
 
     if (JSON.stringify(activePhoto.crop) === JSON.stringify(targetCrop)) {
       return;
@@ -353,28 +279,9 @@
     );
   }
 
-  // 裁切長寬比由 darkroomState.applyAspectRatioPreset() 統一管理
-
   // AI 風格調色狀態 (Neural Bespoke Style Grading)
   let activeStylePreset = $state<StylePresetKey>("auto"); // 每次載入預設為 AI 自動配對
   let previewHoverProfileId = $state<string | null>(null);
-
-  // 調色意境關鍵字與自訂 Prompt 狀態 (Vibe Keyword Chips & Custom Prompt)
-  let selectedStyleKeywords = $state<StyleKeywordId[]>([]);
-  let customStylePrompt = $state<string>("");
-
-  function toggleStyleKeyword(id: StyleKeywordId) {
-    if (selectedStyleKeywords.includes(id)) {
-      selectedStyleKeywords = selectedStyleKeywords.filter((k) => k !== id);
-    } else {
-      selectedStyleKeywords = [...selectedStyleKeywords, id];
-    }
-  }
-
-  function clearStyleKeywords() {
-    selectedStyleKeywords = [];
-    customStylePrompt = "";
-  }
 
   // 3D LUT 典藏與自訂 LUT 清單（由 lutCatalog Store 統一管理）
   const profiles = lutCatalog.builtinProfiles;
@@ -469,90 +376,10 @@
     // 記憶前一張相片的自訂調色與裁切狀態（僅在有實質調整且與原儲存不同時寫入）
     if (activePhoto && activePhoto.id !== plate.id) {
       const currentPlate = photoPlates.find((p) => p.id === activePhoto!.id);
-
-      const asShotTemp = activePhoto.asShotTemp ?? 5500;
-      const asShotExp = activePhoto.asShotExposure ?? 0.0;
-      const asShotTint = activePhoto.asShotTint ?? 0.0;
-
-      const isDefaultHsl = HSL_BAND_KEYS.every(
-        (k) =>
-          Math.abs(hsl[k].hue) < 0.001 &&
-          Math.abs(hsl[k].sat) < 0.001 &&
-          Math.abs(hsl[k].lum) < 0.001,
+      const targetTuning = darkroomState.buildTuningSnapshot(
+        activePhoto as any,
       );
-      const isDefault =
-        isDefaultHsl &&
-        !monochrome &&
-        Math.abs(exposure - asShotExp) < 0.001 &&
-        Math.abs(highlights - 0.0) < 0.001 &&
-        Math.abs(contrast - 0.0) < 0.001 &&
-        Math.abs(shadows - 0.0) < 0.001 &&
-        Math.abs(blacks - 0.0) < 0.001 &&
-        Math.abs(colorTemp - asShotTemp) < 1 &&
-        Math.abs(tint - asShotTint) < 0.001 &&
-        Math.abs(vibrance - 0.0) < 0.001 &&
-        Math.abs(lutIntensity - 1.0) < 0.001 &&
-        Math.abs(clarity - 0.0) < 0.001 &&
-        Math.abs(sharpness - 0.0) < 0.001 &&
-        Math.abs(colorDensity - 0.0) < 0.001 &&
-        Math.abs(shadowTintAmount - 0.0) < 0.001 &&
-        Math.abs(highlightTintAmount - 0.0) < 0.001 &&
-        Math.abs(halation - 0.0) < 0.001 &&
-        Math.abs(grainAmount - 0.15) < 0.001 &&
-        Math.abs(vignette - 0.0) < 0.001;
-
-      const targetTuning = isDefault
-        ? undefined
-        : {
-            exposure,
-            highlights,
-            contrast,
-            shadows,
-            blacks,
-            lutIntensity,
-            colorTemp,
-            tint,
-            vibrance,
-            clarity,
-            sharpness,
-            colorDensity,
-            shadowHue,
-            shadowTintAmount,
-            highlightHue,
-            highlightTintAmount,
-            halation,
-            grainAmount,
-            vignette,
-            monochrome,
-            hsl: cloneHslAdjustments(hsl),
-          };
-
-      const isDefaultCrop =
-        cropX === 0.0 &&
-        cropY === 0.0 &&
-        cropWidth === 1.0 &&
-        cropHeight === 1.0 &&
-        cropRotation === 0.0 &&
-        keystoneV === 0 &&
-        keystoneH === 0 &&
-        !flipH &&
-        !flipV;
-
-      const targetCrop = isDefaultCrop
-        ? undefined
-        : {
-            x: cropX,
-            y: cropY,
-            width: cropWidth,
-            height: cropHeight,
-            rotation: cropRotation,
-            keystoneV,
-            keystoneH,
-            aspectRatio: cropAspectRatio,
-            flipH,
-            flipV,
-            rationale: aiCropRationale,
-          };
+      const targetCrop = darkroomState.buildCropSnapshot();
 
       const tuningChanged =
         JSON.stringify(currentPlate?.tuning) !== JSON.stringify(targetTuning);
@@ -578,68 +405,8 @@
     activePhoto = plate;
     photoPlates.forEach((p) => (p.selected = p.id === plate.id));
 
-    // 載入當前選中相片的專屬調色或拍攝原生值 (As Shot)
-    if (plate.tuning) {
-      exposure = plate.tuning.exposure;
-      contrast = plate.tuning.contrast;
-      shadows = plate.tuning.shadows ?? 0;
-      lutIntensity = plate.tuning.lutIntensity;
-      colorTemp = plate.tuning.colorTemp;
-      tint = plate.tuning.tint ?? 0;
-      clarity = plate.tuning.clarity ?? 0;
-      sharpness = plate.tuning.sharpness ?? 0;
-      colorDensity = plate.tuning.colorDensity ?? 0;
-      shadowHue = plate.tuning.shadowHue ?? 200;
-      shadowTintAmount = plate.tuning.shadowTintAmount ?? 0;
-      highlightHue = plate.tuning.highlightHue ?? 40;
-      highlightTintAmount = plate.tuning.highlightTintAmount ?? 0;
-      halation = plate.tuning.halation ?? 0;
-      grainAmount = plate.tuning.grainAmount ?? 0.15;
-      highlights = plate.tuning.highlights ?? 0;
-      blacks = plate.tuning.blacks ?? 0;
-      vibrance = plate.tuning.vibrance ?? 0;
-      vignette = plate.tuning.vignette ?? 0;
-      monochrome = plate.tuning.monochrome ?? false;
-      hsl = cloneHslAdjustments(plate.tuning.hsl);
-    } else {
-      exposure = plate.asShotExposure ?? 0.0;
-      contrast = 0.0;
-      shadows = 0.0;
-      lutIntensity = 1.0;
-      colorTemp = plate.asShotTemp ?? 5500;
-      tint = plate.asShotTint ?? 0.0;
-      clarity = 0.0;
-      sharpness = 0.0;
-      colorDensity = 0.0;
-      shadowHue = 200;
-      shadowTintAmount = 0.0;
-      highlightHue = 40;
-      highlightTintAmount = 0.0;
-      halation = 0.0;
-      grainAmount = 0.15;
-      highlights = 0.0;
-      blacks = 0.0;
-      vibrance = 0.0;
-      vignette = 0.0;
-      monochrome = false;
-      hsl = createDefaultHslAdjustments();
-    }
-
-    // 載入當前選中相片的專屬裁切或重設為全幅
-    if (plate.crop) {
-      cropX = plate.crop.x;
-      cropY = plate.crop.y;
-      cropWidth = plate.crop.width;
-      cropHeight = plate.crop.height;
-      cropRotation = plate.crop.rotation;
-      keystoneV = plate.crop.keystoneV ?? 0;
-      keystoneH = plate.crop.keystoneH ?? 0;
-      cropAspectRatio = plate.crop.aspectRatio;
-      flipH = plate.crop.flipH;
-      flipV = plate.crop.flipV;
-    } else {
-      resetCropState();
-    }
+    // 載入當前選中相片的專屬調色與裁切狀態至 darkroomState
+    darkroomState.loadFromPhoto(plate as any);
 
     // 載入當前選中相片的專屬 AI 決策與場景 Label (若尚未分析則顯示初始狀態)
     if (plate.aiDecision) {
@@ -650,7 +417,6 @@
       aiRecommendedMood = plate.aiDecision.recommended_mood || "";
       aiRecommendedProfile =
         plate.aiDecision.recommended_profile || plate.appliedProfile;
-      aiCropRationale = plate.aiDecision.crop_rationale || "";
       aiVisionTags = plate.aiDecision.tags || [];
     } else {
       aiSuggestedScene = "尚未分析";
@@ -660,14 +426,12 @@
       aiRecommendedMood = "";
       aiRecommendedProfile =
         plate.appliedProfile || "Profile_00_StandardNatural";
-      aiCropRationale = "";
       aiVisionTags = [];
     }
 
     // 雙向同步至全域領域 Store
     photoLibrary.activePhoto = plate as any;
     photoLibrary.photoPlates = photoPlates as any;
-    darkroomState.loadFromPhoto(plate as any);
   }
 
   // 自動持久化相卷工作區進度至本機快取 (Session Auto-Persistence)
@@ -677,66 +441,43 @@
     }
   });
 
-  // 保持 darkroomState 與主頁面狀態雙向同步，並持久化到 activePhoto.tuning
+  // 保持 darkroomState 變更同步持久化到 activePhoto.tuning 與 activePhoto.crop
   $effect(() => {
     // 響應式追蹤 darkroomState 數值
-    const exp = darkroomState.exposure;
-    const con = darkroomState.contrast;
-    const shd = darkroomState.shadows;
-    const temp = darkroomState.colorTemp;
-    const tnt = darkroomState.tint;
-    const lut = darkroomState.lutIntensity;
-    const clr = darkroomState.clarity;
-    const shp = darkroomState.sharpness;
-    const den = darkroomState.colorDensity;
-    const shH = darkroomState.shadowHue;
-    const shA = darkroomState.shadowTintAmount;
-    const hiH = darkroomState.highlightHue;
-    const hiA = darkroomState.highlightTintAmount;
-    const hal = darkroomState.halation;
-    const grn = darkroomState.grainAmount;
-    const hi = darkroomState.highlights;
-    const blk = darkroomState.blacks;
-    const vib = darkroomState.vibrance;
-    const vig = darkroomState.vignette;
-    const mono = darkroomState.monochrome;
-    const hslClone = cloneHslAdjustments(darkroomState.hsl);
+    void darkroomState.exposure;
+    void darkroomState.contrast;
+    void darkroomState.shadows;
+    void darkroomState.colorTemp;
+    void darkroomState.tint;
+    void darkroomState.lutIntensity;
+    void darkroomState.clarity;
+    void darkroomState.sharpness;
+    void darkroomState.colorDensity;
+    void darkroomState.shadowHue;
+    void darkroomState.shadowTintAmount;
+    void darkroomState.highlightHue;
+    void darkroomState.highlightTintAmount;
+    void darkroomState.halation;
+    void darkroomState.grainAmount;
+    void darkroomState.highlights;
+    void darkroomState.blacks;
+    void darkroomState.vibrance;
+    void darkroomState.vignette;
+    void darkroomState.monochrome;
+    void cloneHslAdjustments(darkroomState.hsl);
 
-    // 同步至 +page.svelte 局部狀態供匯出與其他邏輯使用
-    exposure = exp;
-    highlights = hi;
-    contrast = con;
-    shadows = shd;
-    blacks = blk;
-    colorTemp = temp;
-    tint = tnt;
-    vibrance = vib;
-    lutIntensity = lut;
-    clarity = clr;
-    sharpness = shp;
-    colorDensity = den;
-    shadowHue = shH;
-    shadowTintAmount = shA;
-    highlightHue = hiH;
-    highlightTintAmount = hiA;
-    halation = hal;
-    grainAmount = grn;
-    vignette = vig;
-    monochrome = mono;
-    hsl = hslClone;
-
-    cropX = darkroomState.cropX;
-    cropY = darkroomState.cropY;
-    cropWidth = darkroomState.cropWidth;
-    cropHeight = darkroomState.cropHeight;
-    cropRotation = darkroomState.cropRotation;
-    keystoneV = darkroomState.keystoneV;
-    keystoneH = darkroomState.keystoneH;
-    cropAspectRatio = darkroomState.cropAspectRatio;
-    flipH = darkroomState.flipH;
-    flipV = darkroomState.flipV;
-    isCropMode = darkroomState.isCropMode;
-    aiCropRationale = darkroomState.aiCropRationale;
+    void darkroomState.cropX;
+    void darkroomState.cropY;
+    void darkroomState.cropWidth;
+    void darkroomState.cropHeight;
+    void darkroomState.cropRotation;
+    void darkroomState.keystoneV;
+    void darkroomState.keystoneH;
+    void darkroomState.cropAspectRatio;
+    void darkroomState.flipH;
+    void darkroomState.flipV;
+    void darkroomState.isCropMode;
+    void darkroomState.aiCropRationale;
 
     if (!isBatchAiRunning) {
       untrack(() => {
@@ -959,46 +700,7 @@
     photoPlates = photoPlates.map((p) =>
       p.id === activePhoto!.id ? { ...p, appliedProfile: profileId } : p,
     );
-    const found = allProfiles.find((p) => p.id === profileId);
-    if (found) {
-      exposure = found.evDefault;
-      contrast = found.contrastDefault || 0.0;
-      shadows = found.shadowsDefault ?? 0.0;
-      lutIntensity = found.lutIntensityDefault;
-      clarity = found.clarityDefault ?? 0.0;
-      sharpness = found.sharpnessDefault ?? 0.0;
-      colorDensity = 0.0;
-      shadowHue = 200;
-      shadowTintAmount = 0.0;
-      highlightHue = 40;
-      highlightTintAmount = 0.0;
-      halation = 0.0;
-      grainAmount = 0.15;
-      highlights = found.highlightsDefault ?? 0.0;
-      blacks = 0.0;
-      vibrance = 0.0;
-      vignette = 0.0;
-      hsl = createDefaultHslAdjustments();
-
-      darkroomState.exposure = exposure;
-      darkroomState.highlights = highlights;
-      darkroomState.contrast = contrast;
-      darkroomState.shadows = shadows;
-      darkroomState.blacks = blacks;
-      darkroomState.lutIntensity = lutIntensity;
-      darkroomState.vibrance = vibrance;
-      darkroomState.clarity = clarity;
-      darkroomState.sharpness = sharpness;
-      darkroomState.colorDensity = colorDensity;
-      darkroomState.shadowHue = shadowHue;
-      darkroomState.shadowTintAmount = shadowTintAmount;
-      darkroomState.highlightHue = highlightHue;
-      darkroomState.highlightTintAmount = highlightTintAmount;
-      darkroomState.halation = halation;
-      darkroomState.grainAmount = grainAmount;
-      darkroomState.vignette = vignette;
-      darkroomState.hsl = cloneHslAdjustments(hsl);
-    }
+    darkroomState.applyProfileDefaults(profileId);
     triggerWebglRender();
     enqueueThumbnailRender(activePhoto);
   }
@@ -1028,50 +730,7 @@
    */
   function resetToAsShot() {
     if (!activePhoto) return;
-    colorTemp = activePhoto.asShotTemp ?? 5500;
-    tint = activePhoto.asShotTint ?? 0.0;
-    exposure = activePhoto.asShotExposure ?? 0.0;
-    contrast = 0.0;
-    shadows = 0.0;
-    lutIntensity = 1.0;
-    clarity = 0.0;
-    sharpness = 0.0;
-    colorDensity = 0.0;
-    shadowHue = 200;
-    shadowTintAmount = 0.0;
-    highlightHue = 40;
-    highlightTintAmount = 0.0;
-    halation = 0.0;
-    grainAmount = 0.15;
-    highlights = 0.0;
-    blacks = 0.0;
-    vibrance = 0.0;
-    vignette = 0.0;
-    monochrome = false;
-    hsl = createDefaultHslAdjustments();
-
-    darkroomState.colorTemp = colorTemp;
-    darkroomState.tint = tint;
-    darkroomState.exposure = exposure;
-    darkroomState.highlights = highlights;
-    darkroomState.contrast = contrast;
-    darkroomState.shadows = shadows;
-    darkroomState.blacks = blacks;
-    darkroomState.vibrance = vibrance;
-    darkroomState.lutIntensity = lutIntensity;
-    darkroomState.clarity = clarity;
-    darkroomState.sharpness = sharpness;
-    darkroomState.colorDensity = colorDensity;
-    darkroomState.shadowHue = shadowHue;
-    darkroomState.shadowTintAmount = shadowTintAmount;
-    darkroomState.highlightHue = highlightHue;
-    darkroomState.highlightTintAmount = highlightTintAmount;
-    darkroomState.halation = halation;
-    darkroomState.grainAmount = grainAmount;
-    darkroomState.vignette = vignette;
-    darkroomState.monochrome = monochrome;
-    darkroomState.hsl = cloneHslAdjustments(hsl);
-
+    darkroomState.resetToAsShot(activePhoto as any);
     triggerWebglRender();
   }
 
@@ -1083,64 +742,7 @@
   function syncActivePhotoTuning() {
     if (!activePhoto) return;
 
-    const asShotTemp = activePhoto.asShotTemp ?? 5500;
-    const asShotExp = activePhoto.asShotExposure ?? 0.0;
-    const asShotTint = activePhoto.asShotTint ?? 0.0;
-
-    const isDefaultHsl = HSL_BAND_KEYS.every(
-      (k) =>
-        Math.abs(hsl[k].hue) < 0.001 &&
-        Math.abs(hsl[k].sat) < 0.001 &&
-        Math.abs(hsl[k].lum) < 0.001,
-    );
-
-    const isDefaultTuning =
-      isDefaultHsl &&
-      !monochrome &&
-      Math.abs(exposure - asShotExp) < 0.001 &&
-      Math.abs(highlights - 0.0) < 0.001 &&
-      Math.abs(contrast - 0.0) < 0.001 &&
-      Math.abs(shadows - 0.0) < 0.001 &&
-      Math.abs(blacks - 0.0) < 0.001 &&
-      Math.abs(colorTemp - asShotTemp) < 1 &&
-      Math.abs(tint - asShotTint) < 0.001 &&
-      Math.abs(vibrance - 0.0) < 0.001 &&
-      Math.abs(lutIntensity - 1.0) < 0.001 &&
-      Math.abs(clarity - 0.0) < 0.001 &&
-      Math.abs(sharpness - 0.0) < 0.001 &&
-      Math.abs(colorDensity - 0.0) < 0.001 &&
-      Math.abs(shadowTintAmount - 0.0) < 0.001 &&
-      Math.abs(highlightTintAmount - 0.0) < 0.001 &&
-      Math.abs(halation - 0.0) < 0.001 &&
-      Math.abs(grainAmount - 0.15) < 0.001 &&
-      Math.abs(vignette - 0.0) < 0.001;
-
-    const targetTuning = isDefaultTuning
-      ? undefined
-      : {
-          exposure,
-          highlights,
-          contrast,
-          shadows,
-          blacks,
-          lutIntensity,
-          colorTemp,
-          tint,
-          vibrance,
-          clarity,
-          sharpness,
-          colorDensity,
-          shadowHue,
-          shadowTintAmount,
-          highlightHue,
-          highlightTintAmount,
-          halation,
-          grainAmount,
-          vignette,
-          monochrome,
-          hsl: cloneHslAdjustments(hsl),
-        };
-
+    const targetTuning = darkroomState.buildTuningSnapshot(activePhoto as any);
     const currentPlate = photoPlates.find((p) => p.id === activePhoto!.id);
     const hslMatches =
       !!currentPlate?.tuning &&
@@ -1259,47 +861,9 @@
   const hasAiBaseline = $derived(!!activePhoto?.aiTuningSnapshot);
 
   // 判定目前調色是否相較於 AI 基準已被使用者手動更動過
-  const isModifiedFromAi = $derived.by(() => {
-    if (!activePhoto?.aiTuningSnapshot) return false;
-    const snap = activePhoto.aiTuningSnapshot;
-    const t = snap.tuning;
-    const hslModified = HSL_BAND_KEYS.some((k) => {
-      const a = darkroomState.hsl?.[k];
-      const b = t.hsl?.[k];
-      return (
-        Math.abs((a?.hue ?? 0) - (b?.hue ?? 0)) > 0.001 ||
-        Math.abs((a?.sat ?? 0) - (b?.sat ?? 0)) > 0.001 ||
-        Math.abs((a?.lum ?? 0) - (b?.lum ?? 0)) > 0.001
-      );
-    });
-    return (
-      hslModified ||
-      darkroomState.monochrome !== (t.monochrome ?? false) ||
-      Math.abs(darkroomState.exposure - t.exposure) > 0.001 ||
-      Math.abs(darkroomState.highlights - (t.highlights ?? 0.0)) > 0.001 ||
-      Math.abs(darkroomState.contrast - t.contrast) > 0.001 ||
-      Math.abs(darkroomState.shadows - (t.shadows ?? 0.0)) > 0.001 ||
-      Math.abs(darkroomState.blacks - (t.blacks ?? 0.0)) > 0.001 ||
-      Math.abs(darkroomState.colorTemp - t.colorTemp) > 1 ||
-      Math.abs(darkroomState.tint - (t.tint ?? 0.0)) > 0.001 ||
-      Math.abs(darkroomState.vibrance - (t.vibrance ?? 0.0)) > 0.001 ||
-      Math.abs(darkroomState.lutIntensity - t.lutIntensity) > 0.001 ||
-      Math.abs(darkroomState.clarity - (t.clarity ?? 0.0)) > 0.001 ||
-      Math.abs(darkroomState.sharpness - (t.sharpness ?? 0.0)) > 0.001 ||
-      Math.abs(darkroomState.colorDensity - (t.colorDensity ?? 0.0)) > 0.001 ||
-      Math.abs(darkroomState.shadowHue - (t.shadowHue ?? 200)) > 0.5 ||
-      Math.abs(darkroomState.shadowTintAmount - (t.shadowTintAmount ?? 0.0)) >
-        0.001 ||
-      Math.abs(darkroomState.highlightHue - (t.highlightHue ?? 40)) > 0.5 ||
-      Math.abs(
-        darkroomState.highlightTintAmount - (t.highlightTintAmount ?? 0.0),
-      ) > 0.001 ||
-      Math.abs(darkroomState.halation - (t.halation ?? 0.0)) > 0.001 ||
-      Math.abs(darkroomState.grainAmount - (t.grainAmount ?? 0.15)) > 0.001 ||
-      Math.abs(darkroomState.vignette - (t.vignette ?? 0.0)) > 0.001 ||
-      activePhoto.appliedProfile !== snap.appliedProfile
-    );
-  });
+  const isModifiedFromAi = $derived.by(() =>
+    darkroomState.isModifiedFromAi(activePhoto as any),
+  );
 
   /**
    * 一鍵恢復為 AI 顯影基準參數 (Restore AI Tuning Baseline)
@@ -1316,7 +880,7 @@
       applyProfile(snapshot.appliedProfile);
     }
 
-    animateAdjustmentValues(
+    darkroomState.animateAdjustmentValues(
       {
         exposure: snapshot.tuning.exposure,
         highlights: snapshot.tuning.highlights ?? 0.0,
@@ -1342,59 +906,20 @@
       450,
     );
 
-    highlights = snapshot.tuning.highlights ?? 0.0;
-    darkroomState.highlights = highlights;
-    blacks = snapshot.tuning.blacks ?? 0.0;
-    darkroomState.blacks = blacks;
-    vibrance = snapshot.tuning.vibrance ?? 0.0;
-    darkroomState.vibrance = vibrance;
-    clarity = snapshot.tuning.clarity ?? 0.0;
-    darkroomState.clarity = clarity;
-    sharpness = snapshot.tuning.sharpness ?? 0.0;
-    darkroomState.sharpness = sharpness;
-    colorDensity = snapshot.tuning.colorDensity ?? 0.0;
-    darkroomState.colorDensity = colorDensity;
-    shadowHue = snapshot.tuning.shadowHue ?? 200;
-    darkroomState.shadowHue = shadowHue;
-    shadowTintAmount = snapshot.tuning.shadowTintAmount ?? 0.0;
-    darkroomState.shadowTintAmount = shadowTintAmount;
-    highlightHue = snapshot.tuning.highlightHue ?? 40;
-    darkroomState.highlightHue = highlightHue;
-    highlightTintAmount = snapshot.tuning.highlightTintAmount ?? 0.0;
-    darkroomState.highlightTintAmount = highlightTintAmount;
-    halation = snapshot.tuning.halation ?? 0.0;
-    darkroomState.halation = halation;
-    grainAmount = snapshot.tuning.grainAmount ?? 0.15;
-    darkroomState.grainAmount = grainAmount;
-    vignette = snapshot.tuning.vignette ?? 0.0;
-    darkroomState.vignette = vignette;
-    monochrome = snapshot.tuning.monochrome ?? false;
-    darkroomState.monochrome = monochrome;
-    hsl = cloneHslAdjustments(snapshot.tuning.hsl);
-    darkroomState.hsl = cloneHslAdjustments(hsl);
+    darkroomState.monochrome = snapshot.tuning.monochrome ?? false;
+    darkroomState.hsl = cloneHslAdjustments(snapshot.tuning.hsl);
 
     if (snapshot.crop) {
-      cropX = snapshot.crop.x;
-      cropY = snapshot.crop.y;
-      cropWidth = snapshot.crop.width;
-      cropHeight = snapshot.crop.height;
-      cropRotation = snapshot.crop.rotation;
-      keystoneV = snapshot.crop.keystoneV ?? 0;
-      keystoneH = snapshot.crop.keystoneH ?? 0;
-      cropAspectRatio = snapshot.crop.aspectRatio;
-      flipH = snapshot.crop.flipH;
-      flipV = snapshot.crop.flipV;
-
-      darkroomState.cropX = cropX;
-      darkroomState.cropY = cropY;
-      darkroomState.cropWidth = cropWidth;
-      darkroomState.cropHeight = cropHeight;
-      darkroomState.cropRotation = cropRotation;
-      darkroomState.keystoneV = keystoneV;
-      darkroomState.keystoneH = keystoneH;
-      darkroomState.cropAspectRatio = cropAspectRatio;
-      darkroomState.flipH = flipH;
-      darkroomState.flipV = flipV;
+      darkroomState.cropX = snapshot.crop.x;
+      darkroomState.cropY = snapshot.crop.y;
+      darkroomState.cropWidth = snapshot.crop.width;
+      darkroomState.cropHeight = snapshot.crop.height;
+      darkroomState.cropRotation = snapshot.crop.rotation;
+      darkroomState.keystoneV = snapshot.crop.keystoneV ?? 0;
+      darkroomState.keystoneH = snapshot.crop.keystoneH ?? 0;
+      darkroomState.cropAspectRatio = snapshot.crop.aspectRatio;
+      darkroomState.flipH = snapshot.crop.flipH;
+      darkroomState.flipV = snapshot.crop.flipV;
     }
 
     activePhoto.tuning = { ...snapshot.tuning };
@@ -1410,32 +935,10 @@
    * 執行後該照片即刻自「已調色」清單與匯出佇列中排除
    */
   function resetTuningParams() {
-    exposure = 0.0;
-    contrast = 0.0;
-    shadows = 0.0;
-    colorTemp = 5500;
-    tint = 0.0;
-    lutIntensity = 1.0;
-    clarity = 0.0;
-    sharpness = 0.0;
-    colorDensity = 0.0;
-    shadowHue = 200;
-    shadowTintAmount = 0.0;
-    highlightHue = 40;
-    highlightTintAmount = 0.0;
-    halation = 0.0;
-    grainAmount = 0.15;
-    highlights = 0.0;
-    blacks = 0.0;
-    vibrance = 0.0;
-    vignette = 0.0;
-    monochrome = false;
-    hsl = createDefaultHslAdjustments();
     darkroomState.resetTuningParams();
     darkroomState.resetCropState();
     resetCropState();
 
-    aiCropRationale = "";
     aiSuggestedScene = "尚未分析";
     aiSceneTitle = "";
     aiStyleInsight = "";
@@ -1638,9 +1141,12 @@
                   !activePhoto.tuning
                 ) {
                   activePhoto = { ...photoPlates[plateIndex] };
-                  colorTemp = photoPlates[plateIndex].asShotTemp ?? 5500;
-                  tint = photoPlates[plateIndex].asShotTint ?? 0.0;
-                  exposure = photoPlates[plateIndex].asShotExposure ?? 0.0;
+                  darkroomState.colorTemp =
+                    photoPlates[plateIndex].asShotTemp ?? 5500;
+                  darkroomState.tint =
+                    photoPlates[plateIndex].asShotTint ?? 0.0;
+                  darkroomState.exposure =
+                    photoPlates[plateIndex].asShotExposure ?? 0.0;
                 }
               }
             } catch (err) {
@@ -2046,193 +1552,16 @@
     },
     durationMs = 650,
   ) {
-    const startExposure = exposure;
-    const startHighlights = highlights;
-    const startContrast = contrast;
-    const startShadows = shadows;
-    const startBlacks = blacks;
-    const startLutIntensity = lutIntensity;
-    const startColorTemp = colorTemp;
-    const startTint = tint;
-    const startVibrance = vibrance;
-    const startClarity = clarity;
-    const startSharpness = sharpness;
-    const startColorDensity = colorDensity;
-    const startShadowHue = shadowHue;
-    const startShadowTintAmount = shadowTintAmount;
-    const startHighlightHue = highlightHue;
-    const startHighlightTintAmount = highlightTintAmount;
-    const startHalation = halation;
-    const startGrainAmount = grainAmount;
-    const startVignette = vignette;
-
-    const targetExposure = target.exposure ?? startExposure;
-    const targetHighlights = target.highlights ?? startHighlights;
-    const targetContrast = target.contrast ?? startContrast;
-    const targetShadows = target.shadows ?? startShadows;
-    const targetBlacks = target.blacks ?? startBlacks;
-    const targetLutIntensity = target.lutIntensity ?? startLutIntensity;
-    const targetColorTemp = target.colorTemp ?? startColorTemp;
-    const targetTint = target.tint ?? startTint;
-    const targetVibrance = target.vibrance ?? startVibrance;
-    const targetClarity = target.clarity ?? startClarity;
-    const targetSharpness = target.sharpness ?? startSharpness;
-    const targetColorDensity = target.colorDensity ?? startColorDensity;
-    const targetShadowHue = target.shadowHue ?? startShadowHue;
-    const targetShadowTintAmount =
-      target.shadowTintAmount ?? startShadowTintAmount;
-    const targetHighlightHue = target.highlightHue ?? startHighlightHue;
-    const targetHighlightTintAmount =
-      target.highlightTintAmount ?? startHighlightTintAmount;
-    const targetHalation = target.halation ?? startHalation;
-    const targetGrainAmount = target.grainAmount ?? startGrainAmount;
-    const targetVignette = target.vignette ?? startVignette;
-
-    if (target.hsl) {
-      hsl = cloneHslAdjustments(target.hsl);
-      darkroomState.hsl = cloneHslAdjustments(target.hsl);
-    }
-
-    const startTime = performance.now();
-
-    function step(now: number) {
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / durationMs, 1.0);
-      // Ease-out cubic for realistic organic dial resistance
-      const ease = 1 - Math.pow(1 - progress, 3);
-
-      exposure = parseFloat(
-        (startExposure + (targetExposure - startExposure) * ease).toFixed(2),
-      );
-      highlights = parseFloat(
-        (startHighlights + (targetHighlights - startHighlights) * ease).toFixed(
-          2,
-        ),
-      );
-      contrast = parseFloat(
-        (startContrast + (targetContrast - startContrast) * ease).toFixed(2),
-      );
-      shadows = parseFloat(
-        (startShadows + (targetShadows - startShadows) * ease).toFixed(2),
-      );
-      blacks = parseFloat(
-        (startBlacks + (targetBlacks - startBlacks) * ease).toFixed(2),
-      );
-      lutIntensity = parseFloat(
-        (
-          startLutIntensity +
-          (targetLutIntensity - startLutIntensity) * ease
-        ).toFixed(2),
-      );
-      colorTemp = Math.round(
-        startColorTemp + (targetColorTemp - startColorTemp) * ease,
-      );
-      tint = parseFloat(
-        (startTint + (targetTint - startTint) * ease).toFixed(1),
-      );
-      vibrance = parseFloat(
-        (startVibrance + (targetVibrance - startVibrance) * ease).toFixed(2),
-      );
-      clarity = parseFloat(
-        (startClarity + (targetClarity - startClarity) * ease).toFixed(2),
-      );
-      sharpness = parseFloat(
-        (startSharpness + (targetSharpness - startSharpness) * ease).toFixed(2),
-      );
-      colorDensity = parseFloat(
-        (
-          startColorDensity +
-          (targetColorDensity - startColorDensity) * ease
-        ).toFixed(2),
-      );
-      shadowHue = Math.round(
-        startShadowHue + (targetShadowHue - startShadowHue) * ease,
-      );
-      shadowTintAmount = parseFloat(
-        (
-          startShadowTintAmount +
-          (targetShadowTintAmount - startShadowTintAmount) * ease
-        ).toFixed(2),
-      );
-      highlightHue = Math.round(
-        startHighlightHue + (targetHighlightHue - startHighlightHue) * ease,
-      );
-      highlightTintAmount = parseFloat(
-        (
-          startHighlightTintAmount +
-          (targetHighlightTintAmount - startHighlightTintAmount) * ease
-        ).toFixed(2),
-      );
-      halation = parseFloat(
-        (startHalation + (targetHalation - startHalation) * ease).toFixed(2),
-      );
-      grainAmount = parseFloat(
-        (
-          startGrainAmount +
-          (targetGrainAmount - startGrainAmount) * ease
-        ).toFixed(2),
-      );
-      vignette = parseFloat(
-        (startVignette + (targetVignette - startVignette) * ease).toFixed(2),
-      );
-
-      // 同步動態調色至 darkroomState 以流暢驅動右側面板滑桿與 WebGL 著色
-      darkroomState.exposure = exposure;
-      darkroomState.highlights = highlights;
-      darkroomState.contrast = contrast;
-      darkroomState.shadows = shadows;
-      darkroomState.blacks = blacks;
-      darkroomState.lutIntensity = lutIntensity;
-      darkroomState.colorTemp = colorTemp;
-      darkroomState.tint = tint;
-      darkroomState.vibrance = vibrance;
-      darkroomState.clarity = clarity;
-      darkroomState.sharpness = sharpness;
-      darkroomState.colorDensity = colorDensity;
-      darkroomState.shadowHue = shadowHue;
-      darkroomState.shadowTintAmount = shadowTintAmount;
-      darkroomState.highlightHue = highlightHue;
-      darkroomState.highlightTintAmount = highlightTintAmount;
-      darkroomState.halation = halation;
-      darkroomState.grainAmount = grainAmount;
-      darkroomState.vignette = vignette;
-
-      if (progress < 1.0) {
-        requestAnimationFrame(step);
-      } else {
-        if (activePhoto) {
-          activePhoto.tuning = {
-            exposure,
-            highlights,
-            contrast,
-            shadows,
-            blacks,
-            lutIntensity,
-            colorTemp,
-            tint,
-            vibrance,
-            clarity,
-            sharpness,
-            colorDensity,
-            shadowHue,
-            shadowTintAmount,
-            highlightHue,
-            highlightTintAmount,
-            halation,
-            grainAmount,
-            vignette,
-            monochrome,
-            hsl: cloneHslAdjustments(hsl),
-          };
-          photoPlates = photoPlates.map((p) =>
-            p.id === activePhoto!.id
-              ? { ...p, tuning: activePhoto!.tuning }
-              : p,
-          );
-        }
+    darkroomState.animateAdjustmentValues(target, durationMs, () => {
+      if (activePhoto) {
+        activePhoto.tuning = darkroomState.buildTuningSnapshot(
+          activePhoto as any,
+        );
+        photoPlates = photoPlates.map((p) =>
+          p.id === activePhoto!.id ? { ...p, tuning: activePhoto!.tuning } : p,
+        );
       }
-    }
-    requestAnimationFrame(step);
+    });
   }
 
   let terminalBodyElement = $state<HTMLDivElement | null>(null);
@@ -2384,7 +1713,7 @@
         aiStyleInsight = decision.style_insight || "";
         aiRecommendedMood = decision.recommended_mood || "";
         aiRecommendedProfile = decision.recommended_profile;
-        aiCropRationale = decision.crop_rationale || "";
+        darkroomState.aiCropRationale = decision.crop_rationale || "";
         aiVisionTags = decision.tags || [];
 
         // 若有視覺標籤，自動預熱 Groq 文案生成（秒回體驗）
@@ -2712,27 +2041,12 @@
             targetAnim.vignette = baseVignette;
             targetAnim.hsl = cloneHslAdjustments(baseHsl);
           }
-          highlights = baseHighlights;
-          blacks = baseBlacks;
-          clarity = baseClarity;
-          sharpness = baseSharpness;
-          monochrome = baseMonochrome;
           darkroomState.highlights = baseHighlights;
           darkroomState.blacks = baseBlacks;
           darkroomState.clarity = baseClarity;
           darkroomState.sharpness = baseSharpness;
           darkroomState.monochrome = baseMonochrome;
           if (applyFilmPhysics) {
-            vibrance = baseVibrance;
-            colorDensity = baseColorDensity;
-            shadowHue = baseShadowHue;
-            shadowTintAmount = baseShadowTintAmount;
-            highlightHue = baseHighlightHue;
-            highlightTintAmount = baseHighlightTintAmount;
-            halation = baseHalation;
-            grainAmount = baseGrainAmount;
-            vignette = baseVignette;
-            hsl = cloneHslAdjustments(baseHsl);
             darkroomState.vibrance = baseVibrance;
             darkroomState.colorDensity = baseColorDensity;
             darkroomState.shadowHue = baseShadowHue;
@@ -2748,43 +2062,28 @@
             animateAdjustmentValues(targetAnim, 650);
           }
           if (targetCrop) {
-            cropX = targetCrop.x;
-            cropY = targetCrop.y;
-            cropWidth = targetCrop.width;
-            cropHeight = targetCrop.height;
-            cropRotation = targetCrop.rotation;
-            keystoneV = targetCrop.keystoneV ?? 0;
-            keystoneH = targetCrop.keystoneH ?? 0;
-            cropAspectRatio = targetCrop.aspectRatio;
-            flipH = targetCrop.flipH;
-            flipV = targetCrop.flipV;
+            darkroomState.cropX = targetCrop.x;
+            darkroomState.cropY = targetCrop.y;
+            darkroomState.cropWidth = targetCrop.width;
+            darkroomState.cropHeight = targetCrop.height;
+            darkroomState.cropRotation = targetCrop.rotation;
+            darkroomState.keystoneV = targetCrop.keystoneV ?? 0;
+            darkroomState.keystoneH = targetCrop.keystoneH ?? 0;
+            darkroomState.cropAspectRatio = targetCrop.aspectRatio;
+            darkroomState.flipH = targetCrop.flipH;
+            darkroomState.flipV = targetCrop.flipV;
           }
         } else {
           // 批次模式中直接更新全域狀態，絕不觸發高頻動畫或重繪風暴
-          exposure = baseEv;
-          highlights = baseHighlights;
-          contrast = baseContrast;
-          shadows = baseShadows;
-          blacks = baseBlacks;
-          colorTemp = baseTemp;
-          tint = baseTint;
-          vibrance = baseVibrance;
-          lutIntensity = baseLut;
-          clarity = baseClarity;
-          sharpness = baseSharpness;
-          colorDensity = baseColorDensity;
-          shadowHue = baseShadowHue;
-          shadowTintAmount = baseShadowTintAmount;
-          highlightHue = baseHighlightHue;
-          highlightTintAmount = baseHighlightTintAmount;
-          halation = baseHalation;
-          grainAmount = baseGrainAmount;
-          vignette = baseVignette;
-          monochrome = baseMonochrome;
-          hsl = cloneHslAdjustments(baseHsl);
+          darkroomState.exposure = baseEv;
           darkroomState.highlights = baseHighlights;
+          darkroomState.contrast = baseContrast;
+          darkroomState.shadows = baseShadows;
           darkroomState.blacks = baseBlacks;
+          darkroomState.colorTemp = baseTemp;
+          darkroomState.tint = baseTint;
           darkroomState.vibrance = baseVibrance;
+          darkroomState.lutIntensity = baseLut;
           darkroomState.clarity = baseClarity;
           darkroomState.sharpness = baseSharpness;
           darkroomState.colorDensity = baseColorDensity;
@@ -2798,16 +2097,16 @@
           darkroomState.monochrome = baseMonochrome;
           darkroomState.hsl = cloneHslAdjustments(baseHsl);
           if (targetCrop) {
-            cropX = targetCrop.x;
-            cropY = targetCrop.y;
-            cropWidth = targetCrop.width;
-            cropHeight = targetCrop.height;
-            cropRotation = targetCrop.rotation;
-            keystoneV = targetCrop.keystoneV ?? 0;
-            keystoneH = targetCrop.keystoneH ?? 0;
-            cropAspectRatio = targetCrop.aspectRatio;
-            flipH = targetCrop.flipH;
-            flipV = targetCrop.flipV;
+            darkroomState.cropX = targetCrop.x;
+            darkroomState.cropY = targetCrop.y;
+            darkroomState.cropWidth = targetCrop.width;
+            darkroomState.cropHeight = targetCrop.height;
+            darkroomState.cropRotation = targetCrop.rotation;
+            darkroomState.keystoneV = targetCrop.keystoneV ?? 0;
+            darkroomState.keystoneH = targetCrop.keystoneH ?? 0;
+            darkroomState.cropAspectRatio = targetCrop.aspectRatio;
+            darkroomState.flipH = targetCrop.flipH;
+            darkroomState.flipV = targetCrop.flipV;
           }
         }
       }
@@ -2883,18 +2182,13 @@
         },
       );
       if (decision.crop_box) {
-        cropY = decision.crop_box[0];
-        cropX = decision.crop_box[1];
-        cropHeight = decision.crop_box[2] - decision.crop_box[0];
-        cropWidth = decision.crop_box[3] - decision.crop_box[1];
-        darkroomState.cropY = cropY;
-        darkroomState.cropX = cropX;
-        darkroomState.cropHeight = cropHeight;
-        darkroomState.cropWidth = cropWidth;
+        darkroomState.cropY = decision.crop_box[0];
+        darkroomState.cropX = decision.crop_box[1];
+        darkroomState.cropHeight = decision.crop_box[2] - decision.crop_box[0];
+        darkroomState.cropWidth = decision.crop_box[3] - decision.crop_box[1];
       }
       if (typeof decision.rotation_deg === "number") {
-        cropRotation = decision.rotation_deg;
-        darkroomState.cropRotation = cropRotation;
+        darkroomState.cropRotation = decision.rotation_deg;
       }
       if (
         decision.aspect_ratio &&
@@ -2902,15 +2196,13 @@
           decision.aspect_ratio,
         )
       ) {
-        cropAspectRatio = decision.aspect_ratio as any;
-        darkroomState.cropAspectRatio = cropAspectRatio;
+        darkroomState.cropAspectRatio = decision.aspect_ratio as any;
       }
-      aiCropRationale = decision.crop_rationale || "已套用 AI 建議構圖比例。";
-      darkroomState.aiCropRationale = aiCropRationale;
-      isCropMode = true; // 自動開啟裁切框供檢視
-      darkroomState.isCropMode = true;
-      await appendAiLog(`> [SUCCESS] 智慧裁切已套用：${aiCropRationale} ✓`);
-      toastStore.show(`智慧構圖已套用：${aiCropRationale} ✓`, "success");
+      const rationale = decision.crop_rationale || "已套用 AI 建議構圖比例。";
+      darkroomState.aiCropRationale = rationale;
+      darkroomState.isCropMode = true; // 自動開啟裁切框供檢視
+      await appendAiLog(`> [SUCCESS] 智慧裁切已套用：${rationale} ✓`);
+      toastStore.show(`智慧構圖已套用：${rationale} ✓`, "success");
     } catch (err: any) {
       await appendAiLog(`> [ERROR] 裁切分析失敗：${err.message}`);
       toastStore.show(
@@ -2949,17 +2241,17 @@
           },
         },
       );
-      cropRotation =
+      const nextRotation =
         typeof decision.rotation_deg === "number" ? decision.rotation_deg : 0.0;
-      keystoneV =
+      const nextKeystoneV =
         typeof decision.keystone_v === "number" ? decision.keystone_v : 0.0;
-      darkroomState.cropRotation = cropRotation;
-      darkroomState.keystoneV = keystoneV;
+      darkroomState.cropRotation = nextRotation;
+      darkroomState.keystoneV = nextKeystoneV;
       await appendAiLog(
-        `> [SUCCESS] 地平線校正 ${cropRotation.toFixed(1)}°，垂直梯形 ${keystoneV.toFixed(1)}° ✓`,
+        `> [SUCCESS] 地平線校正 ${nextRotation.toFixed(1)}°，垂直梯形 ${nextKeystoneV.toFixed(1)}° ✓`,
       );
       toastStore.show(
-        `地平線校正 ${cropRotation.toFixed(1)}°，垂直梯形 ${keystoneV.toFixed(1)}° ✓`,
+        `地平線校正 ${nextRotation.toFixed(1)}°，垂直梯形 ${nextKeystoneV.toFixed(1)}° ✓`,
         "success",
       );
     } catch (err: any) {
@@ -3003,8 +2295,8 @@
       );
       animateAdjustmentValues(
         {
-          colorTemp: decision.color_temp ?? colorTemp,
-          tint: decision.tint ?? tint,
+          colorTemp: decision.color_temp ?? darkroomState.colorTemp,
+          tint: decision.tint ?? darkroomState.tint,
         },
         500,
       );
@@ -3057,29 +2349,24 @@
       animateAdjustmentValues(
         {
           exposure: decision.exposure_compensation,
-          highlights: decision.highlights ?? highlights,
-          contrast: decision.contrast ?? contrast,
-          blacks: decision.blacks ?? blacks,
+          highlights: decision.highlights ?? darkroomState.highlights,
+          contrast: decision.contrast ?? darkroomState.contrast,
+          blacks: decision.blacks ?? darkroomState.blacks,
         },
         500,
       );
-      shadows = decision.lift_shadows;
-      darkroomState.shadows = shadows;
+      darkroomState.shadows = decision.lift_shadows;
       if (typeof decision.highlights === "number") {
-        highlights = decision.highlights;
-        darkroomState.highlights = highlights;
+        darkroomState.highlights = decision.highlights;
       }
       if (typeof decision.blacks === "number") {
-        blacks = decision.blacks;
-        darkroomState.blacks = blacks;
+        darkroomState.blacks = decision.blacks;
       }
       if (typeof decision.clarity === "number") {
-        clarity = decision.clarity;
-        darkroomState.clarity = clarity;
+        darkroomState.clarity = decision.clarity;
       }
       if (typeof decision.sharpness === "number") {
-        sharpness = decision.sharpness;
-        darkroomState.sharpness = sharpness;
+        darkroomState.sharpness = decision.sharpness;
       }
       await appendAiLog(
         `> [SUCCESS] 自動光比已套用 (EV: ${decision.exposure_compensation > 0 ? "+" : ""}${decision.exposure_compensation}) ✓`,
@@ -3364,48 +2651,33 @@
       const format = resolvedOpts.format;
       const quality = resolvedOpts.quality;
       const maxLongEdge = resolvedOpts.maxLongEdge;
-      const currentCrop =
-        activePhoto.crop ||
-        (cropWidth < 1 || cropHeight < 1 || cropRotation !== 0 || flipH || flipV
-          ? {
-              x: cropX,
-              y: cropY,
-              width: cropWidth,
-              height: cropHeight,
-              rotation: cropRotation,
-              keystoneV,
-              keystoneH,
-              aspectRatio: cropAspectRatio,
-              flipH,
-              flipV,
-            }
-          : undefined);
+      const currentCrop = activePhoto.crop || darkroomState.buildCropSnapshot();
 
       const blob = await ExportService.renderPhotoToBlob({
         photo: {
           ...activePhoto,
           tuning: activePhoto.tuning || {
-            exposure,
-            highlights,
-            contrast,
-            shadows,
-            blacks,
-            colorTemp,
-            tint,
-            vibrance,
-            lutIntensity,
-            clarity,
-            sharpness,
-            colorDensity,
-            shadowHue,
-            shadowTintAmount,
-            highlightHue,
-            highlightTintAmount,
-            halation,
-            grainAmount,
-            vignette,
-            monochrome,
-            hsl: cloneHslAdjustments(hsl),
+            exposure: darkroomState.exposure,
+            highlights: darkroomState.highlights,
+            contrast: darkroomState.contrast,
+            shadows: darkroomState.shadows,
+            blacks: darkroomState.blacks,
+            colorTemp: darkroomState.colorTemp,
+            tint: darkroomState.tint,
+            vibrance: darkroomState.vibrance,
+            lutIntensity: darkroomState.lutIntensity,
+            clarity: darkroomState.clarity,
+            sharpness: darkroomState.sharpness,
+            colorDensity: darkroomState.colorDensity,
+            shadowHue: darkroomState.shadowHue,
+            shadowTintAmount: darkroomState.shadowTintAmount,
+            highlightHue: darkroomState.highlightHue,
+            highlightTintAmount: darkroomState.highlightTintAmount,
+            halation: darkroomState.halation,
+            grainAmount: darkroomState.grainAmount,
+            vignette: darkroomState.vignette,
+            monochrome: darkroomState.monochrome,
+            hsl: cloneHslAdjustments(darkroomState.hsl),
           },
           crop: currentCrop,
         },
@@ -3793,7 +3065,7 @@
           {aiSuggestedScene}
           {aiRecommendedMood}
           {aiStyleInsight}
-          {aiCropRationale}
+          aiCropRationale={darkroomState.aiCropRationale}
           {aiVisionTags}
           {aiScope}
           {isAiScopeOpen}
