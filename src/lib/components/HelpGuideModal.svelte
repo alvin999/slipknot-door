@@ -6,7 +6,126 @@
 
   let { isOpen = $bindable(false), onClose }: Props = $props();
 
-  let activeSection = $state<'shortcuts' | 'workflow'>('shortcuts');
+  let activeSection = $state<'guide' | 'workflow'>('guide');
+  let isMobile = $state<boolean>(false);
+
+  interface MobileGuideItem {
+    action: string;
+    title: string;
+    desc: string;
+    highlight?: boolean;
+    tone?: 'amber' | 'cyan' | 'green';
+  }
+
+  interface MobileGuideGroup {
+    badge: string;
+    title: string;
+    items: MobileGuideItem[];
+  }
+
+  const mobileOperationGroups: MobileGuideGroup[] = [
+    {
+      badge: 'STEP 01',
+      title: '膠卷目錄挑圖 (CATALOG)',
+      items: [
+        {
+          action: '輕點相片',
+          title: '進入單張暗房精修',
+          desc: '點擊任一張底片縮圖，立即開啟暗房精修工作台',
+          highlight: true,
+          tone: 'amber',
+        },
+        {
+          action: '點擊書籤圖示',
+          title: '挑選 / 取消挑選底片',
+          desc: '點選卡片右上角書籤標記納入佇列，再點一次立即取消',
+          highlight: true,
+          tone: 'amber',
+        },
+        {
+          action: '長按並滑動',
+          title: '多選與滑刷連選底片',
+          desc: '長按相片進入多選模式並可直接滑過連選，使用底部工具列批次挑選、排除或刪除',
+        },
+        {
+          action: '上方工具列',
+          title: '載入與追加相片來源',
+          desc: '切換「更換目錄」、「追加目錄」或「追加相片」，亦可直接載入相機記憶卡',
+        },
+      ],
+    },
+    {
+      badge: 'STEP 02',
+      title: '單張暗房精修 (RETOUCH)',
+      items: [
+        {
+          action: '畫布左右滑動',
+          title: '切換上一張 / 下一張底片',
+          desc: '在非放大狀態下左右滑動預覽畫布，依序檢視相卷底片',
+        },
+        {
+          action: '雙擊畫布',
+          title: '放大檢視細節 / 恢復全幅',
+          desc: '快速點兩下畫布可局部放大確認合焦，再點兩下還原全幅檢視',
+          highlight: true,
+          tone: 'amber',
+        },
+        {
+          action: '按住比對原圖',
+          title: 'A/B 原始本相即時對比',
+          desc: '長按畫布浮動「比對原圖」按鈕檢視 RAW 原圖，放開即恢復調色成果',
+          highlight: true,
+          tone: 'cyan',
+        },
+        {
+          action: '底部暗房操作列',
+          title: '一鍵 AI 顯影與抽屜面板',
+          desc: '直接點擊「一鍵 AI」或「批次」顯影，或開啟「風格」／「微調」抽屜調整細節',
+          highlight: true,
+          tone: 'amber',
+        },
+        {
+          action: '雙擊滑桿或數值',
+          title: '單項參數快速歸零',
+          desc: '點兩下參數名稱、數值或軌道可重設為基準值；輕點數值亦可直接輸入調整',
+        },
+      ],
+    },
+    {
+      badge: 'STEP 03',
+      title: '導出與社群分享 (EXPORT)',
+      items: [
+        {
+          action: '底部導航列',
+          title: '切換各階段工作視圖',
+          desc: '隨時於「挑圖」、「精修」、「導出/分享」、「風格庫」與「設定」之間切換',
+        },
+        {
+          action: '選擇輸出模式',
+          title: 'Mode A 極速 / Mode B 典藏',
+          desc: '依需求切換所見即所得快速出圖，或 16-bit 高品質典藏輸出',
+          highlight: true,
+          tone: 'green',
+        },
+        {
+          action: '生成文案與分享',
+          title: '一鍵匯出或呼叫系統分享',
+          desc: '產生 AI 策展文案後直接匯出成品，或點擊分享開啟手機原生分享面板',
+        },
+      ],
+    },
+  ];
+
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    isMobile = mq.matches;
+    const handleChange = (e: MediaQueryListEvent) => {
+      isMobile = e.matches;
+    };
+    mq.addEventListener?.('change', handleChange);
+    return () => mq.removeEventListener?.('change', handleChange);
+  });
 
   function handleKeydown(e: KeyboardEvent) {
     if (!isOpen) return;
@@ -36,12 +155,21 @@
         <div class="header-title-box">
           <span class="material-symbols-outlined help-icon">help_outline</span>
           <div>
-            <h2 class="title font-headline">大相無形 · 系統操作與快捷鍵指南</h2>
-            <p class="subtitle font-mono">CURATORIAL WORKFLOW & KEYBOARD CHEAT SHEET</p>
+            <h2 class="title font-headline">
+              {isMobile ? '大相無形 · 系統操作說明' : '大相無形 · 系統操作與快捷鍵指南'}
+            </h2>
+            <p class="subtitle font-mono">
+              {isMobile ? 'CURATORIAL WORKFLOW & OPERATION GUIDE' : 'CURATORIAL WORKFLOW & KEYBOARD CHEAT SHEET'}
+            </p>
           </div>
         </div>
 
-        <button type="button" class="close-btn" onclick={onClose} title="關閉 (Esc 或 ?)">
+        <button
+          type="button"
+          class="close-btn"
+          onclick={onClose}
+          title={isMobile ? '關閉說明' : '關閉 (Esc 或 ?)'}
+        >
           <span class="material-symbols-outlined">close</span>
         </button>
       </header>
@@ -51,11 +179,11 @@
         <button 
           type="button" 
           class="tab-btn" 
-          class:active={activeSection === 'shortcuts'}
-          onclick={() => activeSection = 'shortcuts'}
+          class:active={activeSection === 'guide'}
+          onclick={() => activeSection = 'guide'}
         >
-          <span class="material-symbols-outlined tab-icon">keyboard</span>
-          <span>鍵盤快捷鍵速查 (SHORTCUTS)</span>
+          <span class="material-symbols-outlined tab-icon">{isMobile ? 'touch_app' : 'keyboard'}</span>
+          <span>{isMobile ? '操作說明 (OPERATIONS)' : '鍵盤快捷鍵速查 (SHORTCUTS)'}</span>
         </button>
         <button 
           type="button" 
@@ -70,7 +198,39 @@
 
       <!-- Modal Body -->
       <div class="modal-body custom-scroll">
-        {#if activeSection === 'shortcuts'}
+        {#if activeSection === 'guide' && isMobile}
+          <!-- 手機版操作說明 -->
+          <div class="shortcuts-container">
+            {#each mobileOperationGroups as group}
+              <div class="shortcut-group hairline-all">
+                <div class="group-header font-mono">
+                  <span class="group-badge">{group.badge}</span>
+                  <span class="group-title">{group.title}</span>
+                </div>
+                <div class="shortcut-list">
+                  {#each group.items as item}
+                    <div class="shortcut-row" class:highlight={item.highlight}>
+                      <div class="keys">
+                        <span
+                          class="op-badge font-mono"
+                          class:amber={item.tone === 'amber'}
+                          class:cyan={item.tone === 'cyan'}
+                          class:green={item.tone === 'green'}
+                        >
+                          {item.action}
+                        </span>
+                      </div>
+                      <div class="action-desc">
+                        <span class="desc-main">{item.title}</span>
+                        <span class="desc-sub font-mono">{item.desc}</span>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {:else if activeSection === 'guide'}
           <!-- 快捷鍵對照表 -->
           <div class="shortcuts-container">
             <!-- 模組 1: 膠卷目錄挑圖 -->
@@ -421,12 +581,19 @@
               <div class="step-num-badge">01</div>
               <div class="step-content">
                 <h3 class="step-title font-headline">相機連線與膠卷挑圖 (Ingestion & Curation)</h3>
-                <p class="step-desc">
-                  插入相機記憶卡或連接傳輸線，系統即插即讀自動探測 DCIM 目錄與 RAW 檔案。
-                  在目錄矩陣中，利用右手 <span class="highlight-text">HJKL</span> 瀏覽底片，
-                  按下 <span class="highlight-text">Space</span> 叫出 Quick Look 審視合焦細節，
-                  左手按下 <span class="highlight-text">P</span> 鍵加入挑選清單。挑選完畢後按 <span class="highlight-text">Enter</span> 順暢進入暗房。
-                </p>
+                {#if isMobile}
+                  <p class="step-desc">
+                    載入相機記憶卡或本機相片資料夾後，於膠卷目錄中瀏覽底片縮圖。
+                    點擊卡片右上角 <span class="highlight-text">書籤圖示</span> 加入挑選清單，或 <span class="highlight-text">長按並滑動</span> 進行批次選取；輕點任一相片即可直接進入暗房精修。
+                  </p>
+                {:else}
+                  <p class="step-desc">
+                    插入相機記憶卡或連接傳輸線，系統即插即讀自動探測 DCIM 目錄與 RAW 檔案。
+                    在目錄矩陣中，利用右手 <span class="highlight-text">HJKL</span> 瀏覽底片，
+                    按下 <span class="highlight-text">Space</span> 叫出 Quick Look 審視合焦細節，
+                    左手按下 <span class="highlight-text">P</span> 鍵加入挑選清單。挑選完畢後按 <span class="highlight-text">Enter</span> 順暢進入暗房。
+                  </p>
+                {/if}
               </div>
             </div>
 
@@ -436,11 +603,18 @@
               <div class="step-num-badge">02</div>
               <div class="step-content">
                 <h3 class="step-title font-headline">單張暗房精修 (Darkroom Retouch)</h3>
-                <p class="step-desc">
-                  暗房工作台載入挑選底片，具備 60FPS WebGL 2.0 即時 3D LUT 色彩模擬。
-                  支援多模態 AI 智慧顯影調色與獨立微型快捷動作（AI 裁切、AI 拉平、AI 白平衡、AI 光比）。
-                  修圖過程中長按或按一下 <span class="highlight-text">Space</span> 進行 A/B 原始本相對比。滿意後按 <span class="highlight-text">Enter</span> 推進至導出。
-                </p>
+                {#if isMobile}
+                  <p class="step-desc">
+                    暗房工作台具備 60FPS WebGL 2.0 即時 3D LUT 色彩模擬，可透過底部操作列執行 <span class="highlight-text">一鍵 AI</span> 或 <span class="highlight-text">批次顯影</span>，並隨時展開「風格」與「微調」抽屜。
+                    左右滑動畫布可切換底片、雙擊可放大檢視，按住 <span class="highlight-text">比對原圖</span> 即可檢視 A/B 原始本相效果。
+                  </p>
+                {:else}
+                  <p class="step-desc">
+                    暗房工作台載入挑選底片，具備 60FPS WebGL 2.0 即時 3D LUT 色彩模擬。
+                    支援多模態 AI 智慧顯影調色與獨立微型快捷動作（AI 裁切、AI 拉平、AI 白平衡、AI 光比）。
+                    修圖過程中長按或按一下 <span class="highlight-text">Space</span> 進行 A/B 原始本相對比。滿意後按 <span class="highlight-text">Enter</span> 推進至導出。
+                  </p>
+                {/if}
               </div>
             </div>
 
@@ -450,10 +624,17 @@
               <div class="step-num-badge">03</div>
               <div class="step-content">
                 <h3 class="step-title font-headline">雙管線批次導出 (Dual Pipeline Export)</h3>
-                <p class="step-desc">
-                  自由切換 <span class="highlight-text">Mode A（所見即所得極速出圖）</span> 或 <span class="highlight-text">Mode B（16-bit 滿血無損典藏輸出）</span>。
-                  內建 Groq 策展文案自動生成，確認設定後按下 <span class="highlight-text">Enter</span> 立即啟動批次出圖管線，自動保存至指定典藏資料夾。
-                </p>
+                {#if isMobile}
+                  <p class="step-desc">
+                    點選底部導航切換至「導出/分享」，自由選擇 <span class="highlight-text">Mode A（所見即所得極速出圖）</span> 或 <span class="highlight-text">Mode B（16-bit 滿血無損典藏輸出）</span>。
+                    內建 Groq 策展文案自動生成，確認設定後點擊匯出或使用系統分享面板立即分享成品。
+                  </p>
+                {:else}
+                  <p class="step-desc">
+                    自由切換 <span class="highlight-text">Mode A（所見即所得極速出圖）</span> 或 <span class="highlight-text">Mode B（16-bit 滿血無損典藏輸出）</span>。
+                    內建 Groq 策展文案自動生成，確認設定後按下 <span class="highlight-text">Enter</span> 立即啟動批次出圖管線，自動保存至指定典藏資料夾。
+                  </p>
+                {/if}
               </div>
             </div>
           </div>
@@ -464,10 +645,14 @@
       <footer class="modal-footer hairline-t font-mono">
         <div class="footer-tip">
           <span class="material-symbols-outlined tip-icon">tips_and_updates</span>
-          <span>提示：在任何介面隨時按下 <kbd class="kbd-chip">?</kbd> 鍵即可快速叫出或關閉此說明視窗。</span>
+          {#if isMobile}
+            <span>提示：點擊右上角「?」圖示可隨時開啟或關閉此操作說明。</span>
+          {:else}
+            <span>提示：在任何介面隨時按下 <kbd class="kbd-chip">?</kbd> 鍵即可快速叫出或關閉此說明視窗。</span>
+          {/if}
         </div>
         <button type="button" class="archival-btn-primary" onclick={onClose}>
-          <span>瞭解並關閉 (Esc)</span>
+          <span>{isMobile ? '瞭解並關閉' : '瞭解並關閉 (Esc)'}</span>
         </button>
       </footer>
     </div>
@@ -819,5 +1004,111 @@
 
   .archival-btn-primary:hover {
     background-color: var(--primary-hover);
+  }
+
+  .op-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    font-size: 11px;
+    color: var(--parchment-bright);
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: var(--radius-xs);
+    white-space: nowrap;
+  }
+
+  .op-badge.amber {
+    color: var(--amber-highlight);
+    border-color: rgba(212, 163, 115, 0.5);
+    background-color: rgba(212, 163, 115, 0.12);
+  }
+
+  .op-badge.cyan {
+    color: #5ce1e6;
+    border-color: rgba(92, 225, 230, 0.5);
+    background-color: rgba(92, 225, 230, 0.12);
+  }
+
+  .op-badge.green {
+    color: var(--success-green);
+    border-color: rgba(86, 143, 107, 0.5);
+    background-color: rgba(86, 143, 107, 0.12);
+  }
+
+  @media (max-width: 768px) {
+    .modal-card {
+      max-width: 94vw;
+      max-height: 88vh;
+    }
+
+    .modal-header {
+      padding: 14px 16px;
+    }
+
+    .title {
+      font-size: 15px;
+    }
+
+    .section-tabs {
+      padding: 0 12px;
+      gap: 6px;
+    }
+
+    .tab-btn {
+      padding: 10px 10px;
+      font-size: 11px;
+      gap: 6px;
+    }
+
+    .modal-body {
+      padding: 14px;
+    }
+
+    .shortcut-row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 12px 14px;
+    }
+
+    .keys {
+      min-width: 0;
+    }
+
+    .action-desc {
+      align-items: flex-start;
+    }
+
+    .desc-sub {
+      line-height: 1.5;
+    }
+
+    .workflow-step-card {
+      padding: 14px;
+      gap: 12px;
+    }
+
+    .step-num-badge {
+      width: 36px;
+      height: 36px;
+      font-size: 16px;
+    }
+
+    .modal-footer {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      padding: 14px 16px;
+    }
+
+    .footer-tip {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .archival-btn-primary {
+      justify-content: center;
+      width: 100%;
+    }
   }
 </style>

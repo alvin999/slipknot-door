@@ -59,6 +59,18 @@
 
   let isDirMenuOpen = $state<boolean>(false);
   let recentDirs = $state<RecentDirectoryEntry[]>([]);
+  let isMobile = $state<boolean>(false);
+
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    isMobile = mq.matches;
+    const handleChange = (e: MediaQueryListEvent) => {
+      isMobile = e.matches;
+    };
+    mq.addEventListener?.('change', handleChange);
+    return () => mq.removeEventListener?.('change', handleChange);
+  });
 
   function toggleDirMenu() {
     isDirMenuOpen = !isDirMenuOpen;
@@ -411,8 +423,8 @@
       type="button"
       class="help-trigger-btn hairline-all font-mono"
       onclick={onOpenHelp}
-      title="系統操作與鍵盤快捷鍵指南 (按 ?)"
-      aria-label="系統操作與鍵盤快捷鍵指南"
+      title={isMobile ? '系統操作說明' : '系統操作與鍵盤快捷鍵指南 (按 ?)'}
+      aria-label={isMobile ? '系統操作說明' : '系統操作與鍵盤快捷鍵指南'}
     >
       <span class="material-symbols-outlined icon">help_outline</span>
     </button>
