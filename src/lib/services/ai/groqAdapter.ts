@@ -397,6 +397,9 @@ Respond ONLY with raw JSON matching this schema:
    */
   public async generateCopywriting(options: TextInferenceOptions): Promise<CopywritingResult> {
     const { apiKey, modelId, payload } = options;
+    if (!apiKey || apiKey.trim() === '') {
+      throw new Error('未配置 Groq API 金鑰');
+    }
     const activeModel = (modelId && modelId.trim()) ? modelId.trim() : 'llama-3.3-70b-versatile';
     const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -453,6 +456,9 @@ ${userPromptSection}
    */
   public async planDirectory(options: DirectoryPlanOptions): Promise<DirectoryPlanResult> {
     const { apiKey, modelId, payload } = options;
+    if (!apiKey || apiKey.trim() === '') {
+      throw new Error('未配置 Groq API 金鑰');
+    }
     const activeModel = (modelId && modelId.trim()) ? modelId.trim() : 'llama-3.3-70b-versatile';
     const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
 

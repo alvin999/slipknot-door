@@ -185,7 +185,7 @@
 
   // Darkroom Tuning Sliders
   // Professional Darkroom Tonal & Color Parameters
-    // 專業暗房光影與色彩參數 (與 darkroomState 保持單一真相來源)
+  // 專業暗房光影與色彩參數 (與 darkroomState 保持單一真相來源)
   let exposure = $state<number>(0.0);
   let contrast = $state<number>(0.0);
   let shadows = $state<number>(0.0);
@@ -338,7 +338,7 @@
     );
   }
 
-    // 裁切長寬比由 darkroomState.applyAspectRatioPreset() 統一管理
+  // 裁切長寬比由 darkroomState.applyAspectRatioPreset() 統一管理
 
   // Dedicated Offscreen WebGL Renderer for Catalog Thumbnails
   let offscreenCanvas: HTMLCanvasElement | null = null;
@@ -823,10 +823,11 @@
       const asShotExp = activePhoto.asShotExposure ?? 0.0;
       const asShotTint = activePhoto.asShotTint ?? 0.0;
 
-      const isDefaultHsl = HSL_BAND_KEYS.every((k) =>
-        Math.abs(hsl[k].hue) < 0.001 &&
-        Math.abs(hsl[k].sat) < 0.001 &&
-        Math.abs(hsl[k].lum) < 0.001
+      const isDefaultHsl = HSL_BAND_KEYS.every(
+        (k) =>
+          Math.abs(hsl[k].hue) < 0.001 &&
+          Math.abs(hsl[k].sat) < 0.001 &&
+          Math.abs(hsl[k].lum) < 0.001,
       );
       const isDefault =
         isDefaultHsl &&
@@ -1103,7 +1104,7 @@
   }
 
   // 步驟二：前往批次導出頁面
-    // 步驟一：一鍵進入精修頁面 (優先以當前焦點或選取相片作為首幀)
+  // 步驟一：一鍵進入精修頁面 (優先以當前焦點或選取相片作為首幀)
   function goToRetouch() {
     const target =
       activePhoto && activeQueue.some((p) => p.id === activePhoto?.id)
@@ -1480,7 +1481,10 @@
 
     const plate = thumbnailRenderQueue.shift();
     if (plate && plate.thumbnail) {
-      if (plate.appliedProfile === "Profile_00_StandardNatural" && !plate.tuning) {
+      if (
+        plate.appliedProfile === "Profile_00_StandardNatural" &&
+        !plate.tuning
+      ) {
         if (plate.gradedThumbnail !== undefined) {
           plate.gradedThumbnail = undefined;
           photoPlates = photoPlates.map((p) =>
@@ -1558,7 +1562,8 @@
             : (plate.tuning?.grainAmount ?? 0.15);
           const currentHighlights = isCurrentActive
             ? highlights
-            : (plate.tuning?.highlights ?? (found ? (found.highlightsDefault ?? 0.0) : 0.0));
+            : (plate.tuning?.highlights ??
+              (found ? (found.highlightsDefault ?? 0.0) : 0.0));
           const currentBlacks = isCurrentActive
             ? blacks
             : (plate.tuning?.blacks ?? 0.0);
@@ -1571,9 +1576,7 @@
           const currentMonochrome = isCurrentActive
             ? monochrome
             : (plate.tuning?.monochrome ?? false);
-          const currentHsl = isCurrentActive
-            ? hsl
-            : plate.tuning?.hsl;
+          const currentHsl = isCurrentActive ? hsl : plate.tuning?.hsl;
 
           offscreenRenderer.setImageSource(img);
           offscreenRenderer.setProfile(plate.appliedProfile);
@@ -1806,10 +1809,11 @@
     const asShotExp = activePhoto.asShotExposure ?? 0.0;
     const asShotTint = activePhoto.asShotTint ?? 0.0;
 
-    const isDefaultHsl = HSL_BAND_KEYS.every((k) =>
-      Math.abs(hsl[k].hue) < 0.001 &&
-      Math.abs(hsl[k].sat) < 0.001 &&
-      Math.abs(hsl[k].lum) < 0.001
+    const isDefaultHsl = HSL_BAND_KEYS.every(
+      (k) =>
+        Math.abs(hsl[k].hue) < 0.001 &&
+        Math.abs(hsl[k].sat) < 0.001 &&
+        Math.abs(hsl[k].lum) < 0.001,
     );
 
     const isDefaultTuning =
@@ -2006,9 +2010,12 @@
       Math.abs(darkroomState.sharpness - (t.sharpness ?? 0.0)) > 0.001 ||
       Math.abs(darkroomState.colorDensity - (t.colorDensity ?? 0.0)) > 0.001 ||
       Math.abs(darkroomState.shadowHue - (t.shadowHue ?? 200)) > 0.5 ||
-      Math.abs(darkroomState.shadowTintAmount - (t.shadowTintAmount ?? 0.0)) > 0.001 ||
+      Math.abs(darkroomState.shadowTintAmount - (t.shadowTintAmount ?? 0.0)) >
+        0.001 ||
       Math.abs(darkroomState.highlightHue - (t.highlightHue ?? 40)) > 0.5 ||
-      Math.abs(darkroomState.highlightTintAmount - (t.highlightTintAmount ?? 0.0)) > 0.001 ||
+      Math.abs(
+        darkroomState.highlightTintAmount - (t.highlightTintAmount ?? 0.0),
+      ) > 0.001 ||
       Math.abs(darkroomState.halation - (t.halation ?? 0.0)) > 0.001 ||
       Math.abs(darkroomState.grainAmount - (t.grainAmount ?? 0.15)) > 0.001 ||
       Math.abs(darkroomState.vignette - (t.vignette ?? 0.0)) > 0.001 ||
@@ -2183,7 +2190,7 @@
     triggerWebglRender();
   }
 
-    /**
+  /**
    * 觸發暗房 WebGL 畫布重繪（委託 RetouchView 內部視圖）
    */
   function triggerWebglRender() {
@@ -2372,7 +2379,7 @@
     }
   }
 
-    // ── 相片工作區排除與復原機制 (Photo Workspace Removal & Undo) ──
+  // ── 相片工作區排除與復原機制 (Photo Workspace Removal & Undo) ──
   interface RemovedPhotoItemSnapshot {
     photo: PhotoPlate;
     originalIndex: number; // 記錄排除前在相卷中的原始索引位置
@@ -2391,7 +2398,11 @@
     if (!photos || photos.length === 0) return;
 
     const count = photos.length;
-    const names = photos.slice(0, 3).map((p) => p.filename).join("、") + (count > 3 ? ` 等共 ${count} 幀` : "");
+    const names =
+      photos
+        .slice(0, 3)
+        .map((p) => p.filename)
+        .join("、") + (count > 3 ? ` 等共 ${count} 幀` : "");
 
     let confirmed = false;
     if (IngestionService.isTauri()) {
@@ -2404,17 +2415,20 @@
             kind: "warning",
             okLabel: "移至回收筒",
             cancelLabel: "取消",
-          }
+          },
         );
       } catch (err) {
-        console.warn("Tauri confirm dialog failed, fallback to window.confirm:", err);
+        console.warn(
+          "Tauri confirm dialog failed, fallback to window.confirm:",
+          err,
+        );
         confirmed = window.confirm(
-          `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`
+          `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`,
         );
       }
     } else {
       confirmed = window.confirm(
-        `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`
+        `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`,
       );
     }
     if (!confirmed) return;
@@ -2459,14 +2473,14 @@
       toastStore.show(
         `已將 ${deletedCount} 幀底片移入資源回收筒 / 廢紙簍 🗑️`,
         "success",
-        3500
+        3500,
       );
     }
     if (failedCount > 0) {
       toastStore.show(
         `${failedCount} 幀底片無實體磁碟路徑或刪除失敗`,
         "error",
-        4000
+        4000,
       );
     }
   }
@@ -2512,10 +2526,15 @@
     photoLibrary.photoPlates = photoPlates as any;
     photoLibrary.activePhoto = activePhoto as any;
 
-    toastStore.show(`已自相卷排除 ${toRemoveWithIndex.length} 幀底片`, "info", 5000, {
-      label: "復原 ↺",
-      onClick: () => handleUndoRemove(),
-    });
+    toastStore.show(
+      `已自相卷排除 ${toRemoveWithIndex.length} 幀底片`,
+      "info",
+      5000,
+      {
+        label: "復原 ↺",
+        onClick: () => handleUndoRemove(),
+      },
+    );
   }
 
   function handleUndoRemove() {
@@ -2524,9 +2543,14 @@
 
     // 依原始索引升冪排序，並依序精準插回相卷原始位置（保持載入順序不變）
     const nextPlates = [...photoPlates];
-    const sorted = [...restoredItems].sort((a, b) => a.originalIndex - b.originalIndex);
+    const sorted = [...restoredItems].sort(
+      (a, b) => a.originalIndex - b.originalIndex,
+    );
     for (const item of sorted) {
-      const insertAt = Math.min(Math.max(0, item.originalIndex), nextPlates.length);
+      const insertAt = Math.min(
+        Math.max(0, item.originalIndex),
+        nextPlates.length,
+      );
       nextPlates.splice(insertAt, 0, item.photo);
     }
 
@@ -2544,25 +2568,36 @@
       }
     }
 
-    toastStore.show(`已原位復原 ${restoredItems.length} 幀底片 ✓`, "success", 2500);
+    toastStore.show(
+      `已原位復原 ${restoredItems.length} 幀底片 ✓`,
+      "success",
+      2500,
+    );
     lastRemovedSnapshot = null;
   }
 
   // Ingestion 反饋通知輔助函式：讓使用者清楚了解載入結果或未支援原因
-  function notifyIngestionResult(loadedCount: number, actionName: string = "相片") {
+  function notifyIngestionResult(
+    loadedCount: number,
+    actionName: string = "相片",
+  ) {
     const summary = IngestionService.lastSummary;
     const skipped = summary?.skippedCount || 0;
     const skippedExts = summary?.skippedExtensions || [];
-    const extsText = skippedExts.length > 0
-      ? `（如 ${skippedExts.slice(0, 3).map((e) => "." + e.toUpperCase()).join(", ")}${skippedExts.length > 3 ? " 等" : ""}）`
-      : "";
+    const extsText =
+      skippedExts.length > 0
+        ? `（如 ${skippedExts
+            .slice(0, 3)
+            .map((e) => "." + e.toUpperCase())
+            .join(", ")}${skippedExts.length > 3 ? " 等" : ""}）`
+        : "";
 
     if (loadedCount > 0) {
       if (skipped > 0) {
         toastStore.show(
           `已成功載入 ${loadedCount} 幀底片（已略過 ${skipped} 個不支援或非影像檔案${extsText}）`,
           "info",
-          4000
+          4000,
         );
       } else {
         toastStore.show(`已成功載入 ${loadedCount} 幀底片 ✓`, "success", 2500);
@@ -2573,13 +2608,13 @@
         toastStore.show(
           `未在此${actionName}中找到支援的底片格式（已略過 ${skipped} 個不相容檔案${extsText}）。支援各大廠相機 RAW 及主流影像。`,
           "warning",
-          5000
+          5000,
         );
       } else {
         toastStore.show(
           `未找到相片檔案。請確認目錄或檔案是否包含支援的相機 RAW 或影像。`,
           "warning",
-          4000
+          4000,
         );
       }
     }
@@ -2766,9 +2801,11 @@
     const targetSharpness = target.sharpness ?? startSharpness;
     const targetColorDensity = target.colorDensity ?? startColorDensity;
     const targetShadowHue = target.shadowHue ?? startShadowHue;
-    const targetShadowTintAmount = target.shadowTintAmount ?? startShadowTintAmount;
+    const targetShadowTintAmount =
+      target.shadowTintAmount ?? startShadowTintAmount;
     const targetHighlightHue = target.highlightHue ?? startHighlightHue;
-    const targetHighlightTintAmount = target.highlightTintAmount ?? startHighlightTintAmount;
+    const targetHighlightTintAmount =
+      target.highlightTintAmount ?? startHighlightTintAmount;
     const targetHalation = target.halation ?? startHalation;
     const targetGrainAmount = target.grainAmount ?? startGrainAmount;
     const targetVignette = target.vignette ?? startVignette;
@@ -2790,7 +2827,9 @@
         (startExposure + (targetExposure - startExposure) * ease).toFixed(2),
       );
       highlights = parseFloat(
-        (startHighlights + (targetHighlights - startHighlights) * ease).toFixed(2),
+        (startHighlights + (targetHighlights - startHighlights) * ease).toFixed(
+          2,
+        ),
       );
       contrast = parseFloat(
         (startContrast + (targetContrast - startContrast) * ease).toFixed(2),
@@ -2823,25 +2862,37 @@
         (startSharpness + (targetSharpness - startSharpness) * ease).toFixed(2),
       );
       colorDensity = parseFloat(
-        (startColorDensity + (targetColorDensity - startColorDensity) * ease).toFixed(2),
+        (
+          startColorDensity +
+          (targetColorDensity - startColorDensity) * ease
+        ).toFixed(2),
       );
       shadowHue = Math.round(
         startShadowHue + (targetShadowHue - startShadowHue) * ease,
       );
       shadowTintAmount = parseFloat(
-        (startShadowTintAmount + (targetShadowTintAmount - startShadowTintAmount) * ease).toFixed(2),
+        (
+          startShadowTintAmount +
+          (targetShadowTintAmount - startShadowTintAmount) * ease
+        ).toFixed(2),
       );
       highlightHue = Math.round(
         startHighlightHue + (targetHighlightHue - startHighlightHue) * ease,
       );
       highlightTintAmount = parseFloat(
-        (startHighlightTintAmount + (targetHighlightTintAmount - startHighlightTintAmount) * ease).toFixed(2),
+        (
+          startHighlightTintAmount +
+          (targetHighlightTintAmount - startHighlightTintAmount) * ease
+        ).toFixed(2),
       );
       halation = parseFloat(
         (startHalation + (targetHalation - startHalation) * ease).toFixed(2),
       );
       grainAmount = parseFloat(
-        (startGrainAmount + (targetGrainAmount - startGrainAmount) * ease).toFixed(2),
+        (
+          startGrainAmount +
+          (targetGrainAmount - startGrainAmount) * ease
+        ).toFixed(2),
       );
       vignette = parseFloat(
         (startVignette + (targetVignette - startVignette) * ease).toFixed(2),
@@ -4430,7 +4481,8 @@
           onRemovePhoto={(p) => handleRemovePhoto(p.id)}
           onBatchRemovePhotos={(ids) => handleBatchRemovePhotos(ids)}
           onDeletePhotoFromDisk={(p) => handleDeletePhotoFromDisk(p)}
-          onBatchDeletePhotosFromDisk={(photos) => handleBatchDeletePhotosFromDisk(photos)}
+          onBatchDeletePhotosFromDisk={(photos) =>
+            handleBatchDeletePhotosFromDisk(photos)}
           onRefreshMounts={refreshCameraMounts}
           onToggleFlag={handleFlagToggled}
           onFilesDropped={handleFilesDropped}
@@ -4599,7 +4651,9 @@
           class:spin={isAiAnalyzing && !isBatchAiRunning}
           style="font-size: 16px;"
         >
-          {isAiAnalyzing && !isBatchAiRunning ? "progress_activity" : "auto_awesome"}
+          {isAiAnalyzing && !isBatchAiRunning
+            ? "progress_activity"
+            : "auto_awesome"}
         </span>
         <span>
           {isAiAnalyzing && !isBatchAiRunning
@@ -4618,8 +4672,13 @@
             onclick={cancelBatchAi}
             title="立即中止 AI 批次顯影"
           >
-            <span class="material-symbols-outlined" style="font-size: 15px;">stop_circle</span>
-            <span>停止 ({batchProgress?.current || 1}/{batchProgress?.total || photoPlates.length})</span>
+            <span class="material-symbols-outlined" style="font-size: 15px;"
+              >stop_circle</span
+            >
+            <span
+              >停止 ({batchProgress?.current || 1}/{batchProgress?.total ||
+                photoPlates.length})</span
+            >
           </button>
         {:else}
           <button
@@ -4629,8 +4688,14 @@
             disabled={isAiAnalyzing}
             title="以預設或當前風格進行 AI 批次調色"
           >
-            <span class="material-symbols-outlined" style="font-size: 15px;">auto_mode</span>
-            <span>批次 ({flaggedCount > 0 ? flaggedCount : photoPlates.length})</span>
+            <span class="material-symbols-outlined" style="font-size: 15px;"
+              >auto_mode</span
+            >
+            <span
+              >批次 ({flaggedCount > 0
+                ? flaggedCount
+                : photoPlates.length})</span
+            >
           </button>
         {/if}
       {/if}
@@ -4643,7 +4708,9 @@
           (activeMobileDrawer = activeMobileDrawer === "ai" ? "none" : "ai")}
         title="展開 AI 風格與意境關鍵字設定面板"
       >
-        <span class="material-symbols-outlined" style="font-size: 15px;">palette</span>
+        <span class="material-symbols-outlined" style="font-size: 15px;"
+          >palette</span
+        >
         <span>風格</span>
       </button>
 
@@ -4656,7 +4723,9 @@
             activeMobileDrawer === "tuning" ? "none" : "tuning")}
         title="展開光影與色彩參數微調面板"
       >
-        <span class="material-symbols-outlined" style="font-size: 15px;">tune</span>
+        <span class="material-symbols-outlined" style="font-size: 15px;"
+          >tune</span
+        >
         <span>微調</span>
       </button>
     </div>
@@ -4941,7 +5010,11 @@
 
     .retouch-action-pill.primary-ai {
       flex: 1.25;
-      background: linear-gradient(135deg, rgba(226, 157, 82, 0.24), rgba(212, 163, 115, 0.12));
+      background: linear-gradient(
+        135deg,
+        rgba(226, 157, 82, 0.24),
+        rgba(212, 163, 115, 0.12)
+      );
       border-color: rgba(226, 157, 82, 0.65);
       color: var(--amber-highlight);
       font-weight: 600;

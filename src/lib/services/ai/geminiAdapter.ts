@@ -397,6 +397,9 @@ Respond ONLY with raw JSON matching this schema:
    */
   public async generateCopywriting(options: TextInferenceOptions): Promise<CopywritingResult> {
     const { apiKey, modelId, payload } = options;
+    if (!apiKey || apiKey.trim() === '') {
+      throw new Error('未配置 Gemini API 金鑰');
+    }
     const cleanModel = (modelId && modelId.trim()) ? modelId.trim().replace(/^models\//, '') : '';
     if (!cleanModel) {
       throw new Error('未指定有效的模型名稱');
