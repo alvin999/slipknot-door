@@ -35,7 +35,7 @@ export interface StyleKeywordEntry {
 
 /**
  * 調色意境關鍵字預設集 (Vibe / Style Keywords for Prompt Injection)
- * 供使用者點擊選取後注入 AI 調色 Prompt，引導曝光、對比、色溫、Tint、陰影抬升、清晰度與銳利度
+ * 僅提供精煉的風格關鍵字給 AI 作為美學意向開關，不強加多餘的參數微調指令
  */
 export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
   {
@@ -43,56 +43,49 @@ export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
     label: 'Film Like (Analog Film Aesthetic / 底片感)',
     shortTag: 'Film Like',
     tooltip: '有機高光滾降、暗部微抬啞光黑、柔和暈光與溫潤底片色調',
-    promptEnglish:
-      'Analog film aesthetic: prioritize emulsion diffusion and optical roll-off (keep clarity & sharpness <= 0.0 to prevent digital edge halos), lifted matte shadow toe, subtractive color density to avoid digital neon saturation, subtle split-zone chromatic bias, mild halation scattering around bright light sources, and organic silver-halide grain',
+    promptEnglish: 'Film Like',
   },
   {
     id: 'lomo',
     label: 'LOMO (Lomography Toy Camera / LOMO 風)',
     shortTag: 'LOMO 風',
     tooltip: '玩具相機負沖感、鮮明高反差、大膽色偏與邊緣微柔化',
-    promptEnglish:
-      'Lomography toy camera: cross-processed split-zone chromatic drift, high subtractive color density, high dynamic contrast, soft peripheral focus, pronounced halation and tactile grain',
+    promptEnglish: 'LOMO',
   },
   {
     id: 'airy_jp',
     label: 'Japanese Airy Style (日系空氣感)',
     shortTag: '日系空氣感',
     tooltip: '明亮微過曝、低反差、抬升暗部、清透偏冷青日光感',
-    promptEnglish:
-      'Japanese airy aesthetic: high-key gentle overexposure, soft low contrast, lifted airy shadows, negative subtractive color density for pastel tonality, cool cyan-teal shadow chromatic bias, minimal grain',
+    promptEnglish: 'Japanese Airy Style',
   },
   {
     id: 'cinematic',
     label: 'Cinematic Color Grade (電影感)',
     shortTag: '電影感',
     tooltip: '戲劇張力光比、冷暖色溫分離、深邃中間調立體感',
-    promptEnglish:
-      'Cinematic color grade: complementary cool teal shadow and warm amber highlight split-toning, subtractive color density for deep rich midtones, controlled contrast ratio, subtle halation on specular highlights',
+    promptEnglish: 'Cinematic',
   },
   {
     id: 'faded_vintage',
     label: 'Faded Vintage Print (復古褪色)',
     shortTag: '復古褪色',
     tooltip: '歲月泛黃暖調、強烈啞光抬黑、低反差懷舊老照片',
-    promptEnglish:
-      'Faded vintage print: warm amber highlight cast with cool muted shadow separation, lifted matte black floor, negative subtractive color density for aged print patina, mild halation and visible film grain',
+    promptEnglish: 'Faded Vintage',
   },
   {
     id: 'neon_wkw',
     label: 'Wong Kar-wai Hong Kong Neon (王家衛 · 霓虹夜色)',
     shortTag: '霓虹王家衛',
     tooltip: '90年代港片氛圍、濃烈鎢絲綠或琥珀洋紅偏移、迷離柔焦感',
-    promptEnglish:
-      'Wong Kar-wai Hong Kong neon: stylized tungsten green shadow chromatic bias and amber-magenta highlight split, pronounced halation scattering around neon light sources, emulsion diffusion (negative sharpness/clarity), rich subtractive dye density',
+    promptEnglish: 'Wong Kar-wai Hong Kong Neon',
   },
   {
     id: 'gritty_mono',
     label: 'Daido Moriyama Gritty Monochrome (森山大道 · 粗粒子硬調)',
     shortTag: '粗粒子硬調',
     tooltip: '極致高反差黑白街拍、深沉黑階、強烈邊緣微反差與清晰度',
-    promptEnglish:
-      'Daido Moriyama gritty monochrome: high-contrast black-and-white, crushed deep blacks, elevated micro-contrast and tactile edge sharpness, high organic silver-halide grain density',
+    promptEnglish: 'Daido Moriyama Gritty Monochrome',
   },
 ];
 
@@ -272,24 +265,23 @@ ${manifest}`;
 5. contrast: Global linear tonal slope.
 6. clarity & sharpness [-1.0 to 1.0, Baseline: 0.0]: Spatial frequency unsharp masking (high-frequency detail control).
    - Baseline 0.0 preserves native optical lens MTF.
-   - Negative values (<= 0.0) attenuate high-frequency edge steepness to model chemical emulsion diffusion, halation, and organic optical roll-off.
-   - Positive values (> 0.0) apply algorithmic edge-overshoot sharpening; use only when explicitly intending modern digital micro-contrast (not applicable for organic film emulation).
-7. FILMIC HIGHLIGHT PHILOSOPHY: Analog film prioritizes highlight roll-off over global brightness. Protect organic textures in bright skies, sunlit walls, and skin highlights; preserve highlight headroom rather than pushing exposure.
-8. composition & geometric framing (crop_box, rotation_deg, keystone_v):
+   - Negative values (< 0.0) soften edge steepness and micro-contrast.
+   - Positive values (> 0.0) accentuate edge acutance and local micro-contrast.
+7. composition & geometric framing (crop_box, rotation_deg, keystone_v):
    - Frame Boundary Consolidation vs. Environmental Negative Space:
      * When perimeter edges contain disruptive tangential cuts, visual clutter, or unbalanced dead space, consolidate crop boundaries inwards to anchor subject prominence and compositional harmony.
      * When wide contextual breathing room, atmospheric scale, or environmental context reinforces the aesthetic, preserve open framing or full frame [0.0, 0.0, 1.0, 1.0].
    - Horizon & Perspective Alignment:
      * Modulate rotation_deg and keystone_v to correct unintended optical lean or keystoning on architectural verticals and natural horizons, while respecting intentional dynamic angles.
-9. color_density [-1.0 to 1.0, Baseline: 0.0]: Subtractive emulsion dye density applied post-LUT. Positive values increase chroma while proportionally deepening high-chroma luminance (emulating light absorption of analog dyes); negative values attenuate chroma density toward pastel tonality.
-10. Split Toning (shadow_hue, shadow_tint_amount, highlight_hue, highlight_tint_amount): Post-LUT zone-separated chromatic bias preserving pure black and pure white anchors. Hue angles (0 to 360 deg): 0=Red, 45=Amber, 120=Green, 180=Cyan, 210=Teal-Blue, 240=Blue, 300=Magenta. Amounts range 0.0 to 1.0 (0.0 disables tint).
-11. halation [0.0 to 1.0, Baseline: 0.0]: Red-orange specular scatter halo around high-luminance edges caused by emulsion base reflection before highlight shoulder roll-off.
-12. grain_amount [0.0 to 1.0, Baseline: 0.15]: Luminance-weighted dual-scale silver-halide emulsion grain intensity.
-13. highlights [-1.0 to 1.0, Baseline: 0.0]: Upper-luminance roll-off / compression. Negative recovers specular highlight headroom without compressing midtones; positive boosts peak highlight energy.
-14. blacks [-0.5 to 0.5, Baseline: 0.0]: Lowest-luminance black-point anchor. Negative deepens true black floor density; positive creates a gentle matte fade in darkest shadows.
-15. vibrance [-1.0 to 1.0, Baseline: 0.0]: Skin-aware natural saturation scaling. Boosts muted hues proportionally while protecting warm skin tones and preventing over-saturated clipping.
-16. vignette [-1.0 to 1.0, Baseline: 0.0]: Optical peripheral radial falloff. Negative applies natural lens edge darkening; positive brightens outer corners.
-17. hsl (6-Band Targeted Color Mixer: "red" | "orange" | "yellow" | "green" | "cyan" | "blue"): Optional partial object where each specified band adjusts { hue: [-1.0, 1.0] (shifts ±30°), sat: [-1.0, 1.0], lum: [-1.0, 1.0] } centered at 0°, 30°, 60°, 120°, 185°, 240° with smooth inter-band blending and neutral-gray protection. Omit unadjusted bands or keep at 0.0.`;
+8. color_density [-1.0 to 1.0, Baseline: 0.0]: Subtractive emulsion dye density applied post-LUT. Positive values increase chroma while proportionally deepening high-chroma luminance (emulating light absorption of analog dyes); negative values attenuate chroma density toward pastel tonality.
+9. Split Toning (shadow_hue, shadow_tint_amount, highlight_hue, highlight_tint_amount): Post-LUT zone-separated chromatic bias preserving pure black and pure white anchors. Hue angles (0 to 360 deg): 0=Red, 45=Amber, 120=Green, 180=Cyan, 210=Teal-Blue, 240=Blue, 300=Magenta. Amounts range 0.0 to 1.0 (0.0 disables tint).
+10. halation [0.0 to 1.0, Baseline: 0.0]: Red-orange specular scatter halo around high-luminance edges caused by emulsion base reflection before highlight shoulder roll-off.
+11. grain_amount [0.0 to 1.0, Baseline: 0.15]: Luminance-weighted dual-scale silver-halide emulsion grain intensity.
+12. highlights [-1.0 to 1.0, Baseline: 0.0]: Upper-luminance roll-off / compression. Negative recovers specular highlight headroom without compressing midtones; positive boosts peak highlight energy.
+13. blacks [-0.5 to 0.5, Baseline: 0.0]: Lowest-luminance black-point anchor. Negative deepens true black floor density; positive creates a gentle matte fade in darkest shadows.
+14. vibrance [-1.0 to 1.0, Baseline: 0.0]: Skin-aware natural saturation scaling. Boosts muted hues proportionally while protecting warm skin tones and preventing over-saturated clipping.
+15. vignette [-1.0 to 1.0, Baseline: 0.0]: Optical peripheral radial falloff. Negative applies natural lens edge darkening; positive brightens outer corners.
+16. hsl (6-Band Targeted Color Mixer: "red" | "orange" | "yellow" | "green" | "cyan" | "blue"): Optional partial object where each specified band adjusts { hue: [-1.0, 1.0] (shifts ±30°), sat: [-1.0, 1.0], lum: [-1.0, 1.0] } centered at 0°, 30°, 60°, 120°, 185°, 240° with smooth inter-band blending and neutral-gray protection. Omit unadjusted bands or keep at 0.0.`;
 
   return {
     instructionBlock: baseBlock,
@@ -392,8 +384,8 @@ ${aestheticLine}- Since you have Image 2 (rendered actual result) as concrete gr
   5. 3D LUT INTENSITY (lut_intensity_delta, optional, valid range: -1.0 to 1.0):
      - Modulate the 3D LUT's volumetric influence within [-1.0, 1.0] if a more subtle or distinct profile presence is desired.
   6. OPTICAL TEXTURE & ACUTANCE (clarity_delta & sharpness_delta, optional, valid range: -0.5 to 0.5):
-     - Supply a negative delta if Image 2 exhibits unnatural digital edge hardness or to enhance analog emulsion diffusion and roll-off.
-     - Supply a positive delta only when the scene specifically requires modern high-frequency digital edge accentuation (not recommended for analog film aesthetics).
+     - Supply a negative delta within [-0.5, 0.0] to soften micro-contrast or edge steepness relative to target character.
+     - Supply a positive delta within [0.0, 0.5] when stronger micro-contrast or fine detail accentuation is warranted.
   7. SUBTRACTIVE COLOR DENSITY & SPLIT TONING DELTAS (optional):
      - color_density_delta (-0.5 to 0.5): Modulate dye absorption density if Image 2 exhibits digital neon oversaturation or excessive pastel washout.
      - shadow_tint_amount_delta (-0.5 to 0.5) & highlight_tint_amount_delta (-0.5 to 0.5): Attenuate or reinforce zone-separated tint intensity while preserving Pass 1 hue character.
