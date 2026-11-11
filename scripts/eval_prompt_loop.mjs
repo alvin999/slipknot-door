@@ -126,9 +126,9 @@ Evaluate lighting dynamics, color harmony, optical texture, and visual compositi
 
 Available 3D LUT Profiles:
 - "Profile_00_StandardNatural": Optical Straight-Out-Of-Camera (Zero 3D LUT)
-- "Profile_01_MatteShadow": Fujifilm Eterna (Cinema Negative)
-- "Profile_04_DocumentaryChrome": Kodak Kodachrome 64 (Documentary Reversal Slide)
-- "Profile_10_PlatinumAcros": Fujifilm Neopan Acros 100 (Ultra-Fine Silver B&W)
+- "Profile_01_Fieldnote": LUMIX Fieldnote (C-41 Daily Negative)
+- "Profile_03_Meridian": LUMIX Meridian (Honest Daylight Stock)
+- "Profile_04_Matinee": LUMIX Matinee (Cinema Print Density)
 
 Target Aesthetic Intent: ${intentText}
 

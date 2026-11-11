@@ -17,7 +17,7 @@ describe('暗房精修雙圖調色無限迴圈真實驗證 (Darkroom Infinite Lo
       {
         id: 'photo_1',
         filename: 'DSC01873.ARW',
-        appliedProfile: 'Profile_05_DocumentaryChrome',
+        appliedProfile: 'Profile_03_Meridian',
         tuning: { exposure: 0.1, contrast: 0.0, lutIntensity: 1.0, colorTemp: 5600, tint: 0.5 },
         gradedThumbnail: undefined,
         aiDecision: { scene_title: '日光寫實紀實' },
@@ -26,7 +26,7 @@ describe('暗房精修雙圖調色無限迴圈真實驗證 (Darkroom Infinite Lo
       {
         id: 'photo_2',
         filename: 'DSC01874.ARW',
-        appliedProfile: 'Profile_05_DocumentaryChrome',
+        appliedProfile: 'Profile_03_Meridian',
         tuning: { exposure: 0.1, contrast: 0.0, lutIntensity: 1.0, colorTemp: 5600, tint: 0.5 },
         gradedThumbnail: undefined,
         aiDecision: { scene_title: '日光寫實紀實' },
@@ -144,14 +144,14 @@ describe('暗房精修雙圖調色無限迴圈真實驗證 (Darkroom Infinite Lo
       {
         id: 'photo_1',
         filename: 'DSC01873.ARW',
-        appliedProfile: 'Profile_05_DocumentaryChrome',
+        appliedProfile: 'Profile_03_Meridian',
         tuning: { exposure: 0.1, contrast: 0.0, lutIntensity: 1.0, colorTemp: 5600, tint: 0.5 },
         gradedThumbnail: undefined
       },
       {
         id: 'photo_2',
         filename: 'DSC01874.ARW',
-        appliedProfile: 'Profile_05_DocumentaryChrome',
+        appliedProfile: 'Profile_03_Meridian',
         tuning: { exposure: 0.1, contrast: 0.0, lutIntensity: 1.0, colorTemp: 5600, tint: 0.5 },
         gradedThumbnail: undefined
       }

@@ -44,7 +44,7 @@ Respond ONLY with raw JSON matching this schema:
   "scene_type": "outdoor_street",
   "style_insight": "主體處於側逆光環境，建議壓制高光並微提暗部細節。",
   "recommended_mood": "經典暖調底片",
-  "recommended_profile": "Profile_05_DocumentaryChrome",
+  "recommended_profile": "Profile_03_Meridian",
   "confidence": 0.94,
   "exposure_compensation": 0.15,
   "contrast": 0.05,

@@ -189,7 +189,7 @@ const loopTestResult = await cdp('Runtime.evaluate', {
             sceneTag: '大光圈人像',
             selected: true,
             flagged: true,
-            appliedProfile: 'Profile_01_MatteShadow',
+            appliedProfile: 'Profile_01_Fieldnote',
             tuning: { exposure: 0.35, contrast: 0.1, lutIntensity: 0.9, colorTemp: 5600, tint: 1.0, clarity: 0, sharpness: 0 },
             crop: undefined
           },

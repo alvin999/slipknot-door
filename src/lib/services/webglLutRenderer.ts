@@ -473,17 +473,17 @@ export class WebglLutRenderer {
   private static parsedLutCache = new Map<string, { data: Float32Array; size: number }>();
   private static cubeFetchPromiseMap = new Map<string, Promise<{ data: Float32Array; size: number } | null>>();
 
-  private static readonly BUILTIN_LUTS: { profileId: string; url: string; aliases?: string[] }[] = [
-    { profileId: 'Profile_01_Fieldnote', url: '/luts/Fieldnote.cube', aliases: ['Profile_01_MatteShadow', 'Profile_06_ClassicNeg'] },
-    { profileId: 'Profile_02_Heartland', url: '/luts/Heartland.cube', aliases: ['Profile_02_RealaTone', 'Profile_03_TungstenSoft', 'Profile_08_WarmAstia'] },
-    { profileId: 'Profile_03_Meridian', url: '/luts/Meridian.cube', aliases: ['Profile_05_DocumentaryChrome'] },
-    { profileId: 'Profile_04_Matinee', url: '/luts/Matinee.cube', aliases: ['Profile_04_HighContrastMono', 'Profile_10_PlatinumAcros'] },
-    { profileId: 'Profile_05_Postcard', url: '/luts/Postcard.cube', aliases: ['Profile_07_VelvetSlide'] },
+  private static readonly BUILTIN_LUTS: { profileId: string; url: string }[] = [
+    { profileId: 'Profile_01_Fieldnote', url: '/luts/Fieldnote.cube' },
+    { profileId: 'Profile_02_Heartland', url: '/luts/Heartland.cube' },
+    { profileId: 'Profile_03_Meridian', url: '/luts/Meridian.cube' },
+    { profileId: 'Profile_04_Matinee', url: '/luts/Matinee.cube' },
+    { profileId: 'Profile_05_Postcard', url: '/luts/Postcard.cube' },
     { profileId: 'Profile_06_Skylight', url: '/luts/Skylight.cube' },
     { profileId: 'Profile_07_NightMarket', url: '/luts/NightMarket.cube' },
     { profileId: 'Profile_08_DuskTide', url: '/luts/DuskTide.cube' },
     { profileId: 'Profile_09_Canopy', url: '/luts/Canopy.cube' },
-    { profileId: 'Profile_10_Lowsun', url: '/luts/Lowsun.cube', aliases: ['Profile_09_NostalgicNeg'] },
+    { profileId: 'Profile_10_Lowsun', url: '/luts/Lowsun.cube' },
   ];
 
   private gl: WebGL2RenderingContext | null = null;
@@ -799,29 +799,17 @@ export class WebglLutRenderer {
   private preloadBuiltinLuts() {
     if (!this.gl) return;
 
-    // 1. 本地即時數學兜底紋理 (確保離線或尚未載入完成時 0ms 正常著色)
-    this.registerLut('Profile_01_MatteShadow', this.generateMatteShadowLut(), 33);
-    this.registerLut('Profile_02_RealaTone', this.generateTealEmeraldLut(), 33);
-    this.registerLut('Profile_03_TungstenSoft', this.generateTungstenSoftLut(), 33);
-    this.registerLut('Profile_04_HighContrastMono', this.generateMonoSilverLut(), 33);
-    this.registerLut('Profile_05_DocumentaryChrome', this.generateDocumentaryChromeLut(), 33);
-
-    // 2. 自動非同步升級載入真實 3D .cube 紋理 (全域靜態快取，同一 .cube 僅載入與解析一次)
+    // 非同步載入真實 3D .cube 紋理 (全域靜態快取，同一 .cube 僅載入與解析一次)
     for (const item of WebglLutRenderer.BUILTIN_LUTS) {
-      this.loadCubeFileWithCache(item.profileId, item.url, item.aliases);
+      this.loadCubeFileWithCache(item.profileId, item.url);
     }
   }
 
-  private async loadCubeFileWithCache(profileId: string, url: string, aliases?: string[]) {
+  private async loadCubeFileWithCache(profileId: string, url: string) {
     // 優先命中全域記憶體快取 (0ms 瞬時載入)
     const cached = WebglLutRenderer.parsedLutCache.get(url);
     if (cached) {
       this.registerLut(profileId, cached.data, cached.size);
-      if (aliases) {
-        for (const alias of aliases) {
-          this.registerLut(alias, cached.data, cached.size);
-        }
-      }
       return;
     }
 
@@ -842,7 +830,7 @@ export class WebglLutRenderer {
             }
           }
         } catch {
-          // 離線或檔案未找到時靜默略過，維持即時數學兜底紋理
+          // 離線或檔案未找到時靜默略過
         }
         return null;
       })();
@@ -852,11 +840,6 @@ export class WebglLutRenderer {
     const parsed = await fetchPromise;
     if (parsed && this.gl) {
       this.registerLut(profileId, parsed.data, parsed.size);
-      if (aliases) {
-        for (const alias of aliases) {
-          this.registerLut(alias, parsed.data, parsed.size);
-        }
-      }
     }
   }
 
@@ -893,245 +876,6 @@ export class WebglLutRenderer {
 
     this.lutTextures.set(profileId, texture!);
     this.lutSizes.set(profileId, size);
-  }
-
-  private static smoothstep(e0: number, e1: number, x: number): number {
-    const t = Math.min(1.0, Math.max(0.0, (x - e0) / (e1 - e0)));
-    return t * t * (3.0 - 2.0 * t);
-  }
-
-  /**
-   * Perfect, Smooth, Non-Artifacting Teal Emerald 3D LUT (33x33x33)
-   * Clean Film Simulation:
-   * - Gentle S-curve (Lifted blacks, gentle highlight roll-off)
-   * - Smooth Cyan Sky: subtle blue-to-cyan transfer (NO fluorescent neon explosion)
-   * - Deep Emerald Foliage: slight yellow dampening, peaceful rich greens
-   * - Protected skin luminance
-   */
-  private generateTealEmeraldLut(): Float32Array {
-    const size = 33;
-    const data = new Float32Array(size * size * size * 4);
-    const ss = WebglLutRenderer.smoothstep;
-    let index = 0;
-
-    for (let b = 0; b < size; b++) {
-      for (let g = 0; g < size; g++) {
-        for (let r = 0; r < size; r++) {
-          let red = r / (size - 1);
-          let green = g / (size - 1);
-          let blue = b / (size - 1);
-
-          const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-
-          // 1. Very gentle S-Curve (low-contrast cinematic look)
-          const sCurve = (v: number) => {
-            return v < 0.5
-              ? Math.pow(v * 2.0, 1.02) * 0.5
-              : 1.0 - Math.pow((1.0 - v) * 2.0, 1.02) * 0.5;
-          };
-          red = sCurve(red);
-          green = sCurve(green);
-          blue = sCurve(blue);
-
-          // 2. Fade: lifted, teal-tinted blacks (+0.03) & soft highlight roll-off
-          const darkMask = Math.pow(Math.max(0.0, 1.0 - luma), 1.8);
-          const hlMask = Math.pow(Math.max(0.0, luma), 1.8);
-          red = red * 0.99 + 0.024 * darkMask - 0.015 * hlMask;
-          green = green * 0.99 + 0.032 * darkMask - 0.010 * hlMask;
-          blue = blue * 0.99 + 0.040 * darkMask - 0.015 * hlMask;
-
-          // 3. Cyan Sky Shift (smoothstep mask instead of hard if => no banding)
-          const skyMask = ss(0.0, 0.15, blue - red) * ss(0.15, 0.35, blue);
-          const blueDelta = Math.min(0.4, Math.max(0.0, blue - red));
-          green += skyMask * blueDelta * 0.16;
-          red -= skyMask * blueDelta * 0.06;
-
-          // 4. Foliage Emerald: tame yellow glare in grasses & trees
-          const foliageMask =
-            ss(0.0, 0.03, green - red) * ss(0.0, 0.03, green - blue) * ss(0.03, 0.10, green - blue);
-          const foliageDelta = Math.max(0.0, green - blue);
-          blue += foliageMask * foliageDelta * 0.12;
-          green -= foliageMask * foliageDelta * 0.04;
-          red -= foliageMask * foliageDelta * 0.04;
-
-          // 5. Protected warm skin tones (smooth mask)
-          const skinMask =
-            ss(0.0, 0.03, red - green) * ss(0.0, 0.03, green - blue) * ss(0.08, 0.20, red - blue);
-          red += skinMask * 0.015;
-          blue -= skinMask * 0.020;
-
-          // 6. Global desaturation (~-15%), reduced on skin so portraits stay healthy
-          const sat = 0.85 + 0.10 * skinMask;
-          const l2 = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-          red = l2 + (red - l2) * sat;
-          green = l2 + (green - l2) * sat;
-          blue = l2 + (blue - l2) * sat;
-
-          data[index++] = Math.min(1.0, Math.max(0.0, red));
-          data[index++] = Math.min(1.0, Math.max(0.0, green));
-          data[index++] = Math.min(1.0, Math.max(0.0, blue));
-          data[index++] = 1.0;
-        }
-      }
-    }
-    return data;
-  }
-
-  private generateMatteShadowLut(): Float32Array {
-    const size = 33;
-    const data = new Float32Array(size * size * size * 4);
-    let index = 0;
-
-    for (let b = 0; b < size; b++) {
-      for (let g = 0; g < size; g++) {
-        for (let r = 0; r < size; r++) {
-          let red = r / (size - 1);
-          let green = g / (size - 1);
-          let blue = b / (size - 1);
-
-          const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-          const sh = Math.pow(Math.max(0.0, 1.0 - luma), 1.5);
-
-          red = red * 1.02 + 0.025 * sh;
-          green = green * 1.01 + 0.025 * sh;
-          blue = blue * 0.98 + 0.030 * sh;
-
-          data[index++] = Math.min(1.0, Math.max(0.0, red));
-          data[index++] = Math.min(1.0, Math.max(0.0, green));
-          data[index++] = Math.min(1.0, Math.max(0.0, blue));
-          data[index++] = 1.0;
-        }
-      }
-    }
-    return data;
-  }
-
-  private generateTungstenSoftLut(): Float32Array {
-    const size = 33;
-    const data = new Float32Array(size * size * size * 4);
-    let index = 0;
-
-    for (let b = 0; b < size; b++) {
-      for (let g = 0; g < size; g++) {
-        for (let r = 0; r < size; r++) {
-          let red = r / (size - 1);
-          let green = g / (size - 1);
-          let blue = b / (size - 1);
-
-          const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-          const hl = Math.pow(Math.max(0.0, luma), 1.2);
-
-          red = red * 1.04 + 0.02 * hl;
-          green = green * 1.01;
-          blue = blue * 0.90 - 0.01 * hl;
-
-          data[index++] = Math.min(1.0, Math.max(0.0, red));
-          data[index++] = Math.min(1.0, Math.max(0.0, green));
-          data[index++] = Math.min(1.0, Math.max(0.0, blue));
-          data[index++] = 1.0;
-        }
-      }
-    }
-    return data;
-  }
-
-  private generateMonoSilverLut(): Float32Array {
-    const size = 33;
-    const data = new Float32Array(size * size * size * 4);
-    let index = 0;
-
-    for (let b = 0; b < size; b++) {
-      for (let g = 0; g < size; g++) {
-        for (let r = 0; r < size; r++) {
-          const red = r / (size - 1);
-          const green = g / (size - 1);
-          const blue = b / (size - 1);
-
-          let mono = red * 0.48 + green * 0.42 + blue * 0.10;
-          mono = Math.pow(Math.max(0.0, mono), 1.15);
-
-          const val = Math.min(1.0, Math.max(0.0, mono));
-          data[index++] = val;
-          data[index++] = val;
-          data[index++] = val;
-          data[index++] = 1.0;
-        }
-      }
-    }
-    return data;
-  }
-
-  /**
-   * Profile_05_DocumentaryChrome: 典藏冷印紀實 (33x33x33 3D LUT)
-   * Hard documentary contrast + muted primary chroma + deep cyan-tinted sky + preserved skin highlights.
-   */
-  private generateDocumentaryChromeLut(): Float32Array {
-    const size = 33;
-    const data = new Float32Array(size * size * size * 4);
-    const ss = WebglLutRenderer.smoothstep;
-    let index = 0;
-
-    for (let b = 0; b < size; b++) {
-      for (let g = 0; g < size; g++) {
-        for (let r = 0; r < size; r++) {
-          let red = r / (size - 1);
-          let green = g / (size - 1);
-          let blue = b / (size - 1);
-
-          const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-
-          // 1. Punchy documentary S-Curve (deeper shadows, crisp midtone contrast, gentle highlight roll-off)
-          const docCurve = (v: number) => {
-            return v < 0.5
-              ? Math.pow(v * 2.0, 1.16) * 0.5
-              : 1.0 - Math.pow((1.0 - v) * 2.0, 1.10) * 0.5;
-          };
-          red = docCurve(red);
-          green = docCurve(green);
-          blue = docCurve(blue);
-
-          // 2. Clean Deep Shadow (no matte fade/lift, clean punchy blacks)
-          const shadowDamping = Math.pow(Math.max(0.0, 1.0 - luma), 2.2);
-          red -= shadowDamping * 0.015;
-          green -= shadowDamping * 0.012;
-          blue -= shadowDamping * 0.010;
-
-          // 3. Sky / Blue shift: deep cyan-tinted navy blue (not oversaturated, slightly moody)
-          const skyMask = ss(0.0, 0.12, blue - red) * ss(0.12, 0.35, blue);
-          const blueDelta = Math.min(0.35, Math.max(0.0, blue - red));
-          green += skyMask * blueDelta * 0.12;
-          red -= skyMask * blueDelta * 0.08;
-
-          // 4. Muted Foliage (suppress bright yellow-greens into deep olive/sage tones)
-          const foliageMask =
-            ss(0.0, 0.03, green - red) * ss(0.0, 0.03, green - blue) * ss(0.02, 0.08, green - blue);
-          const foliageDelta = Math.max(0.0, green - blue);
-          red -= foliageMask * foliageDelta * 0.05;
-          green -= foliageMask * foliageDelta * 0.08;
-          blue += foliageMask * foliageDelta * 0.04;
-
-          // 5. Preserved human skin luminance & subtle warm protection
-          const skinMask =
-            ss(0.0, 0.03, red - green) * ss(0.0, 0.03, green - blue) * ss(0.06, 0.18, red - blue);
-          red += skinMask * 0.012;
-          blue -= skinMask * 0.010;
-
-          // 6. Global Muted Chroma Compression (classic documentary print saturation reduction)
-          // Preserves skin vitality (sat ~0.88) while muting background/clothing primaries (sat ~0.76)
-          const sat = 0.76 + 0.12 * skinMask;
-          const l2 = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-          red = l2 + (red - l2) * sat;
-          green = l2 + (green - l2) * sat;
-          blue = l2 + (blue - l2) * sat;
-
-          data[index++] = Math.min(1.0, Math.max(0.0, red));
-          data[index++] = Math.min(1.0, Math.max(0.0, green));
-          data[index++] = Math.min(1.0, Math.max(0.0, blue));
-          data[index++] = 1.0;
-        }
-      }
-    }
-    return data;
   }
 
   private createProgram(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram | null {

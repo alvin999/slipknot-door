@@ -20,17 +20,6 @@ export type StylePresetKey =
   | 'dusk_tide'
   | 'canopy'
   | 'lowsun'
-  // Backward compatibility aliases
-  | 'matte_shadow'
-  | 'reala_tone'
-  | 'tungsten_soft'
-  | 'monochrome_hc'
-  | 'classic_chrome_cc'
-  | 'classic_neg'
-  | 'velvet_slide'
-  | 'warm_astia'
-  | 'nostalgic_neg'
-  | 'platinum_acros'
   | 'auto';
 
 export type StyleKeywordId =

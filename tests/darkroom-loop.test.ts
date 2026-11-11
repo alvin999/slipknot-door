@@ -38,7 +38,7 @@ describe('暗房精修雙圖調色循環與狀態同步測試 (Darkroom Loop Ver
         frameNo: '01A',
         filename: 'TEST_01.CR2',
         camera: 'Canon EOS R5',
-        appliedProfile: 'Profile_01_MatteShadow',
+        appliedProfile: 'Profile_01_Fieldnote',
         selected: true,
         flagged: true,
         thumbnail: 'data:image/jpeg;base64,thumb1',
