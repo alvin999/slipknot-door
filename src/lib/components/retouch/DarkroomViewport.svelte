@@ -2347,18 +2347,24 @@
       right: 6px;
       gap: 6px;
       justify-content: space-between;
+      align-items: center;
     }
 
     .plate-id-badge {
       font-size: 10px;
-      padding: 3px 6px;
-      max-width: 140px;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      padding: 4px 7px;
+      flex-shrink: 0;
       white-space: nowrap;
     }
 
+    .film-file,
+    .plate-profile-badge {
+      display: none;
+    }
+
     .stage-hud-bar {
+      flex: 1;
+      min-width: 0;
       padding: 2px 6px;
       gap: 4px;
       overflow-x: auto;
@@ -2369,6 +2375,12 @@
       display: none;
     }
 
+    .hud-left,
+    .hud-center,
+    .hud-right {
+      flex-shrink: 0;
+    }
+
     .hud-left {
       gap: 3px;
     }
@@ -2377,9 +2389,13 @@
       display: none;
     }
 
-    .diff-mode-btn {
+    .diff-mode-btn,
+    .zoom-hud-btn,
+    .crop-toggle-btn {
       font-size: 10px;
       padding: 3px 6px;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
     
@@ -2396,13 +2412,32 @@
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
     }
 
-    /* 光學遙測條：緊湊橫向滑動 */
+    /* 光學遙測條：緊湊橫向滑動，防相機型號折行與焦段重疊 */
     .plate-rebate-bar {
       height: 32px;
       padding: 0 8px;
+      gap: 8px;
       font-size: 10px;
       overflow-x: auto;
       scrollbar-width: none;
+      white-space: nowrap;
+    }
+
+    .plate-rebate-bar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .rebate-camera-block {
+      flex-shrink: 0;
+      max-width: 110px;
+      white-space: nowrap;
+    }
+
+    .rebate-camera-model {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .rebate-lens,

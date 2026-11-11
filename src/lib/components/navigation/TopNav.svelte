@@ -379,11 +379,11 @@
       {/if}
     {/if}
 
-    <!-- Module Shortcuts: Profiles & Devices Settings -->
+    <!-- Module Shortcuts: Profiles & Devices Settings (手機版已有底部導航，隱藏重複捷徑) -->
     {#if onGoToProfiles}
       <button
         type="button"
-        class="help-trigger-btn hairline-all font-mono"
+        class="help-trigger-btn hairline-all font-mono mobile-hide-shortcut"
         class:active={activeTab === 'profiles'}
         onclick={onGoToProfiles}
         title="3D LUT 風格庫"
@@ -396,7 +396,7 @@
     {#if onGoToDevices}
       <button
         type="button"
-        class="help-trigger-btn hairline-all font-mono"
+        class="help-trigger-btn hairline-all font-mono mobile-hide-shortcut"
         class:active={activeTab === 'devices'}
         onclick={onGoToDevices}
         title="設備與儲存設定"
@@ -862,14 +862,21 @@
     .top-nav {
       height: 48px;
       padding: 0 10px;
+      gap: 6px;
     }
 
+    .mobile-hide-shortcut,
     .brand-sub,
     .device-metric,
     .divider,
     .stepper-pipeline,
     .btn-text-full {
       display: none;
+    }
+
+    .dir-telemetry-wrapper {
+      min-width: 0;
+      flex-shrink: 1;
     }
 
     .btn-text-short {

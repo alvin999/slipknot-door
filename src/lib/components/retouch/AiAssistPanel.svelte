@@ -77,6 +77,7 @@
   }: Props = $props();
 
   let terminalBodyElement = $state<HTMLDivElement | null>(null);
+  let isProcessLogOpen = $state<boolean>(false);
   let isExpandedStyles = $state<boolean>(
     Boolean(readLocalJson(AI_PANEL_UI_STORAGE_KEY, DEFAULT_AI_PANEL_UI_STATE).isExpandedStyles)
   );
@@ -110,10 +111,17 @@
   );
   const currentIsScopeOpen = $derived(propsIsAiScopeOpen ?? aiPipeline.isAiScopeOpen);
   const currentCopiedNotice = $derived(propsCopiedLogNotice ?? aiPipeline.copiedLogNotice);
+  const latestLogSummary = $derived.by(() => {
+    if (!currentLogs.length) return "";
+    const last = currentLogs[currentLogs.length - 1] || "";
+    const firstLine = last.split("\n")[0].trim();
+    if (!firstLine || /^-+$/.test(firstLine)) return "AI 顯影作業中...";
+    return firstLine.replace(/^>\s*(\[[^\]]+\]\s*)?/, "").trim();
+  });
 
-  // 當有新日誌時自動捲動終端機底部
+  // 當有新日誌時自動捲動日誌匣底部
   $effect(() => {
-    if (currentLogs.length && terminalBodyElement) {
+    if (isProcessLogOpen && currentLogs.length && terminalBodyElement) {
       terminalBodyElement.scrollTop = terminalBodyElement.scrollHeight;
     }
   });
@@ -158,52 +166,84 @@
   <p class="ai-desc">Gemini 視覺多模態 · 智慧光學顯影</p>
 
   {#if currentLogs.length > 0}
-    <!-- LIVE TERMINAL SCAN STREAM HUD -->
+    <!-- 暗房風格可收合 AI 顯影過程紀錄匣 -->
     <div class="ai-terminal-box hairline-all font-mono">
-      <div class="terminal-bar hairline-b">
-        <span class="term-dot red"></span>
-        <span class="term-dot amber"></span>
-        <span class="term-dot green"></span>
-        <span class="term-title">DARKROOM://NEURAL_DEVELOP</span>
-        {#if currentIsBatchRunning && onCancelBatchAi}
-          <button
-            type="button"
-            class="term-stop-btn font-mono"
-            title="立即手動中止 AI 批次顯影"
-            onclick={onCancelBatchAi}
-          >
-            <span class="material-symbols-outlined" style="font-size: 11px;">stop_circle</span>
-            <span>停止批次</span>
-          </button>
-        {/if}
+      <div class="terminal-bar" class:hairline-b={isProcessLogOpen}>
         <button
           type="button"
-          class="term-copy-btn font-mono"
-          title="複製終端機所有日誌"
-          onclick={() => onCopyTerminalLogs ? onCopyTerminalLogs() : aiPipeline.copyTerminalLogs()}
+          class="term-toggle-btn font-mono"
+          onclick={() => (isProcessLogOpen = !isProcessLogOpen)}
+          title={isProcessLogOpen ? "收合 AI 顯影過程紀錄" : "展開完整 AI 顯影過程紀錄"}
+          aria-expanded={isProcessLogOpen}
         >
-          <span class="material-symbols-outlined" style="font-size: 11px;">
-            {currentCopiedNotice ? "check" : "content_copy"}
+          <span
+            class="term-status-dot"
+            class:is-active={currentIsAiAnalyzing || currentIsBatchRunning}
+          ></span>
+          <span class="term-title">
+            {isProcessLogOpen ? `AI 顯影紀錄 (${currentLogs.length})` : latestLogSummary || "AI 顯影紀錄"}
           </span>
-          <span>{currentCopiedNotice ? "已複製" : "複製 Log"}</span>
         </button>
+
+        <div class="term-bar-actions">
+          {#if currentIsBatchRunning && onCancelBatchAi}
+            <button
+              type="button"
+              class="term-stop-btn font-mono"
+              title="立即手動中止 AI 批次顯影"
+              onclick={onCancelBatchAi}
+            >
+              <span class="material-symbols-outlined" style="font-size: 11px;">stop_circle</span>
+              <span>停止</span>
+            </button>
+          {/if}
+          <button
+            type="button"
+            class="term-copy-btn font-mono"
+            title="複製所有顯影紀錄"
+            onclick={() => onCopyTerminalLogs ? onCopyTerminalLogs() : aiPipeline.copyTerminalLogs()}
+          >
+            <span class="material-symbols-outlined" style="font-size: 11px;">
+              {currentCopiedNotice ? "check" : "content_copy"}
+            </span>
+            <span>{currentCopiedNotice ? "已複製" : "複製"}</span>
+          </button>
+          <button
+            type="button"
+            class="term-expand-btn"
+            onclick={() => (isProcessLogOpen = !isProcessLogOpen)}
+            title={isProcessLogOpen ? "收合紀錄" : "展開紀錄"}
+            aria-label={isProcessLogOpen ? "收合紀錄" : "展開紀錄"}
+          >
+            <span
+              class="material-symbols-outlined"
+              style="font-size: 14px;"
+              style:transform={isProcessLogOpen ? "rotate(180deg)" : "none"}
+            >
+              expand_more
+            </span>
+          </button>
+        </div>
       </div>
-      <div class="terminal-body custom-scroll" bind:this={terminalBodyElement}>
-        {#each currentLogs as line}
-          <div class="term-line">{line}</div>
-        {/each}
-        {#if currentIsAiAnalyzing || currentIsBatchRunning}
-          <div class="term-line active">
-            {#if currentBatchProgress?.countdown}
-              <span class="term-blink amber">
-                ⚡ 速率保護冷卻中 ({currentBatchProgress.countdown}s)...
-              </span>
-            {:else}
-              <span class="term-cursor">▌</span>
-            {/if}
-          </div>
-        {/if}
-      </div>
+
+      {#if isProcessLogOpen}
+        <div class="terminal-body custom-scroll" bind:this={terminalBodyElement}>
+          {#each currentLogs as line}
+            <div class="term-line">{line}</div>
+          {/each}
+          {#if currentIsAiAnalyzing || currentIsBatchRunning}
+            <div class="term-line active">
+              {#if currentBatchProgress?.countdown}
+                <span class="term-blink amber">
+                  ⚡ 速率保護冷卻中 ({currentBatchProgress.countdown}s)...
+                </span>
+              {:else}
+                <span class="term-cursor">▌</span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -772,54 +812,74 @@
     gap: 6px;
   }
 
-  /* LIVE TERMINAL SCAN STREAM HUD STYLES */
+  /* 暗房風格可收合 AI 顯影日誌匣 (取代突兀的黑底終端機) */
   .ai-terminal-box {
-    background-color: #0b0d10;
+    background-color: var(--surface-elevated);
     border-radius: var(--radius-sm);
     overflow: hidden;
     margin-bottom: 10px;
-    box-shadow:
-      inset 0 2px 8px rgba(0, 0, 0, 0.8),
-      0 0 10px rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(226, 157, 82, 0.25);
+    border: 1px solid var(--hairline-slate);
     user-select: text;
     -webkit-user-select: text;
   }
   .terminal-bar {
-    background-color: #12141a;
-    padding: 4px 8px;
+    background-color: rgba(255, 255, 255, 0.025);
+    padding: 5px 8px;
     display: flex;
     align-items: center;
-    gap: 5px;
+    justify-content: space-between;
+    gap: 6px;
   }
-  .term-dot {
+  .term-toggle-btn {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    text-align: left;
+    color: var(--parchment-muted);
+  }
+  .term-toggle-btn:hover .term-title {
+    color: var(--parchment-bright);
+  }
+  .term-status-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
+    background-color: var(--amber-highlight);
+    opacity: 0.7;
+    flex-shrink: 0;
   }
-  .term-dot.red {
-    background-color: #e06c75;
-  }
-  .term-dot.amber {
-    background-color: #e5c07b;
-  }
-  .term-dot.green {
-    background-color: #98c379;
+  .term-status-dot.is-active {
+    opacity: 1;
+    box-shadow: 0 0 6px var(--amber-highlight);
+    animation: termBlink 1s infinite;
   }
   .term-title {
-    font-size: 8px;
-    letter-spacing: 0.08em;
-    color: var(--parchment-dim);
-    margin-left: 4px;
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    color: var(--parchment-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .term-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
   }
   .term-stop-btn {
-    margin-left: auto;
-    background: rgba(239, 68, 68, 0.15);
+    background: rgba(239, 68, 68, 0.14);
     border: 1px solid rgba(239, 68, 68, 0.45);
     color: #fca5a5;
-    font-size: 8px;
-    padding: 1px 6px;
-    border-radius: 3px;
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -829,16 +889,15 @@
   .term-stop-btn:hover {
     color: #ffffff;
     border-color: #ef4444;
-    background: rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.35);
   }
   .term-copy-btn {
-    margin-left: 4px;
     background: transparent;
-    border: 1px solid rgba(226, 157, 82, 0.2);
+    border: 1px solid var(--hairline-slate);
     color: var(--parchment-dim);
-    font-size: 8px;
-    padding: 1px 5px;
-    border-radius: 3px;
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -850,21 +909,38 @@
     border-color: var(--amber-highlight);
     background: rgba(226, 157, 82, 0.08);
   }
+  .term-expand-btn {
+    background: transparent;
+    border: none;
+    color: var(--parchment-dim);
+    padding: 0 2px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  .term-expand-btn:hover {
+    color: var(--amber-highlight);
+  }
+  .term-expand-btn .material-symbols-outlined {
+    transition: transform 0.18s ease;
+  }
   .terminal-body {
     padding: 8px 10px;
-    max-height: 120px;
+    max-height: 130px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 3px;
+    background-color: rgba(10, 11, 14, 0.45);
     user-select: text;
     -webkit-user-select: text;
   }
   .term-line {
     font-size: 10px;
-    line-height: 1.35;
-    color: #98c379;
-    word-break: break-all;
+    line-height: 1.4;
+    color: var(--parchment-muted);
+    word-break: break-word;
     user-select: text;
     -webkit-user-select: text;
   }
