@@ -16,6 +16,13 @@ export interface TuningParameters {
   bypassLut: boolean;   // true for pure natural straight-out-of-camera
   clarity?: number;     // -1.0 ~ +1.0, mid-tone local contrast (large radius)
   sharpness?: number;   // -1.0 ~ +1.0, fine detail unsharp mask (negative softens, positive sharpens)
+  colorDensity?: number;        // -1.0 ~ +1.0, subtractive film dye density
+  shadowHue?: number;           // 0 ~ 360 deg, split-tone shadow hue
+  shadowTintAmount?: number;    // 0.0 ~ 1.0, split-tone shadow intensity
+  highlightHue?: number;        // 0 ~ 360 deg, split-tone highlight hue
+  highlightTintAmount?: number; // 0.0 ~ 1.0, split-tone highlight intensity
+  halation?: number;            // 0.0 ~ 1.0, red-orange emulsion highlight scatter
+  grainAmount?: number;         // 0.0 ~ 1.0, organic silver-halide grain (0.15 = 0.012 baseline)
 }
 
 const VS_SOURCE = `#version 300 es
@@ -49,6 +56,13 @@ uniform bool u_bypassLut;
 uniform float u_lutSize;   // Per-LUT size so .cube files of 17/33/65 sample correctly
 uniform float u_clarity;
 uniform float u_sharpness;
+uniform float u_colorDensity;
+uniform float u_shadowHue;
+uniform float u_shadowTintAmount;
+uniform float u_highlightHue;
+uniform float u_highlightTintAmount;
+uniform float u_halation;
+uniform float u_grainAmount;
 
 // Non-linear shadow lift (Toe lift, predominantly affects lower 40% luminance)
 vec3 applyShadowLift(vec3 color, float lift) {
@@ -102,18 +116,125 @@ vec3 applyFilmicRollOff(vec3 c) {
     return compressed;
 }
 
-// Organic Film Grain (亮度加權微粒，在中間調與暗部自然浮現，高光純淨乾淨)
+// Subtractive Color Density (模擬底片減色染料吸光：高彩度區域飽和同時壓實明度，低數值呈柔淡粉彩)
+vec3 applySubtractiveColorDensity(vec3 c, float density) {
+    if (abs(density) < 0.001) return c;
+    float l = lumaOf(c);
+    float maxC = max(c.r, max(c.g, c.b));
+    float minC = min(c.r, min(c.g, c.b));
+    float chroma = maxC - minC;
+    if (density >= 0.0) {
+        vec3 enriched = clamp(mix(vec3(l), c, 1.0 + density * 0.48), 0.0, 1.0);
+        float absorb = 1.0 - density * chroma * 0.34;
+        return clamp(enriched * absorb, 0.0, 1.0);
+    } else {
+        float d = -density;
+        vec3 faded = mix(c, vec3(l), d * 0.45);
+        return clamp(faded + vec3(d * chroma * 0.08), 0.0, 1.0);
+    }
+}
+
+vec3 hueToRgb(float hueDeg) {
+    float h = mod(hueDeg, 360.0) / 60.0;
+    float x = 1.0 - abs(mod(h, 2.0) - 1.0);
+    if (h < 1.0) return vec3(1.0, x, 0.0);
+    if (h < 2.0) return vec3(x, 1.0, 0.0);
+    if (h < 3.0) return vec3(0.0, 1.0, x);
+    if (h < 4.0) return vec3(0.0, x, 1.0);
+    if (h < 5.0) return vec3(x, 0.0, 1.0);
+    return vec3(1.0, 0.0, x);
+}
+
+// Split Toning (亮暗部分區色偏：以純黑與純白為錨點，維持中間階調過渡與亮度平衡)
+vec3 applySplitToning(vec3 c, float shHue, float shAmt, float hiHue, float hiAmt) {
+    if (shAmt <= 0.001 && hiAmt <= 0.001) return c;
+    float l = lumaOf(c);
+    vec3 res = c;
+
+    if (shAmt > 0.001) {
+        // 集中於中暗調，L < 0.06 漸弱以保護純黑不浮髒
+        float wShadow = pow(1.0 - smoothstep(0.0, 0.62, l), 1.45) * smoothstep(0.0, 0.06, l);
+        vec3 shRgb = hueToRgb(shHue);
+        vec3 shBias = shRgb - vec3(lumaOf(shRgb));
+        res = clamp(res + shBias * (shAmt * 0.36 * wShadow), 0.0, 1.0);
+    }
+
+    if (hiAmt > 0.001) {
+        // 集中於中亮調，L > 0.92 漸弱以保護純白高光不偏色溢出
+        float wHighlight = pow(smoothstep(0.35, 0.96, l), 1.45) * (1.0 - smoothstep(0.92, 1.0, l));
+        vec3 hiRgb = hueToRgb(hiHue);
+        vec3 hiBias = hiRgb - vec3(lumaOf(hiRgb));
+        res = clamp(res + hiBias * (hiAmt * 0.32 * wHighlight), 0.0, 1.0);
+    }
+
+    return res;
+}
+
+// Film Halation (單通道 12-tap 同心雙環取樣：模擬強高光穿透乳劑自片基反射的暖紅橘暈染)
+vec3 applyFilmHalation(vec3 c, vec2 uv, vec2 texSize, float strength) {
+    if (strength <= 0.001) return c;
+    vec2 texel = 1.0 / texSize;
+    float resScale = max(1.0, max(texSize.x, texSize.y) / 1000.0);
+    float rInner = 3.5 * resScale;
+    float rOuter = 9.5 * resScale;
+
+    float energySum = 0.0;
+    float weightSum = 0.0;
+
+    // 內環 4 點 (對角取樣)
+    vec2 innerOffsets[4] = vec2[4](
+        vec2( 0.7071,  0.7071),
+        vec2(-0.7071,  0.7071),
+        vec2(-0.7071, -0.7071),
+        vec2( 0.7071, -0.7071)
+    );
+    for (int i = 0; i < 4; i++) {
+        vec3 s = texture(u_image, uv + innerOffsets[i] * rInner * texel).rgb;
+        float hl = smoothstep(0.72, 0.98, lumaOf(s));
+        energySum += hl * 1.0;
+        weightSum += 1.0;
+    }
+
+    // 外環 8 點 (旋轉 22.5° 錯開方向以消除同心環狀條紋)
+    vec2 outerOffsets[8] = vec2[8](
+        vec2( 0.9239,  0.3827),
+        vec2( 0.3827,  0.9239),
+        vec2(-0.3827,  0.9239),
+        vec2(-0.9239,  0.3827),
+        vec2(-0.9239, -0.3827),
+        vec2(-0.3827, -0.9239),
+        vec2( 0.3827, -0.9239),
+        vec2( 0.9239, -0.3827)
+    );
+    for (int i = 0; i < 8; i++) {
+        vec3 s = texture(u_image, uv + outerOffsets[i] * rOuter * texel).rgb;
+        float hl = smoothstep(0.72, 0.98, lumaOf(s));
+        energySum += hl * 0.65;
+        weightSum += 0.65;
+    }
+
+    float haloEnergy = energySum / weightSum;
+    vec3 scatter = vec3(1.0, 0.30, 0.06) * (haloEnergy * strength * 0.55);
+    // Screen 軟疊加防止純白處過度溢位
+    return clamp(c + scatter * (1.0 - c), 0.0, 1.0);
+}
+
+// Organic Film Grain (亮度加權雙尺度銀鹽微粒，在中間調與暗部自然浮現，高光純淨乾淨)
 float hashGrain(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
     p += dot(p, p + 45.32);
     return fract(p.x * p.y);
 }
 
-vec3 applyOrganicFilmGrain(vec3 c, vec2 uv, vec2 texSize) {
+vec3 applyOrganicFilmGrain(vec3 c, vec2 uv, vec2 texSize, float grainAmount) {
+    if (grainAmount <= 0.001) return c;
     float l = lumaOf(c);
     float weight = clamp(4.0 * l * (1.0 - l), 0.0, 1.0);
-    float noise = (hashGrain(uv * texSize * 0.7) - 0.5) * 2.0;
-    return clamp(c + vec3(noise * 0.012 * weight), 0.0, 1.0);
+    float fineNoise = (hashGrain(uv * texSize * 0.7) - 0.5) * 2.0;
+    float coarseNoise = (hashGrain(floor(uv * texSize * 0.45)) - 0.5) * 2.0;
+    float noise = mix(fineNoise, coarseNoise, 0.35);
+    float amplitude = clamp(grainAmount, 0.0, 1.0) * 0.08; // 0.15 -> 0.012 基準
+    return clamp(c + vec3(noise * amplitude * weight), 0.0, 1.0);
 }
 
 void main() {
@@ -150,11 +271,23 @@ void main() {
         color = mix(color, graded, u_intensity);
     }
 
+    // 3.5 Subtractive Color Density (高彩度區域同步加深吸光密度)
+    color = applySubtractiveColorDensity(color, u_colorDensity);
+
     // 4. User Optional Contrast Tuning
     if (abs(u_contrast) > 0.001) {
         float factor = 1.0 + u_contrast * 0.5;
         color = clamp((color - 0.4) * factor + 0.4, 0.0, 1.0);
     }
+
+    // 4.5 Split Toning (分區色調分離：不干擾 Pre-LUT 白平衡與 3D LUT 灰軸校準)
+    color = applySplitToning(
+        color,
+        u_shadowHue,
+        u_shadowTintAmount,
+        u_highlightHue,
+        u_highlightTintAmount
+    );
 
     // 5. Clarity (large radius, mid-tone weighted) + Sharpness (small radius)
     //    Neighborhood based, so it cannot live inside a 3D LUT.
@@ -177,10 +310,13 @@ void main() {
         color += vec3(detailCoarse * u_clarity * 1.25 * midMask);
     }
 
+    // 5.5 Film Halation (高光紅橘漫射，置於 Filmic Roll-off 前讓光暈自然融進高光肩部)
+    vec2 renderTexSize = vec2(textureSize(u_image, 0));
+    color = applyFilmHalation(color, v_uv, renderTexSize, u_halation);
+
     // 6. Filmic Soft Highlight Shoulder Roll-off & Organic Grain
     color = applyFilmicRollOff(color);
-    vec2 renderTexSize = vec2(textureSize(u_image, 0));
-    color = applyOrganicFilmGrain(color, v_uv, renderTexSize);
+    color = applyOrganicFilmGrain(color, v_uv, renderTexSize, u_grainAmount);
 
     fragColor = vec4(clamp(color, 0.0, 1.0), src.a);
 }
@@ -225,6 +361,13 @@ export class WebglLutRenderer {
   private uClarityLoc: WebGLUniformLocation | null = null;
   private uSharpnessLoc: WebGLUniformLocation | null = null;
   private uShadowLiftLoc: WebGLUniformLocation | null = null;
+  private uColorDensityLoc: WebGLUniformLocation | null = null;
+  private uShadowHueLoc: WebGLUniformLocation | null = null;
+  private uShadowTintAmountLoc: WebGLUniformLocation | null = null;
+  private uHighlightHueLoc: WebGLUniformLocation | null = null;
+  private uHighlightTintAmountLoc: WebGLUniformLocation | null = null;
+  private uHalationLoc: WebGLUniformLocation | null = null;
+  private uGrainAmountLoc: WebGLUniformLocation | null = null;
 
   public initialize(canvas: HTMLCanvasElement): boolean {
     const gl = canvas.getContext('webgl2', {
@@ -257,6 +400,13 @@ export class WebglLutRenderer {
     this.uLutSizeLoc = gl.getUniformLocation(program, 'u_lutSize');
     this.uClarityLoc = gl.getUniformLocation(program, 'u_clarity');
     this.uSharpnessLoc = gl.getUniformLocation(program, 'u_sharpness');
+    this.uColorDensityLoc = gl.getUniformLocation(program, 'u_colorDensity');
+    this.uShadowHueLoc = gl.getUniformLocation(program, 'u_shadowHue');
+    this.uShadowTintAmountLoc = gl.getUniformLocation(program, 'u_shadowTintAmount');
+    this.uHighlightHueLoc = gl.getUniformLocation(program, 'u_highlightHue');
+    this.uHighlightTintAmountLoc = gl.getUniformLocation(program, 'u_highlightTintAmount');
+    this.uHalationLoc = gl.getUniformLocation(program, 'u_halation');
+    this.uGrainAmountLoc = gl.getUniformLocation(program, 'u_grainAmount');
 
     gl.useProgram(program);
     gl.uniform1i(this.uImageLoc, 0); // Texture unit 0
@@ -344,6 +494,13 @@ export class WebglLutRenderer {
     gl.uniform1f(this.uLutSizeLoc, this.lutSizes.get(this.activeLutId) ?? 33);
     gl.uniform1f(this.uClarityLoc, params.clarity ?? 0);
     gl.uniform1f(this.uSharpnessLoc, params.sharpness ?? 0);
+    gl.uniform1f(this.uColorDensityLoc, params.colorDensity ?? 0);
+    gl.uniform1f(this.uShadowHueLoc, params.shadowHue ?? 200);
+    gl.uniform1f(this.uShadowTintAmountLoc, params.shadowTintAmount ?? 0);
+    gl.uniform1f(this.uHighlightHueLoc, params.highlightHue ?? 40);
+    gl.uniform1f(this.uHighlightTintAmountLoc, params.highlightTintAmount ?? 0);
+    gl.uniform1f(this.uHalationLoc, params.halation ?? 0);
+    gl.uniform1f(this.uGrainAmountLoc, params.grainAmount ?? 0.15);
     gl.uniform1f(this.uExposureLoc, params.exposure);
     gl.uniform1f(this.uContrastLoc, params.contrast);
     gl.uniform1f(this.uColorTempLoc, params.colorTemp);

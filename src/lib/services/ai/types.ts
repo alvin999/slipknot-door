@@ -79,6 +79,13 @@ export interface ColorGradeDecision {
   lut_intensity?: number;
   clarity?: number;
   sharpness?: number;
+  color_density?: number;
+  shadow_hue?: number;
+  shadow_tint_amount?: number;
+  highlight_hue?: number;
+  highlight_tint_amount?: number;
+  halation?: number;
+  grain_amount?: number;
   tags?: string[];
 }
 
@@ -161,6 +168,11 @@ export interface RefinementDecision {
   lut_intensity_delta?: number;
   clarity_delta?: number;
   sharpness_delta?: number;
+  color_density_delta?: number;
+  shadow_tint_amount_delta?: number;
+  highlight_tint_amount_delta?: number;
+  halation_delta?: number;
+  grain_amount_delta?: number;
   refine_rationale: string;
 }
 

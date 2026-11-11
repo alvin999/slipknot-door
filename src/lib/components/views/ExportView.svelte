@@ -76,7 +76,12 @@
       p.tuning.contrast !== 0 ||
       p.tuning.lutIntensity !== 1 ||
       (p.tuning.clarity && p.tuning.clarity !== 0) ||
-      (p.tuning.sharpness && p.tuning.sharpness !== 0)
+      (p.tuning.sharpness && p.tuning.sharpness !== 0) ||
+      (p.tuning.colorDensity && p.tuning.colorDensity !== 0) ||
+      (p.tuning.shadowTintAmount && p.tuning.shadowTintAmount !== 0) ||
+      (p.tuning.highlightTintAmount && p.tuning.highlightTintAmount !== 0) ||
+      (p.tuning.halation && p.tuning.halation !== 0) ||
+      (typeof p.tuning.grainAmount === 'number' && Math.abs(p.tuning.grainAmount - 0.15) > 0.001)
     );
     const hasCrop = p.crop && (p.crop.width < 1 || p.crop.height < 1 || p.crop.rotation !== 0);
     return Boolean(hasCustomProfile || hasTuning || hasCrop);

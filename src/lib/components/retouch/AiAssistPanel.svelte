@@ -290,6 +290,14 @@
           />
           <span>自動色溫與色偏</span>
         </label>
+        <label class="scope-checkbox-row">
+          <input
+            type="checkbox"
+            checked={currentAiScope.filmPhysics !== false}
+            onchange={() => onToggleAiScope ? onToggleAiScope("filmPhysics") : aiPipeline.toggleAiScope("filmPhysics")}
+          />
+          <span>分區調色與底片質感</span>
+        </label>
       </div>
     {/if}
   </div>

@@ -40,6 +40,13 @@ export interface RenderPhotoOptions {
       lutIntensity: number;
       clarity?: number;
       sharpness?: number;
+      colorDensity?: number;
+      shadowHue?: number;
+      shadowTintAmount?: number;
+      highlightHue?: number;
+      highlightTintAmount?: number;
+      halation?: number;
+      grainAmount?: number;
     };
     crop?: {
       x: number;
@@ -189,6 +196,13 @@ export class ExportService {
       const shadows = tuning?.shadows ?? (profileDefault?.shadowsDefault ?? 0.0);
       const clarity = tuning?.clarity ?? (profileDefault?.clarityDefault ?? 0.0);
       const sharpness = tuning?.sharpness ?? (profileDefault?.sharpnessDefault ?? 0.0);
+      const colorDensity = tuning?.colorDensity ?? 0.0;
+      const shadowHue = tuning?.shadowHue ?? 200;
+      const shadowTintAmount = tuning?.shadowTintAmount ?? 0.0;
+      const highlightHue = tuning?.highlightHue ?? 40;
+      const highlightTintAmount = tuning?.highlightTintAmount ?? 0.0;
+      const halation = tuning?.halation ?? 0.0;
+      const grainAmount = tuning?.grainAmount ?? 0.15;
 
       if (!this.exportRenderer) {
         this.exportCanvas = document.createElement('canvas');
@@ -213,6 +227,13 @@ export class ExportService {
           bypassLut: profileId === 'Profile_00_StandardNatural',
           clarity,
           sharpness,
+          colorDensity,
+          shadowHue,
+          shadowTintAmount,
+          highlightHue,
+          highlightTintAmount,
+          halation,
+          grainAmount,
         },
         w,
         h

@@ -85,6 +85,7 @@ export interface AiScopePreferences {
   keystone: boolean;       // 梯形與水平校正
   tone: boolean;           // 基礎光影 (曝光/對比/陰影)
   whiteBalance: boolean;   // 自動色溫與色偏 (Kelvin / Tint)
+  filmPhysics?: boolean;   // 底片物理通道 (減色密度/分區色偏/Halation/微粒)
 }
 
 export interface TuningParameters {
@@ -96,5 +97,12 @@ export interface TuningParameters {
   colorTemp: number;      // Kelvin (2800 ~ 8500)
   tint: number;           // Tint (-100 ~ +100, Green <-> Magenta)
   clarity?: number;       // (-1.0 ~ +1.0)
-  sharpness?: number;     // (0.0 ~ 1.0)
+  sharpness?: number;     // (-1.0 ~ +1.0)
+  colorDensity?: number;        // (-1.0 ~ +1.0) 減色法色彩密度
+  shadowHue?: number;           // (0 ~ 360°) 暗部分離色相
+  shadowTintAmount?: number;    // (0.0 ~ 1.0) 暗部分離著色強度
+  highlightHue?: number;        // (0 ~ 360°) 亮部分離色相
+  highlightTintAmount?: number; // (0.0 ~ 1.0) 亮部分離著色強度
+  halation?: number;            // (0.0 ~ 1.0) 底片片基高光暈染
+  grainAmount?: number;         // (0.0 ~ 1.0) 有機銀鹽微粒強度 (預設 0.15)
 }

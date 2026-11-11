@@ -18,6 +18,13 @@
     lutIntensity?: number;
     clarity?: number;
     sharpness?: number;
+    colorDensity?: number;
+    shadowHue?: number;
+    shadowTintAmount?: number;
+    highlightHue?: number;
+    highlightTintAmount?: number;
+    halation?: number;
+    grainAmount?: number;
     cropX?: number;
     cropY?: number;
     cropWidth?: number;
@@ -58,6 +65,13 @@
     lutIntensity: propsLutIntensity,
     clarity: propsClarity,
     sharpness: propsSharpness,
+    colorDensity: propsColorDensity,
+    shadowHue: propsShadowHue,
+    shadowTintAmount: propsShadowTintAmount,
+    highlightHue: propsHighlightHue,
+    highlightTintAmount: propsHighlightTintAmount,
+    halation: propsHalation,
+    grainAmount: propsGrainAmount,
     cropX: propsCropX,
     cropY: propsCropY,
     cropWidth: propsCropWidth,
@@ -110,6 +124,13 @@
   const currentLutIntensity = $derived(propsLutIntensity ?? darkroomState.lutIntensity);
   const currentClarity = $derived(propsClarity ?? darkroomState.clarity);
   const currentSharpness = $derived(propsSharpness ?? darkroomState.sharpness);
+  const currentColorDensity = $derived(propsColorDensity ?? darkroomState.colorDensity);
+  const currentShadowHue = $derived(propsShadowHue ?? darkroomState.shadowHue);
+  const currentShadowTintAmount = $derived(propsShadowTintAmount ?? darkroomState.shadowTintAmount);
+  const currentHighlightHue = $derived(propsHighlightHue ?? darkroomState.highlightHue);
+  const currentHighlightTintAmount = $derived(propsHighlightTintAmount ?? darkroomState.highlightTintAmount);
+  const currentHalation = $derived(propsHalation ?? darkroomState.halation);
+  const currentGrainAmount = $derived(propsGrainAmount ?? darkroomState.grainAmount);
 
   const currentCropX = $derived(propsCropX ?? darkroomState.cropX);
   const currentCropY = $derived(propsCropY ?? darkroomState.cropY);
@@ -419,6 +440,13 @@
           bypassLut: true,
           clarity: 0.0,
           sharpness: 0.0,
+          colorDensity: 0.0,
+          shadowHue: 200,
+          shadowTintAmount: 0.0,
+          highlightHue: 40,
+          highlightTintAmount: 0.0,
+          halation: 0.0,
+          grainAmount: 0.0,
         },
         imgWidth,
         imgHeight
@@ -445,6 +473,13 @@
         bypassLut: isBypass,
         clarity: currentClarity,
         sharpness: currentSharpness,
+        colorDensity: currentColorDensity,
+        shadowHue: currentShadowHue,
+        shadowTintAmount: currentShadowTintAmount,
+        highlightHue: currentHighlightHue,
+        highlightTintAmount: currentHighlightTintAmount,
+        halation: currentHalation,
+        grainAmount: currentGrainAmount,
       },
       imgWidth,
       imgHeight
@@ -478,6 +513,13 @@
     const _lut = currentLutIntensity;
     const _clarity = currentClarity;
     const _sharpness = currentSharpness;
+    const _colorDensity = currentColorDensity;
+    const _shadowHue = currentShadowHue;
+    const _shadowTint = currentShadowTintAmount;
+    const _highlightHue = currentHighlightHue;
+    const _highlightTint = currentHighlightTintAmount;
+    const _halation = currentHalation;
+    const _grain = currentGrainAmount;
     const _ab = currentShowABComparison;
     const _diff = currentDiffMode;
     const _hover = currentHoverProfile;

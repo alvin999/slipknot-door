@@ -20,6 +20,13 @@
     lutIntensity?: number;
     clarity?: number;
     sharpness?: number;
+    colorDensity?: number;
+    shadowHue?: number;
+    shadowTintAmount?: number;
+    highlightHue?: number;
+    highlightTintAmount?: number;
+    halation?: number;
+    grainAmount?: number;
     cropX?: number;
     cropY?: number;
     cropWidth?: number;
@@ -60,6 +67,13 @@
     lutIntensity,
     clarity,
     sharpness,
+    colorDensity,
+    shadowHue,
+    shadowTintAmount,
+    highlightHue,
+    highlightTintAmount,
+    halation,
+    grainAmount,
     cropX,
     cropY,
     cropWidth,
@@ -113,6 +127,13 @@
   {lutIntensity}
   {clarity}
   {sharpness}
+  {colorDensity}
+  {shadowHue}
+  {shadowTintAmount}
+  {highlightHue}
+  {highlightTintAmount}
+  {halation}
+  {grainAmount}
   {cropX}
   {cropY}
   {cropWidth}

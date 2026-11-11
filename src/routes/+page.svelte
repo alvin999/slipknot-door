@@ -157,6 +157,13 @@
       tint: number;
       clarity?: number;
       sharpness?: number;
+      colorDensity?: number;
+      shadowHue?: number;
+      shadowTintAmount?: number;
+      highlightHue?: number;
+      highlightTintAmount?: number;
+      halation?: number;
+      grainAmount?: number;
     };
   }
 
@@ -177,6 +184,13 @@
   let lutIntensity = $state<number>(1.0);
   let clarity = $state<number>(0.0);
   let sharpness = $state<number>(0.0);
+  let colorDensity = $state<number>(0.0);
+  let shadowHue = $state<number>(200);
+  let shadowTintAmount = $state<number>(0.0);
+  let highlightHue = $state<number>(40);
+  let highlightTintAmount = $state<number>(0.0);
+  let halation = $state<number>(0.0);
+  let grainAmount = $state<number>(0.15);
 
   // 專業 Diff 視覺比對狀態 (由 darkroomState 作為單一真相來源)
   type DiffMode = "off" | "split" | "sideBySide";
@@ -198,6 +212,7 @@
               keystone: true,
               tone: true,
               whiteBalance: true,
+              filmPhysics: true,
               ...JSON.parse(localStorage.getItem(AI_SCOPE_STORAGE_KEY)!),
             };
           } catch {
@@ -207,6 +222,7 @@
               keystone: true,
               tone: true,
               whiteBalance: true,
+              filmPhysics: true,
             };
           }
         })()
@@ -216,6 +232,7 @@
           keystone: true,
           tone: true,
           whiteBalance: true,
+          filmPhysics: true,
         };
 
   let aiScope = $state<AiScopePreferences>(initialScope);
@@ -798,7 +815,12 @@
         Math.abs(tint - asShotTint) < 0.001 &&
         Math.abs(lutIntensity - 1.0) < 0.001 &&
         Math.abs(clarity - 0.0) < 0.001 &&
-        Math.abs(sharpness - 0.0) < 0.001;
+        Math.abs(sharpness - 0.0) < 0.001 &&
+        Math.abs(colorDensity - 0.0) < 0.001 &&
+        Math.abs(shadowTintAmount - 0.0) < 0.001 &&
+        Math.abs(highlightTintAmount - 0.0) < 0.001 &&
+        Math.abs(halation - 0.0) < 0.001 &&
+        Math.abs(grainAmount - 0.15) < 0.001;
 
       const targetTuning = isDefault
         ? undefined
@@ -811,6 +833,13 @@
             tint,
             clarity,
             sharpness,
+            colorDensity,
+            shadowHue,
+            shadowTintAmount,
+            highlightHue,
+            highlightTintAmount,
+            halation,
+            grainAmount,
           };
 
       const isDefaultCrop =
@@ -874,6 +903,13 @@
       tint = plate.tuning.tint ?? 0;
       clarity = plate.tuning.clarity ?? 0;
       sharpness = plate.tuning.sharpness ?? 0;
+      colorDensity = plate.tuning.colorDensity ?? 0;
+      shadowHue = plate.tuning.shadowHue ?? 200;
+      shadowTintAmount = plate.tuning.shadowTintAmount ?? 0;
+      highlightHue = plate.tuning.highlightHue ?? 40;
+      highlightTintAmount = plate.tuning.highlightTintAmount ?? 0;
+      halation = plate.tuning.halation ?? 0;
+      grainAmount = plate.tuning.grainAmount ?? 0.15;
     } else {
       exposure = plate.asShotExposure ?? 0.0;
       contrast = 0.0;
@@ -883,6 +919,13 @@
       tint = plate.asShotTint ?? 0.0;
       clarity = 0.0;
       sharpness = 0.0;
+      colorDensity = 0.0;
+      shadowHue = 200;
+      shadowTintAmount = 0.0;
+      highlightHue = 40;
+      highlightTintAmount = 0.0;
+      halation = 0.0;
+      grainAmount = 0.15;
     }
 
     // 載入當前選中相片的專屬裁切或重設為全幅
@@ -948,6 +991,13 @@
     const lut = darkroomState.lutIntensity;
     const clr = darkroomState.clarity;
     const shp = darkroomState.sharpness;
+    const den = darkroomState.colorDensity;
+    const shH = darkroomState.shadowHue;
+    const shA = darkroomState.shadowTintAmount;
+    const hiH = darkroomState.highlightHue;
+    const hiA = darkroomState.highlightTintAmount;
+    const hal = darkroomState.halation;
+    const grn = darkroomState.grainAmount;
 
     // 同步至 +page.svelte 局部狀態供匯出與其他邏輯使用
     exposure = exp;
@@ -958,6 +1008,13 @@
     lutIntensity = lut;
     clarity = clr;
     sharpness = shp;
+    colorDensity = den;
+    shadowHue = shH;
+    shadowTintAmount = shA;
+    highlightHue = hiH;
+    highlightTintAmount = hiA;
+    halation = hal;
+    grainAmount = grn;
 
     cropX = darkroomState.cropX;
     cropY = darkroomState.cropY;
@@ -1201,6 +1258,13 @@
       lutIntensity = found.lutIntensityDefault;
       clarity = found.clarityDefault ?? 0.0;
       sharpness = found.sharpnessDefault ?? 0.0;
+      colorDensity = 0.0;
+      shadowHue = 200;
+      shadowTintAmount = 0.0;
+      highlightHue = 40;
+      highlightTintAmount = 0.0;
+      halation = 0.0;
+      grainAmount = 0.15;
 
       darkroomState.exposure = exposure;
       darkroomState.contrast = contrast;
@@ -1208,6 +1272,13 @@
       darkroomState.lutIntensity = lutIntensity;
       darkroomState.clarity = clarity;
       darkroomState.sharpness = sharpness;
+      darkroomState.colorDensity = colorDensity;
+      darkroomState.shadowHue = shadowHue;
+      darkroomState.shadowTintAmount = shadowTintAmount;
+      darkroomState.highlightHue = highlightHue;
+      darkroomState.highlightTintAmount = highlightTintAmount;
+      darkroomState.halation = halation;
+      darkroomState.grainAmount = grainAmount;
     }
     triggerWebglRender();
     enqueueThumbnailRender(activePhoto);
@@ -1397,6 +1468,27 @@
             ? sharpness
             : (plate.tuning?.sharpness ??
               (found ? (found.sharpnessDefault ?? 0.0) : 0.0));
+          const currentColorDensity = isCurrentActive
+            ? colorDensity
+            : (plate.tuning?.colorDensity ?? 0.0);
+          const currentShadowHue = isCurrentActive
+            ? shadowHue
+            : (plate.tuning?.shadowHue ?? 200);
+          const currentShadowTintAmount = isCurrentActive
+            ? shadowTintAmount
+            : (plate.tuning?.shadowTintAmount ?? 0.0);
+          const currentHighlightHue = isCurrentActive
+            ? highlightHue
+            : (plate.tuning?.highlightHue ?? 40);
+          const currentHighlightTintAmount = isCurrentActive
+            ? highlightTintAmount
+            : (plate.tuning?.highlightTintAmount ?? 0.0);
+          const currentHalation = isCurrentActive
+            ? halation
+            : (plate.tuning?.halation ?? 0.0);
+          const currentGrainAmount = isCurrentActive
+            ? grainAmount
+            : (plate.tuning?.grainAmount ?? 0.15);
 
           offscreenRenderer.setImageSource(img);
           offscreenRenderer.setProfile(plate.appliedProfile);
@@ -1411,6 +1503,13 @@
               bypassLut: false,
               clarity: currentClarity,
               sharpness: currentSharpness,
+              colorDensity: currentColorDensity,
+              shadowHue: currentShadowHue,
+              shadowTintAmount: currentShadowTintAmount,
+              highlightHue: currentHighlightHue,
+              highlightTintAmount: currentHighlightTintAmount,
+              halation: currentHalation,
+              grainAmount: currentGrainAmount,
             },
             img.naturalWidth || 400,
             img.naturalHeight || 300,
@@ -1526,6 +1625,13 @@
           bypassLut: false,
           clarity: decision.clarity ?? 0.0,
           sharpness: decision.sharpness ?? 0.0,
+          colorDensity: decision.color_density ?? 0.0,
+          shadowHue: decision.shadow_hue ?? 200,
+          shadowTintAmount: decision.shadow_tint_amount ?? 0.0,
+          highlightHue: decision.highlight_hue ?? 40,
+          highlightTintAmount: decision.highlight_tint_amount ?? 0.0,
+          halation: decision.halation ?? 0.0,
+          grainAmount: decision.grain_amount ?? 0.15,
         },
         targetW,
         targetH,
@@ -1551,6 +1657,13 @@
     lutIntensity = 1.0;
     clarity = 0.0;
     sharpness = 0.0;
+    colorDensity = 0.0;
+    shadowHue = 200;
+    shadowTintAmount = 0.0;
+    highlightHue = 40;
+    highlightTintAmount = 0.0;
+    halation = 0.0;
+    grainAmount = 0.15;
 
     darkroomState.colorTemp = colorTemp;
     darkroomState.tint = tint;
@@ -1560,6 +1673,13 @@
     darkroomState.lutIntensity = lutIntensity;
     darkroomState.clarity = clarity;
     darkroomState.sharpness = sharpness;
+    darkroomState.colorDensity = colorDensity;
+    darkroomState.shadowHue = shadowHue;
+    darkroomState.shadowTintAmount = shadowTintAmount;
+    darkroomState.highlightHue = highlightHue;
+    darkroomState.highlightTintAmount = highlightTintAmount;
+    darkroomState.halation = halation;
+    darkroomState.grainAmount = grainAmount;
 
     triggerWebglRender();
   }
@@ -1584,7 +1704,12 @@
       Math.abs(tint - asShotTint) < 0.001 &&
       Math.abs(lutIntensity - 1.0) < 0.001 &&
       Math.abs(clarity - 0.0) < 0.001 &&
-      Math.abs(sharpness - 0.0) < 0.001;
+      Math.abs(sharpness - 0.0) < 0.001 &&
+      Math.abs(colorDensity - 0.0) < 0.001 &&
+      Math.abs(shadowTintAmount - 0.0) < 0.001 &&
+      Math.abs(highlightTintAmount - 0.0) < 0.001 &&
+      Math.abs(halation - 0.0) < 0.001 &&
+      Math.abs(grainAmount - 0.15) < 0.001;
 
     const targetTuning = isDefaultTuning
       ? undefined
@@ -1597,6 +1722,13 @@
           tint,
           clarity,
           sharpness,
+          colorDensity,
+          shadowHue,
+          shadowTintAmount,
+          highlightHue,
+          highlightTintAmount,
+          halation,
+          grainAmount,
         };
 
     const currentPlate = photoPlates.find((p) => p.id === activePhoto!.id);
@@ -1620,6 +1752,33 @@
         ) < 0.001 &&
         Math.abs(
           (currentPlate.tuning.sharpness ?? 0) - (targetTuning.sharpness ?? 0),
+        ) < 0.001 &&
+        Math.abs(
+          (currentPlate.tuning.colorDensity ?? 0) -
+            (targetTuning.colorDensity ?? 0),
+        ) < 0.001 &&
+        Math.abs(
+          (currentPlate.tuning.shadowHue ?? 200) -
+            (targetTuning.shadowHue ?? 200),
+        ) < 0.5 &&
+        Math.abs(
+          (currentPlate.tuning.shadowTintAmount ?? 0) -
+            (targetTuning.shadowTintAmount ?? 0),
+        ) < 0.001 &&
+        Math.abs(
+          (currentPlate.tuning.highlightHue ?? 40) -
+            (targetTuning.highlightHue ?? 40),
+        ) < 0.5 &&
+        Math.abs(
+          (currentPlate.tuning.highlightTintAmount ?? 0) -
+            (targetTuning.highlightTintAmount ?? 0),
+        ) < 0.001 &&
+        Math.abs(
+          (currentPlate.tuning.halation ?? 0) - (targetTuning.halation ?? 0),
+        ) < 0.001 &&
+        Math.abs(
+          (currentPlate.tuning.grainAmount ?? 0.15) -
+            (targetTuning.grainAmount ?? 0.15),
         ) < 0.001);
 
     const profileMatches =
@@ -1675,6 +1834,13 @@
       Math.abs(darkroomState.lutIntensity - t.lutIntensity) > 0.001 ||
       Math.abs(darkroomState.clarity - (t.clarity ?? 0.0)) > 0.001 ||
       Math.abs(darkroomState.sharpness - (t.sharpness ?? 0.0)) > 0.001 ||
+      Math.abs(darkroomState.colorDensity - (t.colorDensity ?? 0.0)) > 0.001 ||
+      Math.abs(darkroomState.shadowHue - (t.shadowHue ?? 200)) > 0.5 ||
+      Math.abs(darkroomState.shadowTintAmount - (t.shadowTintAmount ?? 0.0)) > 0.001 ||
+      Math.abs(darkroomState.highlightHue - (t.highlightHue ?? 40)) > 0.5 ||
+      Math.abs(darkroomState.highlightTintAmount - (t.highlightTintAmount ?? 0.0)) > 0.001 ||
+      Math.abs(darkroomState.halation - (t.halation ?? 0.0)) > 0.001 ||
+      Math.abs(darkroomState.grainAmount - (t.grainAmount ?? 0.15)) > 0.001 ||
       activePhoto.appliedProfile !== snap.appliedProfile
     );
   });
@@ -1704,6 +1870,13 @@
         tint: snapshot.tuning.tint ?? 0.0,
         clarity: snapshot.tuning.clarity ?? 0.0,
         sharpness: snapshot.tuning.sharpness ?? 0.0,
+        colorDensity: snapshot.tuning.colorDensity ?? 0.0,
+        shadowHue: snapshot.tuning.shadowHue ?? 200,
+        shadowTintAmount: snapshot.tuning.shadowTintAmount ?? 0.0,
+        highlightHue: snapshot.tuning.highlightHue ?? 40,
+        highlightTintAmount: snapshot.tuning.highlightTintAmount ?? 0.0,
+        halation: snapshot.tuning.halation ?? 0.0,
+        grainAmount: snapshot.tuning.grainAmount ?? 0.15,
       },
       450,
     );
@@ -1712,6 +1885,20 @@
     darkroomState.clarity = clarity;
     sharpness = snapshot.tuning.sharpness ?? 0.0;
     darkroomState.sharpness = sharpness;
+    colorDensity = snapshot.tuning.colorDensity ?? 0.0;
+    darkroomState.colorDensity = colorDensity;
+    shadowHue = snapshot.tuning.shadowHue ?? 200;
+    darkroomState.shadowHue = shadowHue;
+    shadowTintAmount = snapshot.tuning.shadowTintAmount ?? 0.0;
+    darkroomState.shadowTintAmount = shadowTintAmount;
+    highlightHue = snapshot.tuning.highlightHue ?? 40;
+    darkroomState.highlightHue = highlightHue;
+    highlightTintAmount = snapshot.tuning.highlightTintAmount ?? 0.0;
+    darkroomState.highlightTintAmount = highlightTintAmount;
+    halation = snapshot.tuning.halation ?? 0.0;
+    darkroomState.halation = halation;
+    grainAmount = snapshot.tuning.grainAmount ?? 0.15;
+    darkroomState.grainAmount = grainAmount;
 
     if (snapshot.crop) {
       cropX = snapshot.crop.x;
@@ -1758,6 +1945,13 @@
     lutIntensity = 1.0;
     clarity = 0.0;
     sharpness = 0.0;
+    colorDensity = 0.0;
+    shadowHue = 200;
+    shadowTintAmount = 0.0;
+    highlightHue = 40;
+    highlightTintAmount = 0.0;
+    halation = 0.0;
+    grainAmount = 0.15;
     darkroomState.resetTuningParams();
     darkroomState.resetCropState();
     resetCropState();
@@ -2330,6 +2524,13 @@
       tint?: number;
       clarity?: number;
       sharpness?: number;
+      colorDensity?: number;
+      shadowHue?: number;
+      shadowTintAmount?: number;
+      highlightHue?: number;
+      highlightTintAmount?: number;
+      halation?: number;
+      grainAmount?: number;
     },
     durationMs = 650,
   ) {
@@ -2341,6 +2542,13 @@
     const startTint = tint;
     const startClarity = clarity;
     const startSharpness = sharpness;
+    const startColorDensity = colorDensity;
+    const startShadowHue = shadowHue;
+    const startShadowTintAmount = shadowTintAmount;
+    const startHighlightHue = highlightHue;
+    const startHighlightTintAmount = highlightTintAmount;
+    const startHalation = halation;
+    const startGrainAmount = grainAmount;
 
     const targetExposure = target.exposure ?? startExposure;
     const targetContrast = target.contrast ?? startContrast;
@@ -2350,6 +2558,13 @@
     const targetTint = target.tint ?? startTint;
     const targetClarity = target.clarity ?? startClarity;
     const targetSharpness = target.sharpness ?? startSharpness;
+    const targetColorDensity = target.colorDensity ?? startColorDensity;
+    const targetShadowHue = target.shadowHue ?? startShadowHue;
+    const targetShadowTintAmount = target.shadowTintAmount ?? startShadowTintAmount;
+    const targetHighlightHue = target.highlightHue ?? startHighlightHue;
+    const targetHighlightTintAmount = target.highlightTintAmount ?? startHighlightTintAmount;
+    const targetHalation = target.halation ?? startHalation;
+    const targetGrainAmount = target.grainAmount ?? startGrainAmount;
 
     const startTime = performance.now();
 
@@ -2386,6 +2601,27 @@
       sharpness = parseFloat(
         (startSharpness + (targetSharpness - startSharpness) * ease).toFixed(2),
       );
+      colorDensity = parseFloat(
+        (startColorDensity + (targetColorDensity - startColorDensity) * ease).toFixed(2),
+      );
+      shadowHue = Math.round(
+        startShadowHue + (targetShadowHue - startShadowHue) * ease,
+      );
+      shadowTintAmount = parseFloat(
+        (startShadowTintAmount + (targetShadowTintAmount - startShadowTintAmount) * ease).toFixed(2),
+      );
+      highlightHue = Math.round(
+        startHighlightHue + (targetHighlightHue - startHighlightHue) * ease,
+      );
+      highlightTintAmount = parseFloat(
+        (startHighlightTintAmount + (targetHighlightTintAmount - startHighlightTintAmount) * ease).toFixed(2),
+      );
+      halation = parseFloat(
+        (startHalation + (targetHalation - startHalation) * ease).toFixed(2),
+      );
+      grainAmount = parseFloat(
+        (startGrainAmount + (targetGrainAmount - startGrainAmount) * ease).toFixed(2),
+      );
 
       // 同步動態調色至 darkroomState 以流暢驅動右側面板滑桿與 WebGL 著色
       darkroomState.exposure = exposure;
@@ -2396,6 +2632,13 @@
       darkroomState.tint = tint;
       darkroomState.clarity = clarity;
       darkroomState.sharpness = sharpness;
+      darkroomState.colorDensity = colorDensity;
+      darkroomState.shadowHue = shadowHue;
+      darkroomState.shadowTintAmount = shadowTintAmount;
+      darkroomState.highlightHue = highlightHue;
+      darkroomState.highlightTintAmount = highlightTintAmount;
+      darkroomState.halation = halation;
+      darkroomState.grainAmount = grainAmount;
 
       if (progress < 1.0) {
         requestAnimationFrame(step);
@@ -2410,6 +2653,13 @@
             tint,
             clarity,
             sharpness,
+            colorDensity,
+            shadowHue,
+            shadowTintAmount,
+            highlightHue,
+            highlightTintAmount,
+            halation,
+            grainAmount,
           };
           photoPlates = photoPlates.map((p) =>
             p.id === activePhoto!.id
@@ -2609,6 +2859,28 @@
       const baseSharpness = aiScope.tone
         ? (decision.sharpness ?? 0.0)
         : (photoToProcess.tuning?.sharpness ?? 0.0);
+      const applyFilmPhysics = aiScope.filmPhysics !== false;
+      const baseColorDensity = applyFilmPhysics
+        ? (decision.color_density ?? 0.0)
+        : (photoToProcess.tuning?.colorDensity ?? 0.0);
+      const baseShadowHue = applyFilmPhysics
+        ? (decision.shadow_hue ?? 200)
+        : (photoToProcess.tuning?.shadowHue ?? 200);
+      const baseShadowTintAmount = applyFilmPhysics
+        ? (decision.shadow_tint_amount ?? 0.0)
+        : (photoToProcess.tuning?.shadowTintAmount ?? 0.0);
+      const baseHighlightHue = applyFilmPhysics
+        ? (decision.highlight_hue ?? 40)
+        : (photoToProcess.tuning?.highlightHue ?? 40);
+      const baseHighlightTintAmount = applyFilmPhysics
+        ? (decision.highlight_tint_amount ?? 0.0)
+        : (photoToProcess.tuning?.highlightTintAmount ?? 0.0);
+      const baseHalation = applyFilmPhysics
+        ? (decision.halation ?? 0.0)
+        : (photoToProcess.tuning?.halation ?? 0.0);
+      const baseGrainAmount = applyFilmPhysics
+        ? (decision.grain_amount ?? 0.15)
+        : (photoToProcess.tuning?.grainAmount ?? 0.15);
 
       const origEv =
         photoToProcess.tuning?.exposure ?? photoToProcess.asShotExposure ?? 0.0;
@@ -2646,6 +2918,12 @@
       if (applyLut) {
         await appendAiLog(
           `> [AI_LUT] 底片風格套用：${targetProfile} (濃度: ${origLut.toFixed(2)} → ${baseLut.toFixed(2)})`,
+          15,
+        );
+      }
+      if (applyFilmPhysics) {
+        await appendAiLog(
+          `> [AI_TONING] 分區調色與底片質感：\n  • 減色密度: ${fmt(baseColorDensity)} | Halation: ${baseHalation.toFixed(2)} | 微粒: ${baseGrainAmount.toFixed(2)}\n  • 分區色調: 暗部 ${Math.round(baseShadowHue)}° (${baseShadowTintAmount.toFixed(2)}) | 亮部 ${Math.round(baseHighlightHue)}° (${baseHighlightTintAmount.toFixed(2)})`,
           15,
         );
       }
@@ -2739,6 +3017,13 @@
         tint: baseTint,
         clarity: baseClarity,
         sharpness: baseSharpness,
+        colorDensity: baseColorDensity,
+        shadowHue: baseShadowHue,
+        shadowTintAmount: baseShadowTintAmount,
+        highlightHue: baseHighlightHue,
+        highlightTintAmount: baseHighlightTintAmount,
+        halation: baseHalation,
+        grainAmount: baseGrainAmount,
       };
       if (targetCrop) {
         photoToProcess.crop = targetCrop;
@@ -2756,6 +3041,13 @@
           tint: baseTint,
           clarity: baseClarity,
           sharpness: baseSharpness,
+          colorDensity: baseColorDensity,
+          shadowHue: baseShadowHue,
+          shadowTintAmount: baseShadowTintAmount,
+          highlightHue: baseHighlightHue,
+          highlightTintAmount: baseHighlightTintAmount,
+          halation: baseHalation,
+          grainAmount: baseGrainAmount,
         },
         crop: targetCrop ? { ...targetCrop } : undefined,
         appliedScope: { ...aiScope },
@@ -2775,6 +3067,13 @@
             lutIntensity?: number;
             clarity?: number;
             sharpness?: number;
+            colorDensity?: number;
+            shadowHue?: number;
+            shadowTintAmount?: number;
+            highlightHue?: number;
+            highlightTintAmount?: number;
+            halation?: number;
+            grainAmount?: number;
           } = {};
           if (aiScope.tone) {
             targetAnim.exposure = baseEv;
@@ -2790,10 +3089,35 @@
           if (applyLut) {
             targetAnim.lutIntensity = baseLut;
           }
+          if (applyFilmPhysics) {
+            targetAnim.colorDensity = baseColorDensity;
+            targetAnim.shadowHue = baseShadowHue;
+            targetAnim.shadowTintAmount = baseShadowTintAmount;
+            targetAnim.highlightHue = baseHighlightHue;
+            targetAnim.highlightTintAmount = baseHighlightTintAmount;
+            targetAnim.halation = baseHalation;
+            targetAnim.grainAmount = baseGrainAmount;
+          }
           clarity = baseClarity;
           sharpness = baseSharpness;
           darkroomState.clarity = baseClarity;
           darkroomState.sharpness = baseSharpness;
+          if (applyFilmPhysics) {
+            colorDensity = baseColorDensity;
+            shadowHue = baseShadowHue;
+            shadowTintAmount = baseShadowTintAmount;
+            highlightHue = baseHighlightHue;
+            highlightTintAmount = baseHighlightTintAmount;
+            halation = baseHalation;
+            grainAmount = baseGrainAmount;
+            darkroomState.colorDensity = baseColorDensity;
+            darkroomState.shadowHue = baseShadowHue;
+            darkroomState.shadowTintAmount = baseShadowTintAmount;
+            darkroomState.highlightHue = baseHighlightHue;
+            darkroomState.highlightTintAmount = baseHighlightTintAmount;
+            darkroomState.halation = baseHalation;
+            darkroomState.grainAmount = baseGrainAmount;
+          }
           if (Object.keys(targetAnim).length > 0) {
             animateAdjustmentValues(targetAnim, 650);
           }
@@ -2819,8 +3143,22 @@
           lutIntensity = baseLut;
           clarity = baseClarity;
           sharpness = baseSharpness;
+          colorDensity = baseColorDensity;
+          shadowHue = baseShadowHue;
+          shadowTintAmount = baseShadowTintAmount;
+          highlightHue = baseHighlightHue;
+          highlightTintAmount = baseHighlightTintAmount;
+          halation = baseHalation;
+          grainAmount = baseGrainAmount;
           darkroomState.clarity = baseClarity;
           darkroomState.sharpness = baseSharpness;
+          darkroomState.colorDensity = baseColorDensity;
+          darkroomState.shadowHue = baseShadowHue;
+          darkroomState.shadowTintAmount = baseShadowTintAmount;
+          darkroomState.highlightHue = baseHighlightHue;
+          darkroomState.highlightTintAmount = baseHighlightTintAmount;
+          darkroomState.halation = baseHalation;
+          darkroomState.grainAmount = baseGrainAmount;
           if (targetCrop) {
             cropX = targetCrop.x;
             cropY = targetCrop.y;
@@ -3021,6 +3359,7 @@
             tone: false,
             whiteBalance: true,
             lutProfile: false,
+            filmPhysics: false,
           },
         },
       );
@@ -3073,6 +3412,7 @@
             tone: true,
             whiteBalance: false,
             lutProfile: false,
+            filmPhysics: false,
           },
         },
       );
@@ -3135,6 +3475,7 @@
             tone: false,
             whiteBalance: false,
             lutProfile: true,
+            filmPhysics: false,
           },
           stylePreset: activeStylePreset,
         },
@@ -3383,6 +3724,13 @@
             lutIntensity,
             clarity,
             sharpness,
+            colorDensity,
+            shadowHue,
+            shadowTintAmount,
+            highlightHue,
+            highlightTintAmount,
+            halation,
+            grainAmount,
           },
           crop: currentCrop,
         },

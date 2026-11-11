@@ -74,6 +74,13 @@
     const _tin = darkroomState.tint;
     const _cla = darkroomState.clarity;
     const _shp = darkroomState.sharpness;
+    const _den = darkroomState.colorDensity;
+    const _shH = darkroomState.shadowHue;
+    const _shA = darkroomState.shadowTintAmount;
+    const _hiH = darkroomState.highlightHue;
+    const _hiA = darkroomState.highlightTintAmount;
+    const _hal = darkroomState.halation;
+    const _grn = darkroomState.grainAmount;
     const _rot = darkroomState.cropRotation;
     const _kv = darkroomState.keystoneV;
     const _cx = darkroomState.cropX;
@@ -387,6 +394,115 @@
     step={0.05}
     isBipolar={true}
     formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+    parseInput={parsePercentage}
+  />
+</div>
+
+<!-- 1.5 Toning & Texture (減色密度 / 分區調色 / 光暈與銀鹽微粒) -->
+<div class="telemetry-box hairline-b">
+  <div class="tuning-box-header">
+    <div class="box-title font-mono">TONING & TEXTURE</div>
+    <button
+      type="button"
+      class="reset-tuning-btn font-mono"
+      onclick={() => {
+        darkroomState.colorDensity = 0.0;
+        darkroomState.shadowHue = 200;
+        darkroomState.shadowTintAmount = 0.0;
+        darkroomState.highlightHue = 40;
+        darkroomState.highlightTintAmount = 0.0;
+        darkroomState.halation = 0.0;
+        darkroomState.grainAmount = 0.15;
+        darkroomState.recordSnapshot(true);
+      }}
+      title="重置分區調色與底片質感為預設基準"
+    >
+      <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
+      <span>歸零</span>
+    </button>
+  </div>
+
+  <!-- Subtractive Color Density -->
+  <DarkroomSlider
+    label="COLOR DENSITY (減色密度)"
+    bind:value={darkroomState.colorDensity}
+    defaultValue={0}
+    min={-1.0}
+    max={1.0}
+    step={0.02}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+    parseInput={parsePercentage}
+  />
+
+  <!-- Film Halation -->
+  <DarkroomSlider
+    label="HALATION (高光暈染)"
+    bind:value={darkroomState.halation}
+    defaultValue={0}
+    min={0}
+    max={1.0}
+    step={0.02}
+    amberValue={true}
+    formatValue={(v) => `${Math.round(v * 100)}%`}
+    parseInput={parsePercentage}
+  />
+
+  <!-- Organic Silver-Halide Grain -->
+  <DarkroomSlider
+    label="SILVER GRAIN (銀鹽微粒)"
+    bind:value={darkroomState.grainAmount}
+    defaultValue={0.15}
+    min={0}
+    max={1.0}
+    step={0.02}
+    formatValue={(v) => `${Math.round(v * 100)}%`}
+    parseInput={parsePercentage}
+  />
+
+  <!-- Split Toning: Shadow Hue & Amount -->
+  <DarkroomSlider
+    label="SHADOW HUE (暗部色相)"
+    bind:value={darkroomState.shadowHue}
+    defaultValue={200}
+    min={0}
+    max={360}
+    step={1}
+    customTrackGradient="linear-gradient(to right, #d9534f 0%, #d9a74f 17%, #5cb85c 33%, #4fb8c9 50%, #4f6fd9 67%, #b84fd9 83%, #d9534f 100%)"
+    formatValue={(v) => `${Math.round(v)}°`}
+    parseInput={parseCleanNumber}
+  />
+  <DarkroomSlider
+    label="SHADOW TINT (暗部色偏)"
+    bind:value={darkroomState.shadowTintAmount}
+    defaultValue={0}
+    min={0}
+    max={1.0}
+    step={0.02}
+    formatValue={(v) => `${Math.round(v * 100)}%`}
+    parseInput={parsePercentage}
+  />
+
+  <!-- Split Toning: Highlight Hue & Amount -->
+  <DarkroomSlider
+    label="HIGHLIGHT HUE (亮部色相)"
+    bind:value={darkroomState.highlightHue}
+    defaultValue={40}
+    min={0}
+    max={360}
+    step={1}
+    customTrackGradient="linear-gradient(to right, #d9534f 0%, #d9a74f 17%, #5cb85c 33%, #4fb8c9 50%, #4f6fd9 67%, #b84fd9 83%, #d9534f 100%)"
+    formatValue={(v) => `${Math.round(v)}°`}
+    parseInput={parseCleanNumber}
+  />
+  <DarkroomSlider
+    label="HIGHLIGHT TINT (亮部色偏)"
+    bind:value={darkroomState.highlightTintAmount}
+    defaultValue={0}
+    min={0}
+    max={1.0}
+    step={0.02}
+    formatValue={(v) => `${Math.round(v * 100)}%`}
     parseInput={parsePercentage}
   />
 </div>

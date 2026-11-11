@@ -21,6 +21,13 @@ export interface AiSceneDecision {
   lut_intensity: number;
   clarity?: number;
   sharpness?: number;
+  color_density?: number;
+  shadow_hue?: number;
+  shadow_tint_amount?: number;
+  highlight_hue?: number;
+  highlight_tint_amount?: number;
+  halation?: number;
+  grain_amount?: number;
   tags?: string[];
   isFallback: boolean;
   fallbackReason?: string; // 記錄跌入本地兜底的真實原因 (透明化 Log 呈現)
@@ -259,7 +266,7 @@ export class AiSceneService {
         let decision: AiSceneDecision;
         const scope = options?.scope;
         const needGeometry = !scope || scope.crop || scope.keystone;
-        const needColor = !scope || scope.tone || scope.whiteBalance || scope.lutProfile;
+        const needColor = !scope || scope.tone || scope.whiteBalance || scope.lutProfile || scope.filmPhysics !== false;
 
         // 【分階段智慧排程管線】
         // 若使用者指派了 scope，且幾何與調色同時需要，由 strategy 分步推論
@@ -333,6 +340,13 @@ export class AiSceneService {
             lut_intensity: typeof colorDecision.lut_intensity === 'number' ? colorDecision.lut_intensity : 0.85,
             clarity: typeof colorDecision.clarity === 'number' ? colorDecision.clarity : 0.0,
             sharpness: typeof colorDecision.sharpness === 'number' ? colorDecision.sharpness : 0.0,
+            color_density: typeof colorDecision.color_density === 'number' ? colorDecision.color_density : 0.0,
+            shadow_hue: typeof colorDecision.shadow_hue === 'number' ? colorDecision.shadow_hue : 200,
+            shadow_tint_amount: typeof colorDecision.shadow_tint_amount === 'number' ? colorDecision.shadow_tint_amount : 0.0,
+            highlight_hue: typeof colorDecision.highlight_hue === 'number' ? colorDecision.highlight_hue : 40,
+            highlight_tint_amount: typeof colorDecision.highlight_tint_amount === 'number' ? colorDecision.highlight_tint_amount : 0.0,
+            halation: typeof colorDecision.halation === 'number' ? colorDecision.halation : 0.0,
+            grain_amount: typeof colorDecision.grain_amount === 'number' ? colorDecision.grain_amount : 0.15,
             tags: colorDecision.tags || ['光影顯影', '底片氛圍'],
             isFallback: false,
             providerUsed: strategy.providerId as any,
@@ -406,6 +420,13 @@ export class AiSceneService {
             lut_intensity: typeof colorDecision.lut_intensity === 'number' ? colorDecision.lut_intensity : 0.85,
             clarity: typeof colorDecision.clarity === 'number' ? colorDecision.clarity : 0.0,
             sharpness: typeof colorDecision.sharpness === 'number' ? colorDecision.sharpness : 0.0,
+            color_density: typeof colorDecision.color_density === 'number' ? colorDecision.color_density : 0.0,
+            shadow_hue: typeof colorDecision.shadow_hue === 'number' ? colorDecision.shadow_hue : 200,
+            shadow_tint_amount: typeof colorDecision.shadow_tint_amount === 'number' ? colorDecision.shadow_tint_amount : 0.0,
+            highlight_hue: typeof colorDecision.highlight_hue === 'number' ? colorDecision.highlight_hue : 40,
+            highlight_tint_amount: typeof colorDecision.highlight_tint_amount === 'number' ? colorDecision.highlight_tint_amount : 0.0,
+            halation: typeof colorDecision.halation === 'number' ? colorDecision.halation : 0.0,
+            grain_amount: typeof colorDecision.grain_amount === 'number' ? colorDecision.grain_amount : 0.15,
             tags: colorDecision.tags || ['光影顯影', '底片氛圍'],
             isFallback: false,
             providerUsed: strategy.providerId as any,
@@ -490,6 +511,11 @@ export class AiSceneService {
               const prevLut = decision.lut_intensity ?? 0.85;
               const prevClarity = decision.clarity ?? 0.0;
               const prevSharpness = decision.sharpness ?? 0.0;
+              const prevColorDensity = decision.color_density ?? 0.0;
+              const prevShadowTintAmount = decision.shadow_tint_amount ?? 0.0;
+              const prevHighlightTintAmount = decision.highlight_tint_amount ?? 0.0;
+              const prevHalation = decision.halation ?? 0.0;
+              const prevGrainAmount = decision.grain_amount ?? 0.15;
 
               // 數值安全融合：Delta 本身不設微小限幅，僅約束總體結果於 UI 滑桿與著色器物理有效範圍內
               const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
@@ -508,6 +534,21 @@ export class AiSceneService {
               }
               if (typeof refinement.sharpness_delta === 'number') {
                 decision.sharpness = parseFloat(clamp(prevSharpness + refinement.sharpness_delta, -1.0, 1.0).toFixed(2));
+              }
+              if (typeof refinement.color_density_delta === 'number') {
+                decision.color_density = parseFloat(clamp(prevColorDensity + refinement.color_density_delta, -1.0, 1.0).toFixed(2));
+              }
+              if (typeof refinement.shadow_tint_amount_delta === 'number') {
+                decision.shadow_tint_amount = parseFloat(clamp(prevShadowTintAmount + refinement.shadow_tint_amount_delta, 0.0, 1.0).toFixed(2));
+              }
+              if (typeof refinement.highlight_tint_amount_delta === 'number') {
+                decision.highlight_tint_amount = parseFloat(clamp(prevHighlightTintAmount + refinement.highlight_tint_amount_delta, 0.0, 1.0).toFixed(2));
+              }
+              if (typeof refinement.halation_delta === 'number') {
+                decision.halation = parseFloat(clamp(prevHalation + refinement.halation_delta, 0.0, 1.0).toFixed(2));
+              }
+              if (typeof refinement.grain_amount_delta === 'number') {
+                decision.grain_amount = parseFloat(clamp(prevGrainAmount + refinement.grain_amount_delta, 0.0, 1.0).toFixed(2));
               }
 
               if (options.onLog) {
@@ -547,6 +588,26 @@ export class AiSceneService {
                 if (typeof refinement.sharpness_delta === 'number' && Math.abs(refinement.sharpness_delta) >= 0.01) {
                   const newSharpness = decision.sharpness ?? 0.0;
                   diffLogs.push(`  • 銳利度: ${formatDelta(refinement.sharpness_delta)} (${prevSharpness >= 0 ? '+' : ''}${prevSharpness.toFixed(2)} → ${newSharpness >= 0 ? '+' : ''}${newSharpness.toFixed(2)})`);
+                }
+                if (typeof refinement.color_density_delta === 'number' && Math.abs(refinement.color_density_delta) >= 0.01) {
+                  const newDensity = decision.color_density ?? 0.0;
+                  diffLogs.push(`  • 色彩密度: ${formatDelta(refinement.color_density_delta)} (${prevColorDensity >= 0 ? '+' : ''}${prevColorDensity.toFixed(2)} → ${newDensity >= 0 ? '+' : ''}${newDensity.toFixed(2)})`);
+                }
+                if (typeof refinement.shadow_tint_amount_delta === 'number' && Math.abs(refinement.shadow_tint_amount_delta) >= 0.01) {
+                  const newSh = decision.shadow_tint_amount ?? 0.0;
+                  diffLogs.push(`  • 暗部色調: ${formatDelta(refinement.shadow_tint_amount_delta)} (${prevShadowTintAmount.toFixed(2)} → ${newSh.toFixed(2)})`);
+                }
+                if (typeof refinement.highlight_tint_amount_delta === 'number' && Math.abs(refinement.highlight_tint_amount_delta) >= 0.01) {
+                  const newHi = decision.highlight_tint_amount ?? 0.0;
+                  diffLogs.push(`  • 亮部色調: ${formatDelta(refinement.highlight_tint_amount_delta)} (${prevHighlightTintAmount.toFixed(2)} → ${newHi.toFixed(2)})`);
+                }
+                if (typeof refinement.halation_delta === 'number' && Math.abs(refinement.halation_delta) >= 0.01) {
+                  const newHal = decision.halation ?? 0.0;
+                  diffLogs.push(`  • Halation 暈染: ${formatDelta(refinement.halation_delta)} (${prevHalation.toFixed(2)} → ${newHal.toFixed(2)})`);
+                }
+                if (typeof refinement.grain_amount_delta === 'number' && Math.abs(refinement.grain_amount_delta) >= 0.01) {
+                  const newGr = decision.grain_amount ?? 0.15;
+                  diffLogs.push(`  • 銀鹽微粒: ${formatDelta(refinement.grain_amount_delta)} (${prevGrainAmount.toFixed(2)} → ${newGr.toFixed(2)})`);
                 }
 
                 if (diffLogs.length > 0) {

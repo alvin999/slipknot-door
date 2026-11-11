@@ -21,6 +21,13 @@ export interface DarkroomHistorySnapshot {
   tint: number;
   clarity: number;
   sharpness: number;
+  colorDensity: number;
+  shadowHue: number;
+  shadowTintAmount: number;
+  highlightHue: number;
+  highlightTintAmount: number;
+  halation: number;
+  grainAmount: number;
   cropX: number;
   cropY: number;
   cropWidth: number;
@@ -96,6 +103,15 @@ export class DarkroomStateStore {
   lutIntensity = $state<number>(1.0);
   clarity = $state<number>(0.0);
   sharpness = $state<number>(0.0);
+
+  // 底片物理通道 (Analog Emulsion Physics)
+  colorDensity = $state<number>(0.0);
+  shadowHue = $state<number>(200);
+  shadowTintAmount = $state<number>(0.0);
+  highlightHue = $state<number>(40);
+  highlightTintAmount = $state<number>(0.0);
+  halation = $state<number>(0.0);
+  grainAmount = $state<number>(0.15);
 
   // A/B 原始與比對狀態 (Curatorial Diff Engine)
   showABComparison = $state<boolean>(false);
@@ -280,6 +296,13 @@ export class DarkroomStateStore {
     this.lutIntensity = 1.0;
     this.clarity = 0.0;
     this.sharpness = 0.0;
+    this.colorDensity = 0.0;
+    this.shadowHue = 200;
+    this.shadowTintAmount = 0.0;
+    this.highlightHue = 40;
+    this.highlightTintAmount = 0.0;
+    this.halation = 0.0;
+    this.grainAmount = 0.15;
   }
 
   /**
@@ -301,6 +324,13 @@ export class DarkroomStateStore {
     this.lutIntensity = 1.0;
     this.clarity = 0.0;
     this.sharpness = 0.0;
+    this.colorDensity = 0.0;
+    this.shadowHue = 200;
+    this.shadowTintAmount = 0.0;
+    this.highlightHue = 40;
+    this.highlightTintAmount = 0.0;
+    this.halation = 0.0;
+    this.grainAmount = 0.15;
   }
 
   /**
@@ -319,6 +349,13 @@ export class DarkroomStateStore {
       tint: this.tint,
       clarity: this.clarity,
       sharpness: this.sharpness,
+      colorDensity: this.colorDensity,
+      shadowHue: this.shadowHue,
+      shadowTintAmount: this.shadowTintAmount,
+      highlightHue: this.highlightHue,
+      highlightTintAmount: this.highlightTintAmount,
+      halation: this.halation,
+      grainAmount: this.grainAmount,
       cropX: this.cropX,
       cropY: this.cropY,
       cropWidth: this.cropWidth,
@@ -345,6 +382,13 @@ export class DarkroomStateStore {
     this.tint = snap.tint;
     this.clarity = snap.clarity;
     this.sharpness = snap.sharpness;
+    this.colorDensity = snap.colorDensity;
+    this.shadowHue = snap.shadowHue;
+    this.shadowTintAmount = snap.shadowTintAmount;
+    this.highlightHue = snap.highlightHue;
+    this.highlightTintAmount = snap.highlightTintAmount;
+    this.halation = snap.halation;
+    this.grainAmount = snap.grainAmount;
     this.cropX = snap.cropX;
     this.cropY = snap.cropY;
     this.cropWidth = snap.cropWidth;
@@ -425,6 +469,13 @@ export class DarkroomStateStore {
       Math.abs(a.tint - b.tint) < 0.001 &&
       Math.abs(a.clarity - b.clarity) < 0.001 &&
       Math.abs(a.sharpness - b.sharpness) < 0.001 &&
+      Math.abs(a.colorDensity - b.colorDensity) < 0.001 &&
+      Math.abs(a.shadowHue - b.shadowHue) < 0.5 &&
+      Math.abs(a.shadowTintAmount - b.shadowTintAmount) < 0.001 &&
+      Math.abs(a.highlightHue - b.highlightHue) < 0.5 &&
+      Math.abs(a.highlightTintAmount - b.highlightTintAmount) < 0.001 &&
+      Math.abs(a.halation - b.halation) < 0.001 &&
+      Math.abs(a.grainAmount - b.grainAmount) < 0.001 &&
       Math.abs(a.cropX - b.cropX) < 0.001 &&
       Math.abs(a.cropY - b.cropY) < 0.001 &&
       Math.abs(a.cropWidth - b.cropWidth) < 0.001 &&
@@ -482,6 +533,13 @@ export class DarkroomStateStore {
       this.tint = photo.tuning.tint ?? 0;
       this.clarity = photo.tuning.clarity ?? 0;
       this.sharpness = photo.tuning.sharpness ?? 0;
+      this.colorDensity = photo.tuning.colorDensity ?? 0;
+      this.shadowHue = photo.tuning.shadowHue ?? 200;
+      this.shadowTintAmount = photo.tuning.shadowTintAmount ?? 0;
+      this.highlightHue = photo.tuning.highlightHue ?? 40;
+      this.highlightTintAmount = photo.tuning.highlightTintAmount ?? 0;
+      this.halation = photo.tuning.halation ?? 0;
+      this.grainAmount = photo.tuning.grainAmount ?? 0.15;
     } else {
       this.exposure = photo.asShotExposure ?? 0.0;
       this.contrast = 0.0;
@@ -491,6 +549,13 @@ export class DarkroomStateStore {
       this.tint = photo.asShotTint ?? 0.0;
       this.clarity = 0.0;
       this.sharpness = 0.0;
+      this.colorDensity = 0.0;
+      this.shadowHue = 200;
+      this.shadowTintAmount = 0.0;
+      this.highlightHue = 40;
+      this.highlightTintAmount = 0.0;
+      this.halation = 0.0;
+      this.grainAmount = 0.15;
     }
 
     if (photo.crop) {
@@ -527,7 +592,12 @@ export class DarkroomStateStore {
       Math.abs(this.tint - asShotTint) < 0.001 &&
       Math.abs(this.lutIntensity - 1.0) < 0.001 &&
       Math.abs(this.clarity - 0.0) < 0.001 &&
-      Math.abs(this.sharpness - 0.0) < 0.001
+      Math.abs(this.sharpness - 0.0) < 0.001 &&
+      Math.abs(this.colorDensity - 0.0) < 0.001 &&
+      Math.abs(this.shadowTintAmount - 0.0) < 0.001 &&
+      Math.abs(this.highlightTintAmount - 0.0) < 0.001 &&
+      Math.abs(this.halation - 0.0) < 0.001 &&
+      Math.abs(this.grainAmount - 0.15) < 0.001
     );
   }
 
@@ -547,6 +617,13 @@ export class DarkroomStateStore {
       tint: this.tint,
       clarity: this.clarity,
       sharpness: this.sharpness,
+      colorDensity: this.colorDensity,
+      shadowHue: this.shadowHue,
+      shadowTintAmount: this.shadowTintAmount,
+      highlightHue: this.highlightHue,
+      highlightTintAmount: this.highlightTintAmount,
+      halation: this.halation,
+      grainAmount: this.grainAmount,
     };
   }
 
@@ -656,6 +733,13 @@ export class DarkroomStateStore {
         tint: this.tint,
         clarity: this.clarity,
         sharpness: this.sharpness,
+        colorDensity: this.colorDensity,
+        shadowHue: this.shadowHue,
+        shadowTintAmount: this.shadowTintAmount,
+        highlightHue: this.highlightHue,
+        highlightTintAmount: this.highlightTintAmount,
+        halation: this.halation,
+        grainAmount: this.grainAmount,
       },
     };
   }
@@ -674,6 +758,13 @@ export class DarkroomStateStore {
     this.tint = tuning.tint;
     this.clarity = tuning.clarity ?? 0.0;
     this.sharpness = tuning.sharpness ?? 0.0;
+    this.colorDensity = tuning.colorDensity ?? 0.0;
+    this.shadowHue = tuning.shadowHue ?? 200;
+    this.shadowTintAmount = tuning.shadowTintAmount ?? 0.0;
+    this.highlightHue = tuning.highlightHue ?? 40;
+    this.highlightTintAmount = tuning.highlightTintAmount ?? 0.0;
+    this.halation = tuning.halation ?? 0.0;
+    this.grainAmount = tuning.grainAmount ?? 0.15;
     return this.copiedTuning;
   }
 }

@@ -38,7 +38,7 @@ export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
     shortTag: 'Film Like',
     tooltip: '有機高光滾降、暗部微抬啞光黑、柔和暈光與溫潤底片色調',
     promptEnglish:
-      'Analog film aesthetic: prioritize emulsion diffusion and gentle optical roll-off (keep clarity & sharpness <= 0.0 to prevent algorithmic digital edge halos), lifted matte shadow toe, natural highlight chroma desaturation',
+      'Analog film aesthetic: prioritize emulsion diffusion and optical roll-off (keep clarity & sharpness <= 0.0 to prevent digital edge halos), lifted matte shadow toe, subtractive color density to avoid digital neon saturation, subtle split-zone chromatic bias, mild halation scattering around bright light sources, and organic silver-halide grain',
   },
   {
     id: 'lomo',
@@ -46,7 +46,7 @@ export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
     shortTag: 'LOMO 風',
     tooltip: '玩具相機負沖感、鮮明高反差、大膽色偏與邊緣微柔化',
     promptEnglish:
-      'Lomography toy camera: punchy cross-processed chromatic drift, high dynamic contrast, vignetted falloff, soft peripheral focus',
+      'Lomography toy camera: cross-processed split-zone chromatic drift, high subtractive color density, high dynamic contrast, soft peripheral focus, pronounced halation and tactile grain',
   },
   {
     id: 'airy_jp',
@@ -54,7 +54,7 @@ export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
     shortTag: '日系空氣感',
     tooltip: '明亮微過曝、低反差、抬升暗部、清透偏冷青日光感',
     promptEnglish:
-      'Japanese airy aesthetic: high-key gentle overexposure, soft low contrast, lifted airy shadows, pastel tonality, cool cyan-green daylight bias',
+      'Japanese airy aesthetic: high-key gentle overexposure, soft low contrast, lifted airy shadows, negative subtractive color density for pastel tonality, cool cyan-teal shadow chromatic bias, minimal grain',
   },
   {
     id: 'cinematic',
@@ -62,7 +62,7 @@ export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
     shortTag: '電影感',
     tooltip: '戲劇張力光比、冷暖色溫分離、深邃中間調立體感',
     promptEnglish:
-      'Cinematic color grade: teal and orange complementary split-toning, deep rich midtones, controlled contrast ratio, preserved dynamic shadow texture',
+      'Cinematic color grade: complementary cool teal shadow and warm amber highlight split-toning, subtractive color density for deep rich midtones, controlled contrast ratio, subtle halation on specular highlights',
   },
   {
     id: 'faded_vintage',
@@ -70,7 +70,7 @@ export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
     shortTag: '復古褪色',
     tooltip: '歲月泛黃暖調、強烈啞光抬黑、低反差懷舊老照片',
     promptEnglish:
-      'Faded vintage print: warm nostalgic sepia-amber cast, heavily lifted matte black floor, compressed dynamic range, aged print patina',
+      'Faded vintage print: warm amber highlight cast with cool muted shadow separation, lifted matte black floor, negative subtractive color density for aged print patina, mild halation and visible film grain',
   },
   {
     id: 'neon_wkw',
@@ -78,7 +78,7 @@ export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
     shortTag: '霓虹王家衛',
     tooltip: '90年代港片氛圍、濃烈鎢絲綠或琥珀洋紅偏移、迷離柔焦感',
     promptEnglish:
-      'Wong Kar-wai Hong Kong neon: stylized tungsten green and amber-magenta chromatic drift, dreamy bloom diffusion, nocturnal moody atmosphere',
+      'Wong Kar-wai Hong Kong neon: stylized tungsten green shadow chromatic bias and amber-magenta highlight split, pronounced halation scattering around neon light sources, emulsion diffusion (negative sharpness/clarity), rich subtractive dye density',
   },
   {
     id: 'gritty_mono',
@@ -86,7 +86,7 @@ export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
     shortTag: '粗粒子硬調',
     tooltip: '極致高反差黑白街拍、深沉黑階、強烈邊緣微反差與清晰度',
     promptEnglish:
-      'Daido Moriyama gritty monochrome: extreme high-contrast black-and-white, crushed deep blacks, aggressive micro-contrast and tactile edge sharpness',
+      'Daido Moriyama gritty monochrome: high-contrast black-and-white, crushed deep blacks, elevated micro-contrast and tactile edge sharpness, high organic silver-halide grain density',
   },
 ];
 
@@ -274,7 +274,11 @@ ${manifest}`;
      * When perimeter edges contain disruptive tangential cuts, visual clutter, or unbalanced dead space, consolidate crop boundaries inwards to anchor subject prominence and compositional harmony.
      * When wide contextual breathing room, atmospheric scale, or environmental context reinforces the aesthetic, preserve open framing or full frame [0.0, 0.0, 1.0, 1.0].
    - Horizon & Perspective Alignment:
-     * Modulate rotation_deg and keystone_v to correct unintended optical lean or keystoning on architectural verticals and natural horizons, while respecting intentional dynamic angles.`;
+     * Modulate rotation_deg and keystone_v to correct unintended optical lean or keystoning on architectural verticals and natural horizons, while respecting intentional dynamic angles.
+9. color_density [-1.0 to 1.0, Baseline: 0.0]: Subtractive emulsion dye density applied post-LUT. Positive values increase chroma while proportionally deepening high-chroma luminance (emulating light absorption of analog dyes); negative values attenuate chroma density toward pastel tonality.
+10. Split Toning (shadow_hue, shadow_tint_amount, highlight_hue, highlight_tint_amount): Post-LUT zone-separated chromatic bias preserving pure black and pure white anchors. Hue angles (0 to 360 deg): 0=Red, 45=Amber, 120=Green, 180=Cyan, 210=Teal-Blue, 240=Blue, 300=Magenta. Amounts range 0.0 to 1.0 (0.0 disables tint).
+11. halation [0.0 to 1.0, Baseline: 0.0]: Red-orange specular scatter halo around high-luminance edges caused by emulsion base reflection before highlight shoulder roll-off.
+12. grain_amount [0.0 to 1.0, Baseline: 0.15]: Luminance-weighted dual-scale silver-halide emulsion grain intensity.`;
 
   return {
     instructionBlock: baseBlock,
@@ -305,6 +309,13 @@ export function buildCriticInstructionBlock(
     const lutIntensity = firstPassInput.lut_intensity ?? 0.85;
     const clarity = firstPassInput.clarity ?? 0.0;
     const sharpness = firstPassInput.sharpness ?? 0.0;
+    const colorDensity = firstPassInput.color_density ?? 0.0;
+    const shadowHue = firstPassInput.shadow_hue ?? 200;
+    const shadowTintAmount = firstPassInput.shadow_tint_amount ?? 0.0;
+    const highlightHue = firstPassInput.highlight_hue ?? 40;
+    const highlightTintAmount = firstPassInput.highlight_tint_amount ?? 0.0;
+    const halation = firstPassInput.halation ?? 0.0;
+    const grainAmount = firstPassInput.grain_amount ?? 0.15;
 
     baselineParamsBlock = `Current Pass 1 Baseline Parameters Applied on Image 2:
 - 3D LUT Profile: "${firstPassProfile}" (Intensity: ${lutIntensity.toFixed(2)})
@@ -312,7 +323,10 @@ export function buildCriticInstructionBlock(
 - Lift Shadows: ${shadow >= 0 ? '+' : ''}${shadow.toFixed(2)}
 - Contrast: ${contrast >= 0 ? '+' : ''}${contrast.toFixed(2)}
 - Color Temperature: ${temp}K (Tint: ${tint >= 0 ? '+' : ''}${tint.toFixed(1)})
-- Clarity: ${clarity >= 0 ? '+' : ''}${clarity.toFixed(2)}, Sharpness: ${sharpness >= 0 ? '+' : ''}${sharpness.toFixed(2)}\n\n`;
+- Clarity: ${clarity >= 0 ? '+' : ''}${clarity.toFixed(2)}, Sharpness: ${sharpness >= 0 ? '+' : ''}${sharpness.toFixed(2)}
+- Subtractive Color Density: ${colorDensity >= 0 ? '+' : ''}${colorDensity.toFixed(2)}
+- Split Toning: Shadow ${Math.round(shadowHue)}° (Amt ${shadowTintAmount.toFixed(2)}) | Highlight ${Math.round(highlightHue)}° (Amt ${highlightTintAmount.toFixed(2)})
+- Film Halation: ${halation.toFixed(2)}, Silver-Halide Grain: ${grainAmount.toFixed(2)}\n\n`;
   }
   const targetAesthetics: string[] = [];
   const trimmedCustom = customStylePrompt?.trim() || '';
@@ -357,6 +371,12 @@ ${aestheticLine}- Since you have Image 2 (rendered actual result) as concrete gr
   6. OPTICAL TEXTURE & ACUTANCE (clarity_delta & sharpness_delta, optional, valid range: -0.5 to 0.5):
      - Supply a negative delta if Image 2 exhibits unnatural digital edge hardness or to enhance analog emulsion diffusion and roll-off.
      - Supply a positive delta only when the scene specifically requires modern high-frequency digital edge accentuation (not recommended for analog film aesthetics).
+  7. SUBTRACTIVE COLOR DENSITY & SPLIT TONING DELTAS (optional):
+     - color_density_delta (-0.5 to 0.5): Modulate dye absorption density if Image 2 exhibits digital neon oversaturation or excessive pastel washout.
+     - shadow_tint_amount_delta (-0.5 to 0.5) & highlight_tint_amount_delta (-0.5 to 0.5): Attenuate or reinforce zone-separated tint intensity while preserving Pass 1 hue character.
+  8. EMULSION HALATION & GRAIN DELTAS (optional):
+     - halation_delta (-0.5 to 0.5): Adjust red-orange highlight edge scattering if bright sources appear overly clinical or excessively haloed.
+     - grain_amount_delta (-0.5 to 0.5): Adjust silver-halide grain amplitude relative to target emulsion character.
 
 Respond ONLY with raw JSON matching this schema:
 {
@@ -368,6 +388,11 @@ Respond ONLY with raw JSON matching this schema:
   "lut_intensity_delta": "number between -1.0 and 1.0 (optional LUT intensity adjustment, 0.0 if optimal)",
   "clarity_delta": "number between -0.5 and 0.5 (optional clarity adjustment, 0.0 if optimal)",
   "sharpness_delta": "number between -0.5 and 0.5 (optional sharpness adjustment, 0.0 if optimal)",
+  "color_density_delta": "number between -0.5 and 0.5 (optional subtractive density adjustment, 0.0 if optimal)",
+  "shadow_tint_amount_delta": "number between -0.5 and 0.5 (optional shadow split-tone amount adjustment, 0.0 if optimal)",
+  "highlight_tint_amount_delta": "number between -0.5 and 0.5 (optional highlight split-tone amount adjustment, 0.0 if optimal)",
+  "halation_delta": "number between -0.5 and 0.5 (optional halation scattering adjustment, 0.0 if optimal)",
+  "grain_amount_delta": "number between -0.5 and 0.5 (optional grain intensity adjustment, 0.0 if optimal)",
   "refine_rationale": "string (1 concise sentence in Traditional Chinese summarizing the tonal/color refinements and aesthetic rationale)"
 }`;
 
@@ -451,6 +476,7 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
   const enableTone = !scope || scope.tone;
   const enableWb = !scope || scope.whiteBalance;
   const enableLut = !scope || scope.lutProfile;
+  const enableFilmPhysics = !scope || scope.filmPhysics !== false;
 
   const channels: string[] = [];
   if (enableTone) {
@@ -464,6 +490,13 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
   }
   if (enableLut) {
     channels.push('6. recommended_profile & lut_intensity: 3D film volumetric emulation (lut_intensity: 0.0 to 1.0).');
+  }
+  if (enableFilmPhysics) {
+    channels.push('7. color_density [-1.0 to +1.0, baseline: 0.0]: Post-LUT subtractive dye density. Positive values increase chroma while proportionally attenuating luminance of high-chroma regions (emulsion dye light absorption); negative values yield softer pastel tonality.');
+    channels.push('8. shadow_hue & shadow_tint_amount (shadow_hue: 0 to 360 deg, shadow_tint_amount: 0.0 to 1.0): Post-LUT chromatic bias in mid-shadows with black-point anchor. Hue reference: 0=Red, 45=Amber, 120=Green, 180=Cyan, 210=Teal-Blue, 240=Blue, 300=Magenta.');
+    channels.push('9. highlight_hue & highlight_tint_amount (highlight_hue: 0 to 360 deg, highlight_tint_amount: 0.0 to 1.0): Post-LUT chromatic bias in upper midtone highlights with white-point anchor. Uses the same 0-360 hue reference.');
+    channels.push('10. halation [0.0 to 1.0, baseline: 0.0]: Red-orange specular light scattering halo around high-luminance edges caused by emulsion base reflection.');
+    channels.push('11. grain_amount [0.0 to 1.0, baseline: 0.15]: Luminance-weighted dual-scale organic silver-halide emulsion grain intensity.');
   }
 
   return `You are a radiometric calibration and volumetric color grading specialist.
@@ -483,6 +516,6 @@ Respond ONLY with raw JSON matching this schema:
   "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
   "style_insight": "string (1-2 sentences in Traditional Chinese)",
   "recommended_mood": "string (short mood label in Traditional Chinese)",
-  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${enableLut ? `,\n  "recommended_profile": "${recommendedProfileSchemaHint}",\n  "lut_intensity": "number between 0.0 and 1.0"` : ''}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}
+  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${enableLut ? `,\n  "recommended_profile": "${recommendedProfileSchemaHint}",\n  "lut_intensity": "number between 0.0 and 1.0"` : ''}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}${enableFilmPhysics ? `,\n  "color_density": "number between -1.0 and +1.0",\n  "shadow_hue": "number between 0 and 360",\n  "shadow_tint_amount": "number between 0.0 and 1.0",\n  "highlight_hue": "number between 0 and 360",\n  "highlight_tint_amount": "number between 0.0 and 1.0",\n  "halation": "number between 0.0 and 1.0",\n  "grain_amount": "number between 0.0 and 1.0"` : ''}
 }`;
 }

@@ -48,6 +48,13 @@ export interface PhotoPlateItem {
     tint: number;
     clarity?: number;
     sharpness?: number;
+    colorDensity?: number;
+    shadowHue?: number;
+    shadowTintAmount?: number;
+    highlightHue?: number;
+    highlightTintAmount?: number;
+    halation?: number;
+    grainAmount?: number;
   };
 }
 

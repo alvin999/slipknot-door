@@ -20,6 +20,7 @@ export function loadInitialAiScope(): AiScopePreferences {
           keystone: true,
           tone: true,
           whiteBalance: true,
+          filmPhysics: true,
           ...JSON.parse(raw),
         };
       } catch {
@@ -33,6 +34,7 @@ export function loadInitialAiScope(): AiScopePreferences {
     keystone: true,
     tone: true,
     whiteBalance: true,
+    filmPhysics: true,
   };
 }
 
