@@ -1,5 +1,16 @@
 <script lang="ts">
-  import { ExportService } from '$lib/services/exportService';
+  import {
+    ExportService,
+    getExportExtension,
+    type ExportFormat
+  } from '$lib/services/exportService';
+
+  export interface QuickExportOptions {
+    mode: 'modeA' | 'modeB';
+    format: ExportFormat;
+    quality: number;
+    maxLongEdge: number | null;
+  }
 
   interface PhotoInfo {
     id: string;
@@ -18,7 +29,7 @@
     exportMode?: 'modeA' | 'modeB';
     targetDir?: string;
     onClose: () => void;
-    onExport: (mode: 'modeA' | 'modeB') => Promise<void> | void;
+    onExport: (options: QuickExportOptions) => Promise<void> | void;
   }
 
   const initialDir = typeof localStorage !== 'undefined' && localStorage.getItem('slipknot_export_target_dir')
@@ -34,14 +45,24 @@
     onExport
   }: Props = $props();
 
-  let selectedMode = $state<'modeA' | 'modeB'>('modeA');
+  type QuickPreset = 'social' | 'high' | 'archive';
+  let selectedPreset = $state<QuickPreset>('high');
   let isProcessing = $state<boolean>(false);
   let resultSuccess = $state<boolean>(false);
   let resolvedTargetDir = $state<string>('');
 
+  const presetConfig: Record<QuickPreset, QuickExportOptions> = {
+    social: { mode: 'modeA', format: 'jpeg', quality: 0.92, maxLongEdge: 2048 },
+    high: { mode: 'modeA', format: 'jpeg', quality: 0.95, maxLongEdge: null },
+    archive: { mode: 'modeB', format: 'png', quality: 1.0, maxLongEdge: null }
+  };
+
+  let activeConfig = $derived(presetConfig[selectedPreset]);
+  let previewExtension = $derived(getExportExtension(activeConfig.format));
+
   // 同步外部傳入的 exportMode 與目標路徑解析
   $effect(() => {
-    selectedMode = exportMode;
+    selectedPreset = exportMode === 'modeB' ? 'archive' : 'high';
     resolvedTargetDir = targetDir;
     ExportService.resolveExportPath(targetDir).then((res) => {
       resolvedTargetDir = res;
@@ -52,7 +73,7 @@
     if (!photo || isProcessing) return;
     isProcessing = true;
     try {
-      await onExport(selectedMode);
+      await onExport(activeConfig);
       resultSuccess = true;
       setTimeout(() => {
         resultSuccess = false;
@@ -75,10 +96,12 @@
       e.preventDefault();
       e.stopPropagation();
       handleConfirmExport();
-    } else if (e.key === '1' || e.key === 'a' || e.key === 'A') {
-      selectedMode = 'modeA';
-    } else if (e.key === '2' || e.key === 'b' || e.key === 'B') {
-      selectedMode = 'modeB';
+    } else if (e.key === '1') {
+      selectedPreset = 'social';
+    } else if (e.key === '2') {
+      selectedPreset = 'high';
+    } else if (e.key === '3') {
+      selectedPreset = 'archive';
     }
   }
 </script>
@@ -100,8 +123,8 @@
         <div class="header-title">
           <span class="material-symbols-outlined bolt-icon">bolt</span>
           <div>
-            <h3 class="title font-headline">單張即時出圖 (Quick Export)</h3>
-            <span class="subtitle font-mono">INSTANT WEBGPU/WEBGL DIRECT DISPATCH</span>
+            <h3 class="title font-headline">快速匯出這張相片</h3>
+            <span class="subtitle font-mono">選擇輸出用途與畫質後即可立即儲存</span>
           </div>
         </div>
         <button type="button" class="close-btn" onclick={onClose} title="關閉 (Esc)">
@@ -126,49 +149,64 @@
         </div>
 
         <div class="config-column font-mono">
-          <!-- Pipeline Mode Selector -->
-          <div class="section-title">選擇出圖模式 (PIPELINE MODE)</div>
-          <div class="mode-options-grid">
+          <!-- Export Preset Selector -->
+          <div class="section-title">選擇輸出規格</div>
+          <div class="mode-options-grid three-cols">
             <button 
               type="button" 
               class="mode-card hairline-all" 
-              class:active={selectedMode === 'modeA'}
-              onclick={() => selectedMode = 'modeA'}
+              class:active={selectedPreset === 'social'}
+              onclick={() => selectedPreset = 'social'}
             >
               <div class="mode-head">
-                <span class="material-symbols-outlined icon amber">bolt</span>
-                <span class="mode-badge amber">MODE A</span>
+                <span class="material-symbols-outlined icon amber">share</span>
+                <span class="mode-badge amber">推薦發文</span>
               </div>
-              <div class="mode-name">社群極速直出</div>
-              <div class="mode-sub">~88ms · 所見即所得 JPEG · Display P3</div>
+              <div class="mode-name">社群分享</div>
+              <div class="mode-sub">JPG · 92% · 長邊 2048 px</div>
               <kbd class="kbd-micro">按 1</kbd>
             </button>
 
             <button 
               type="button" 
               class="mode-card hairline-all" 
-              class:active={selectedMode === 'modeB'}
-              onclick={() => selectedMode = 'modeB'}
+              class:active={selectedPreset === 'high'}
+              onclick={() => selectedPreset = 'high'}
+            >
+              <div class="mode-head">
+                <span class="material-symbols-outlined icon cyan">photo_library</span>
+                <span class="mode-badge cyan">日常保存</span>
+              </div>
+              <div class="mode-name">高畫質相片</div>
+              <div class="mode-sub">JPG · 95% · 原始解析度</div>
+              <kbd class="kbd-micro">按 2</kbd>
+            </button>
+
+            <button 
+              type="button" 
+              class="mode-card hairline-all" 
+              class:active={selectedPreset === 'archive'}
+              onclick={() => selectedPreset = 'archive'}
             >
               <div class="mode-head">
                 <span class="material-symbols-outlined icon indigo">diamond</span>
-                <span class="mode-badge indigo">MODE B</span>
+                <span class="mode-badge indigo">最高品質</span>
               </div>
-              <div class="mode-name">出版典藏母帶</div>
-              <div class="mode-sub">16-bit 滿血無損 · ProPhoto RGB 印刷級</div>
-              <kbd class="kbd-micro">按 2</kbd>
+              <div class="mode-name">無損原圖</div>
+              <div class="mode-sub">PNG 無損 · 原始解析度</div>
+              <kbd class="kbd-micro">按 3</kbd>
             </button>
           </div>
 
           <!-- Metadata & Destination Details -->
           <div class="metadata-box hairline-all">
             <div class="meta-row">
-              <span class="label">儲存目錄：</span>
+              <span class="label">儲存資料夾：</span>
               <span class="val truncate" title={resolvedTargetDir || targetDir}>{resolvedTargetDir || targetDir}</span>
             </div>
             <div class="meta-row">
               <span class="label">匯出檔名：</span>
-              <span class="val amber truncate">{photo.filename.replace(/\.[^/.]+$/, '')}_graded.jpg</span>
+              <span class="val amber truncate">{photo.filename.replace(/\.[^/.]+$/, '')}_graded.{previewExtension}</span>
             </div>
             <div class="meta-row">
               <span class="label">套用風格：</span>
@@ -203,7 +241,7 @@
               {resultSuccess ? 'check_circle' : isProcessing ? 'sync' : 'download'}
             </span>
             <span>
-              {resultSuccess ? '✓ 已完成匯出！' : isProcessing ? '正在輸出中...' : '立即匯出當前幀 ↵'}
+              {resultSuccess ? '✓ 已完成匯出！' : isProcessing ? '正在匯出中...' : '立即匯出相片 ↵'}
             </span>
           </button>
         </div>
@@ -234,8 +272,8 @@
   }
 
   .export-modal-card {
-    width: 620px;
-    max-width: 90vw;
+    width: 720px;
+    max-width: 92vw;
     background-color: var(--surface-panel);
     border-radius: var(--radius-md);
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85);
@@ -358,9 +396,12 @@
     grid-template-columns: 1fr 1fr;
     gap: 10px;
   }
+  .mode-options-grid.three-cols {
+    grid-template-columns: repeat(3, 1fr);
+  }
 
   .mode-card {
-    padding: 12px;
+    padding: 10px 10px 24px;
     background-color: rgba(26, 28, 34, 0.4);
     border-radius: var(--radius-sm);
     text-align: left;
@@ -393,6 +434,7 @@
     font-size: 18px;
   }
   .icon.amber { color: var(--amber-highlight); }
+  .icon.cyan { color: var(--cyan-accent, #56b6c2); }
   .icon.indigo { color: var(--primary-indigo); }
 
   .mode-badge {
@@ -403,6 +445,10 @@
   .mode-badge.amber {
     background: rgba(212, 163, 115, 0.15);
     color: var(--amber-highlight);
+  }
+  .mode-badge.cyan {
+    background: rgba(86, 182, 194, 0.15);
+    color: var(--cyan-accent, #56b6c2);
   }
   .mode-badge.indigo {
     background: rgba(96, 130, 182, 0.15);

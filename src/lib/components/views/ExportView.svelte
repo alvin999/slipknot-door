@@ -1,7 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { AiSceneService } from '$lib/services/aiSceneService';
-  import { ExportService } from '$lib/services/exportService';
+  import {
+    ExportService,
+    getExportExtension,
+    type ExportFormat
+  } from '$lib/services/exportService';
   import { KeyVaultService } from '$lib/services/keyVaultService';
   import type { DirectoryPlanResult } from '$lib/services/ai/types';
 
@@ -27,12 +31,19 @@
   }
 
   export type ExportScope = 'picked' | 'edited' | 'selected' | 'all';
+  export type ExportPresetId = 'social' | 'high' | 'archive' | 'custom';
+  export type ExportSizePreset = 'original' | '2048' | '1920' | '1080' | 'custom';
 
   export interface ExportPipelineOptions {
     targetDir: string;
     autoDateSubdir: boolean;
     backupRawFiles: boolean;
     directoryPlan?: DirectoryPlanResult;
+    format: ExportFormat;
+    quality: number;
+    maxLongEdge: number | null;
+    colorSpace: 'sRGB' | 'DisplayP3' | 'ProPhotoRGB';
+    preserveExif: boolean;
   }
 
   interface Props {
@@ -149,24 +160,88 @@
   const STORAGE_KEY_DIR = 'slipknot_export_target_dir';
   const STORAGE_KEY_DATE_SUBDIR = 'slipknot_export_date_subdir';
   const STORAGE_KEY_BACKUP_RAW = 'slipknot_export_backup_raw';
+  const STORAGE_KEY_PRESET = 'slipknot_export_preset';
+  const STORAGE_KEY_FORMAT = 'slipknot_export_format';
+  const STORAGE_KEY_QUALITY = 'slipknot_export_quality';
+  const STORAGE_KEY_SIZE_PRESET = 'slipknot_export_size_preset';
+  const STORAGE_KEY_CUSTOM_EDGE = 'slipknot_export_custom_edge';
+  const STORAGE_KEY_COLOR_SPACE = 'slipknot_export_color_space';
+  const STORAGE_KEY_PRESERVE_EXIF = 'slipknot_export_preserve_exif';
 
-  const initialDir = typeof localStorage !== 'undefined' && localStorage.getItem(STORAGE_KEY_DIR)
-    ? localStorage.getItem(STORAGE_KEY_DIR)!
-    : './Exports';
+  const getStored = (key: string): string | null =>
+    typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
 
-  const initialDateSubdir = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem(STORAGE_KEY_DATE_SUBDIR) !== 'false'
-    : true;
-
-  const initialBackupRaw = typeof localStorage !== 'undefined'
-    ? localStorage.getItem(STORAGE_KEY_BACKUP_RAW) === 'true'
-    : false;
+  const initialDir = getStored(STORAGE_KEY_DIR) || './Exports';
+  const initialDateSubdir = getStored(STORAGE_KEY_DATE_SUBDIR) !== 'false';
+  const initialBackupRaw = getStored(STORAGE_KEY_BACKUP_RAW) === 'true';
+  const initialPreset = (getStored(STORAGE_KEY_PRESET) as ExportPresetId) || 'high';
+  const initialFormat = (getStored(STORAGE_KEY_FORMAT) as ExportFormat) || 'jpeg';
+  const initialQuality = Number(getStored(STORAGE_KEY_QUALITY)) || 0.95;
+  const initialSizePreset = (getStored(STORAGE_KEY_SIZE_PRESET) as ExportSizePreset) || 'original';
+  const initialCustomEdge = Number(getStored(STORAGE_KEY_CUSTOM_EDGE)) || 2048;
+  const initialColorSpace = (getStored(STORAGE_KEY_COLOR_SPACE) as 'sRGB' | 'DisplayP3' | 'ProPhotoRGB') || 'DisplayP3';
+  const initialPreserveExif = getStored(STORAGE_KEY_PRESERVE_EXIF) !== 'false';
 
   let targetDirectory = $state<string>(initialDir);
   let autoDateSubdir = $state<boolean>(initialDateSubdir);
   let backupRawFiles = $state<boolean>(initialBackupRaw);
-  let preserveExif = $state<boolean>(true);
-  let colorSpace = $state<'sRGB' | 'DisplayP3' | 'ProPhotoRGB'>('DisplayP3');
+  let activePreset = $state<ExportPresetId>(initialPreset);
+  let exportFormat = $state<ExportFormat>(initialFormat);
+  let exportQuality = $state<number>(initialQuality);
+  let sizePreset = $state<ExportSizePreset>(initialSizePreset);
+  let customLongEdge = $state<number>(initialCustomEdge);
+  let preserveExif = $state<boolean>(initialPreserveExif);
+  let colorSpace = $state<'sRGB' | 'DisplayP3' | 'ProPhotoRGB'>(initialColorSpace);
+
+  let effectiveMaxLongEdge = $derived<number | null>(
+    sizePreset === 'original' ? null :
+    sizePreset === '2048' ? 2048 :
+    sizePreset === '1920' ? 1920 :
+    sizePreset === '1080' ? 1080 :
+    Math.max(320, Math.round(customLongEdge || 2048))
+  );
+
+  let formatSummaryLabel = $derived(
+    exportFormat === 'png'
+      ? 'PNG 無損'
+      : `${exportFormat === 'webp' ? 'WebP' : 'JPG'} · ${Math.round(exportQuality * 100)}%`
+  );
+
+  let sizeSummaryLabel = $derived(
+    effectiveMaxLongEdge === null ? '原始尺寸' : `長邊 ${effectiveMaxLongEdge} px`
+  );
+
+  let fileExtension = $derived(getExportExtension(exportFormat));
+
+  function applyExportPreset(preset: Exclude<ExportPresetId, 'custom'>) {
+    activePreset = preset;
+    if (preset === 'social') {
+      exportFormat = 'jpeg';
+      exportQuality = 0.92;
+      sizePreset = '2048';
+      colorSpace = 'sRGB';
+      onSetExportMode('modeA');
+    } else if (preset === 'high') {
+      exportFormat = 'jpeg';
+      exportQuality = 0.95;
+      sizePreset = 'original';
+      colorSpace = 'DisplayP3';
+      onSetExportMode('modeA');
+    } else if (preset === 'archive') {
+      exportFormat = 'png';
+      exportQuality = 1.0;
+      sizePreset = 'original';
+      colorSpace = 'ProPhotoRGB';
+      onSetExportMode('modeB');
+    }
+    saveSettings();
+  }
+
+  function markCustomPreset() {
+    activePreset = 'custom';
+    onSetExportMode(exportFormat === 'png' || exportQuality >= 1.0 ? 'modeB' : 'modeA');
+    saveSettings();
+  }
 
   // Groq API Key 狀態
   let hasGroqKey = $state<boolean>(false);
@@ -199,6 +274,13 @@
       localStorage.setItem(STORAGE_KEY_DIR, targetDirectory);
       localStorage.setItem(STORAGE_KEY_DATE_SUBDIR, String(autoDateSubdir));
       localStorage.setItem(STORAGE_KEY_BACKUP_RAW, String(backupRawFiles));
+      localStorage.setItem(STORAGE_KEY_PRESET, activePreset);
+      localStorage.setItem(STORAGE_KEY_FORMAT, exportFormat);
+      localStorage.setItem(STORAGE_KEY_QUALITY, String(exportQuality));
+      localStorage.setItem(STORAGE_KEY_SIZE_PRESET, sizePreset);
+      localStorage.setItem(STORAGE_KEY_CUSTOM_EDGE, String(customLongEdge));
+      localStorage.setItem(STORAGE_KEY_COLOR_SPACE, colorSpace);
+      localStorage.setItem(STORAGE_KEY_PRESERVE_EXIF, String(preserveExif));
     }
   }
 
@@ -358,7 +440,12 @@
       targetDir: targetDirectory,
       autoDateSubdir,
       backupRawFiles,
-      directoryPlan: directoryPlan || undefined
+      directoryPlan: directoryPlan || undefined,
+      format: exportFormat,
+      quality: exportQuality,
+      maxLongEdge: effectiveMaxLongEdge,
+      colorSpace,
+      preserveExif
     });
   }
 </script>
@@ -366,25 +453,25 @@
 <div class="export-viewport">
   <header class="export-toolbar hairline-b font-mono">
     <div class="header-left">
-      <span class="tool-title font-headline">批次雙軌導出管線</span>
+      <span class="tool-title font-headline">相片匯出設定</span>
       <span class="counter-badge amber">
-        {finalExportPhotos.length} FRAMES QUEUED
+        準備匯出 {finalExportPhotos.length} 張
         {#if excludedPhotoIds.size > 0}
-          <span class="counter-excluded">({excludedPhotoIds.size} EXCLUDED)</span>
+          <span class="counter-excluded">（已排除 {excludedPhotoIds.size} 張）</span>
         {/if}
       </span>
     </div>
 
     <div class="scope-selector-group hairline-all font-mono">
-      <span class="scope-label">匯出範疇：</span>
+      <span class="scope-label">匯出範圍：</span>
       <button 
         type="button" 
         class="scope-chip" 
         class:active={exportScope === 'picked'}
         onclick={() => { userChoseScope = true; exportScope = 'picked'; }}
-        title="僅匯出有標記 Pick 旗標的相片"
+        title="僅匯出已標記精選（★）的相片"
       >
-        <span>已挑選 (Picked)</span>
+        <span>★ 已標記精選</span>
         <span class="scope-badge" class:amber={pickedPhotos.length > 0}>{pickedPhotos.length}</span>
       </button>
 
@@ -393,9 +480,9 @@
         class="scope-chip" 
         class:active={exportScope === 'edited'}
         onclick={() => { userChoseScope = true; exportScope = 'edited'; }}
-        title="匯出所有已調整光影或套用風格的相片"
+        title="匯出所有進行過調色、套用風格或裁切的相片"
       >
-        <span>所有已調色 (Edited)</span>
+        <span>✎ 已修圖調色</span>
         <span class="scope-badge" class:amber={editedPhotos.length > 0}>{editedPhotos.length}</span>
       </button>
 
@@ -404,9 +491,9 @@
         class="scope-chip" 
         class:active={exportScope === 'selected'}
         onclick={() => { userChoseScope = true; exportScope = 'selected'; }}
-        title="僅匯出目前畫面焦點單張底片"
+        title="僅匯出目前正在檢視的這張相片"
       >
-        <span>當前底片 (Selected)</span>
+        <span>◉ 目前這張</span>
       </button>
 
       <button 
@@ -414,9 +501,9 @@
         class="scope-chip" 
         class:active={exportScope === 'all'}
         onclick={() => { userChoseScope = true; exportScope = 'all'; }}
-        title="匯出相卷中的全部底片"
+        title="匯出相卷中的所有相片"
       >
-        <span>全量底片 (All)</span>
+        <span>全部相片</span>
         <span class="scope-badge">{allPhotos.length}</span>
       </button>
     </div>
@@ -425,14 +512,14 @@
   <div class="export-content custom-scroll">
     <div class="export-deck max-w-5xl">
 
-      <!-- STEP 1: 確認出圖清單 -->
+      <!-- STEP 1: 確認要匯出的相片 -->
       <section class="export-step-card hairline-all">
         <div class="step-card-header font-mono">
           <div class="step-title-wrap">
             <span class="step-num-badge">01</span>
             <div>
-              <h3 class="step-title font-headline">確認出圖清單 // QUEUED FRAMES</h3>
-              <p class="step-sub">檢查底片調色狀態與裁切比例，可點擊單幀排除或納入本次匯出</p>
+              <h3 class="step-title font-headline">確認匯出相片清單</h3>
+              <p class="step-sub">點擊相片可勾選納入或暫時排除本次匯出</p>
             </div>
           </div>
 
@@ -617,93 +704,214 @@
         {/if}
       </section>
 
-      <!-- 雙欄主體：STEP 2 規格設定 + STEP 3 目錄規劃 -->
+      <!-- 雙欄主體：STEP 2 輸出格式與畫質 + STEP 3 儲存位置 -->
       <div class="export-dual-columns">
 
-        <!-- 左欄：STEP 2 選擇輸出規格 (HOW) -->
+        <!-- 左欄：STEP 2 輸出格式與畫質設定 -->
         <div class="column-left">
           <section class="export-step-card hairline-all">
             <div class="step-card-header font-mono">
               <div class="step-title-wrap">
                 <span class="step-num-badge">02</span>
                 <div>
-                  <h3 class="step-title font-headline">選擇輸出規格 // PIPELINE SPEC</h3>
-                  <p class="step-sub">雙模式著色管線與色彩空間自動配對</p>
+                  <h3 class="step-title font-headline">輸出格式與畫質</h3>
+                  <p class="step-sub">挑選常用用途預設，或於下方細部微調格式與尺寸</p>
                 </div>
               </div>
+              {#if activePreset === 'custom'}
+                <span class="custom-mode-pill font-mono">已自訂規格</span>
+              {/if}
             </div>
 
-            <div class="pipeline-switch-grid">
-              <!-- MODE A: 社群速報 -->
+            <!-- 快速用途預設卡片 (3 欄) -->
+            <div class="pipeline-switch-grid three-cols">
+              <!-- 1. 社群分享 -->
               <button 
                 type="button" 
                 class="pipeline-toggle-card hairline-all" 
-                class:active={exportMode === 'modeA'}
-                onclick={() => {
-                  onSetExportMode('modeA');
-                  colorSpace = 'DisplayP3';
-                }}
+                class:active={activePreset === 'social'}
+                onclick={() => applyExportPreset('social')}
               >
                 <div class="pipe-card-top font-mono">
-                  <span class="material-symbols-outlined icon amber">bolt</span>
-                  <span class="pipe-badge amber">MODE A // ~88MS</span>
+                  <span class="material-symbols-outlined icon amber">share</span>
+                  <span class="pipe-badge amber">推薦發文</span>
                 </div>
-                <div class="pipe-name font-headline">社群速報模式</div>
-                <div class="pipe-note font-mono">Display P3 · 所見即所得 JPEG · EXIF 原生回寫</div>
+                <div class="pipe-name font-headline">社群網路分享</div>
+                <div class="pipe-note font-mono">JPG · 92% 畫質 · 長邊 2048 px · sRGB</div>
                 <div class="pipe-tags font-mono">
-                  <span class="chip amber">極速發文</span>
+                  <span class="chip amber">IG / Threads</span>
                   <span class="chip">檔案輕巧</span>
                 </div>
               </button>
 
-              <!-- MODE B: 出版典藏 -->
+              <!-- 2. 高畫質相片 -->
               <button 
                 type="button" 
                 class="pipeline-toggle-card hairline-all" 
-                class:active={exportMode === 'modeB'}
-                onclick={() => {
-                  onSetExportMode('modeB');
-                  colorSpace = 'ProPhotoRGB';
-                }}
+                class:active={activePreset === 'high'}
+                onclick={() => applyExportPreset('high')}
+              >
+                <div class="pipe-card-top font-mono">
+                  <span class="material-symbols-outlined icon cyan">photo_library</span>
+                  <span class="pipe-badge cyan">日常保存</span>
+                </div>
+                <div class="pipe-name font-headline">高畫質相片</div>
+                <div class="pipe-note font-mono">JPG · 95% 畫質 · 原始尺寸 · Display P3</div>
+                <div class="pipe-tags font-mono">
+                  <span class="chip cyan">手機電腦瀏覽</span>
+                  <span class="chip">清晰銳利</span>
+                </div>
+              </button>
+
+              <!-- 3. 無損印刷典藏 -->
+              <button 
+                type="button" 
+                class="pipeline-toggle-card hairline-all" 
+                class:active={activePreset === 'archive'}
+                onclick={() => applyExportPreset('archive')}
               >
                 <div class="pipe-card-top font-mono">
                   <span class="material-symbols-outlined icon indigo">diamond</span>
-                  <span class="pipe-badge indigo">MODE B // ~420MS</span>
+                  <span class="pipe-badge indigo">最高品質</span>
                 </div>
-                <div class="pipe-name font-headline">出版典藏母帶</div>
-                <div class="pipe-note font-mono">16-bit 滿血轉譯 · ProPhoto RGB 印刷級抗斷階</div>
+                <div class="pipe-name font-headline">無損典藏送印</div>
+                <div class="pipe-note font-mono">PNG 無損 · 原始尺寸 · ProPhoto RGB</div>
                 <div class="pipe-tags font-mono">
                   <span class="chip indigo">商業送印</span>
-                  <span class="chip">無損典藏</span>
+                  <span class="chip">零壓縮失真</span>
                 </div>
               </button>
             </div>
 
-            <!-- 色彩空間微調與 EXIF 選項 -->
+            <!-- 細部規格設定表單 (如 Lightroom Export 介面) -->
             <div class="spec-detail-box hairline-all font-mono">
+              <!-- 檔案格式 -->
               <div class="spec-row">
-                <span class="spec-label">色彩空間映射：</span>
-                <select bind:value={colorSpace} class="spec-select font-mono">
-                  <option value="DisplayP3">Display P3 (Apple 廣色域標準 · 社群建議)</option>
-                  <option value="sRGB">sRGB (網路與傳統設備相容)</option>
-                  <option value="ProPhotoRGB">ProPhoto RGB (暗房典藏滿血廣色域)</option>
+                <span class="spec-label">檔案格式：</span>
+                <div class="segmented-group">
+                  <button
+                    type="button"
+                    class="seg-btn"
+                    class:active={exportFormat === 'jpeg'}
+                    onclick={() => { exportFormat = 'jpeg'; markCustomPreset(); }}
+                  >
+                    JPG (通用)
+                  </button>
+                  <button
+                    type="button"
+                    class="seg-btn"
+                    class:active={exportFormat === 'png'}
+                    onclick={() => { exportFormat = 'png'; markCustomPreset(); }}
+                  >
+                    PNG (無損)
+                  </button>
+                  <button
+                    type="button"
+                    class="seg-btn"
+                    class:active={exportFormat === 'webp'}
+                    onclick={() => { exportFormat = 'webp'; markCustomPreset(); }}
+                  >
+                    WebP (網頁輕量)
+                  </button>
+                </div>
+              </div>
+
+              <!-- 影像畫質 -->
+              <div class="spec-row">
+                <span class="spec-label">影像畫質：</span>
+                {#if exportFormat === 'png'}
+                  <span class="spec-static-hint">PNG 為無損壓縮格式，一律保留 100% 原始畫質</span>
+                {:else}
+                  <div class="segmented-group">
+                    <button
+                      type="button"
+                      class="seg-btn"
+                      class:active={exportQuality <= 0.85}
+                      onclick={() => { exportQuality = 0.8; markCustomPreset(); }}
+                    >
+                      標準 (80%)
+                    </button>
+                    <button
+                      type="button"
+                      class="seg-btn"
+                      class:active={exportQuality > 0.85 && exportQuality < 0.98}
+                      onclick={() => { exportQuality = 0.92; markCustomPreset(); }}
+                    >
+                      高畫質 (92%)
+                    </button>
+                    <button
+                      type="button"
+                      class="seg-btn"
+                      class:active={exportQuality >= 0.98}
+                      onclick={() => { exportQuality = 1.0; markCustomPreset(); }}
+                    >
+                      最佳 (100%)
+                    </button>
+                  </div>
+                {/if}
+              </div>
+
+              <!-- 影像尺寸 -->
+              <div class="spec-row">
+                <span class="spec-label">影像尺寸：</span>
+                <div class="size-control-wrap">
+                  <select
+                    bind:value={sizePreset}
+                    onchange={markCustomPreset}
+                    class="spec-select font-mono"
+                  >
+                    <option value="original">原始解析度（不縮放尺寸）</option>
+                    <option value="2048">社群分享最佳化（長邊限制 2048 px）</option>
+                    <option value="1920">Full HD 螢幕瀏覽（長邊限制 1920 px）</option>
+                    <option value="1080">輕量快速傳輸（長邊限制 1080 px）</option>
+                    <option value="custom">自訂長邊像素上限...</option>
+                  </select>
+                  {#if sizePreset === 'custom'}
+                    <div class="custom-px-box">
+                      <input
+                        type="number"
+                        min="320"
+                        max="12000"
+                        step="10"
+                        bind:value={customLongEdge}
+                        oninput={markCustomPreset}
+                        class="custom-px-input font-mono"
+                      />
+                      <span class="px-unit">px</span>
+                    </div>
+                  {/if}
+                </div>
+              </div>
+
+              <!-- 色彩空間 -->
+              <div class="spec-row">
+                <span class="spec-label">色彩空間：</span>
+                <select
+                  bind:value={colorSpace}
+                  onchange={markCustomPreset}
+                  class="spec-select font-mono"
+                >
+                  <option value="sRGB">sRGB — 網路與所有裝置通用（最不易色偏）</option>
+                  <option value="DisplayP3">Display P3 — Apple 螢幕與現代手機廣色域</option>
+                  <option value="ProPhotoRGB">ProPhoto RGB — 專業印刷與後製廣色域</option>
                 </select>
               </div>
 
+              <!-- 附加保留選項 -->
               <div class="spec-toggles font-mono">
                 <label class="toggle-row">
-                  <input type="checkbox" bind:checked={preserveExif} />
-                  <span>完整保留相機光學 EXIF 元數據（機身/鏡頭/光圈/快門/ISO）</span>
+                  <input type="checkbox" bind:checked={preserveExif} onchange={saveSettings} />
+                  <span>保留拍攝資訊 (EXIF：相機型號、鏡頭、光圈、快門、ISO)</span>
                 </label>
                 <label class="toggle-row">
                   <input type="checkbox" bind:checked={backupRawFiles} onchange={saveSettings} />
-                  <span class="amber">雙軌保存：同步備份相機原始 RAW 檔至 Raw_Backup/</span>
+                  <span class="amber">同時備份原始相片檔（將 RAW 原檔另存至 Raw_Backup 資料夾）</span>
                 </label>
               </div>
             </div>
           </section>
 
-          <!-- 選配：社群發布文案抽屜 -->
+          <!-- 選配：AI 社群發文文案 -->
           <section class="social-accordion-card hairline-all">
             <button 
               type="button" 
@@ -712,7 +920,7 @@
             >
               <div class="trigger-left">
                 <span class="material-symbols-outlined icon-glow">campaign</span>
-                <span class="trigger-title">社群策展文案與發布備註 // SOCIAL DISPATCH</span>
+                <span class="trigger-title">選配：AI 社群發文文案與 Hashtag 產生器</span>
               </div>
               <span class="material-symbols-outlined arrow-icon" class:rotate={isSocialSectionOpen}>
                 expand_more
@@ -723,7 +931,7 @@
               <div class="accordion-body font-mono">
                 {#if aiVisionTags.length > 0}
                   <div class="vision-tags-row">
-                    <span class="tags-hint">Gemini 視覺特徵：</span>
+                    <span class="tags-hint">畫面識別標籤：</span>
                     {#each aiVisionTags as tag}
                       <span class="tag-pill">#{tag}</span>
                     {/each}
@@ -731,13 +939,13 @@
                 {/if}
 
                 <div class="input-with-label">
-                  <span class="input-label">本次拍攝現場備註 / 心情 (PROMPT)</span>
+                  <span class="input-label">拍攝心得或地點備註</span>
                   <div class="input-action-wrap">
                     <input 
                       type="text" 
                       bind:value={userSocialPrompt}
                       class="social-prompt-input"
-                      placeholder="可寫入現場心情（如：首爾雨後街頭漫步、赤峰街斜陽咖啡館）..."
+                      placeholder="例如：首爾雨後街頭漫步、赤峰街斜陽咖啡館..."
                       onkeydown={(e) => { if (e.key === 'Enter') handleGenerateSocialCopy(); }}
                     />
                     <button 
@@ -745,12 +953,12 @@
                       class="generate-copy-btn hairline-all"
                       onclick={handleGenerateSocialCopy}
                       disabled={isGeneratingCopy}
-                      title="由 Groq 秒速生成客製文案與 Hashtags"
+                      title="由 AI 快速生成貼文文案與標籤"
                     >
                       <span class="material-symbols-outlined" style="font-size: 14px;">
                         {isGeneratingCopy ? 'progress_activity' : 'auto_fix_high'}
                       </span>
-                      <span>{isGeneratingCopy ? '生成中...' : (aiSocialCaption ? '重新演繹' : '生成文案')}</span>
+                      <span>{isGeneratingCopy ? '生成中...' : (aiSocialCaption ? '重新生成' : '生成文案')}</span>
                     </button>
                   </div>
                 </div>
@@ -766,7 +974,7 @@
                     <div class="result-toolbar font-mono">
                       <button type="button" class="btn-micro hairline-all" onclick={handleShareSocial}>
                         <span class="material-symbols-outlined" style="font-size: 13px;">share</span>
-                        <span>分享至社群 / 複製文案</span>
+                        <span>分享或複製文案</span>
                       </button>
                       {#if socialNotice}
                         <span class="social-toast-text">{socialNotice}</span>
@@ -779,42 +987,46 @@
           </section>
         </div>
 
-        <!-- 右欄：STEP 3 目標路徑與 Groq 智慧目錄規劃 (WHERE) -->
+        <!-- 右欄：STEP 3 儲存位置與資料夾整理 -->
         <div class="column-right">
           <section class="export-step-card hairline-all">
             <div class="step-card-header font-mono">
               <div class="step-title-wrap">
                 <span class="step-num-badge">03</span>
                 <div>
-                  <h3 class="step-title font-headline">目的地與目錄規劃 // DIRECTORY ARCHITECT</h3>
-                  <p class="step-sub">配置根儲存位置與 Groq 智慧歸檔藍圖</p>
+                  <h3 class="step-title font-headline">儲存位置與資料夾整理</h3>
+                  <p class="step-sub">設定電腦儲存資料夾與自動分類方式</p>
                 </div>
               </div>
             </div>
 
             <div class="setting-item font-mono">
-              <span class="setting-label">EXPORT ROOT (目標匯出根目錄)</span>
+              <span class="setting-label">儲存資料夾</span>
               <div class="dest-input-row">
                 <input 
                   type="text" 
                   bind:value={targetDirectory} 
                   oninput={saveSettings}
                   class="setting-input flex-1" 
-                  placeholder="請輸入或瀏覽選擇匯出目錄"
+                  placeholder="請輸入或選擇儲存資料夾"
                 />
                 <button 
                   type="button" 
                   class="browse-btn hairline-all"
                   onclick={handlePickTargetFolder}
-                  title="瀏覽本機資料夾"
+                  title="選擇電腦資料夾"
                 >
                   <span class="material-symbols-outlined" style="font-size: 15px;">folder_open</span>
-                  <span>瀏覽目錄</span>
+                  <span>選擇資料夾</span>
                 </button>
               </div>
+              <label class="toggle-row date-subdir-toggle">
+                <input type="checkbox" bind:checked={autoDateSubdir} onchange={saveSettings} />
+                <span>自動建立今日日期資料夾（{todayStr}）方便管理</span>
+              </label>
             </div>
 
-            <!-- Groq 智慧目錄規劃器 -->
+            <!-- 資料夾自動分類方式 -->
             <div class="smart-plan-box hairline-all font-mono">
               <div class="smart-plan-head">
                 <div class="plan-head-left">
@@ -822,18 +1034,18 @@
                     {hasGroqKey ? 'auto_awesome' : 'folder_special'}
                   </span>
                   <span class="plan-head-title">
-                    {hasGroqKey ? '✨ Groq 智慧目錄規劃器 (Smart Architect)' : '目錄規劃策略'}
+                    {hasGroqKey ? '✨ 資料夾自動分類方式' : '資料夾分類方式'}
                   </span>
                 </div>
                 {#if isPlanningDirectory}
                   <span class="planning-badge">
                     <span class="material-symbols-outlined spin" style="font-size: 12px;">sync</span>
-                    Groq 規劃中...
+                    AI 分類規劃中...
                   </span>
                 {/if}
               </div>
 
-              <!-- 策略晶片選擇器 -->
+              <!-- 分類策略按鈕 -->
               <div class="plan-strategy-chips">
                 <button 
                   type="button" 
@@ -841,34 +1053,34 @@
                   class:active={directoryMode === 'flat'}
                   onclick={() => handlePlanDirectory('flat')}
                 >
-                  單層成片 (Flat)
+                  不分類（全部放一起）
                 </button>
                 <button 
                   type="button" 
                   class="strategy-chip" 
                   class:active={directoryMode === 'smart_scene'}
                   onclick={() => handlePlanDirectory('smart_scene')}
-                  title="依 AI 辨識之場景（人像、夜市、天光）自動劃分子資料夾"
+                  title="依 AI 辨識之場景（如：人像、街景、夜景）自動分資料夾"
                 >
-                  <span>✨ 依場景智慧分類</span>
+                  <span>✨ 依拍攝場景自動分類</span>
                 </button>
                 <button 
                   type="button" 
                   class="strategy-chip" 
                   class:active={directoryMode === 'profile_lut'}
                   onclick={() => handlePlanDirectory('profile_lut')}
-                  title="依套用的 3D LUT 底片風格劃分資料夾"
+                  title="依套用的濾鏡風格分別放入不同資料夾"
                 >
-                  <span>依底片風格 (LUT)</span>
+                  <span>🎨 依套用風格分類</span>
                 </button>
                 <button 
                   type="button" 
                   class="strategy-chip" 
                   class:active={directoryMode === 'custom'}
                   onclick={() => directoryMode = 'custom'}
-                  title="輸入自然語言讓 Groq 規劃專屬分類"
+                  title="輸入想分類的條件（例如：人像放一夾、風景放一夾）"
                 >
-                  <span>💬 自訂規則</span>
+                  <span>💬 自訂分類規則</span>
                 </button>
               </div>
 
@@ -887,7 +1099,7 @@
                     onclick={() => handlePlanDirectory('custom')}
                     disabled={isPlanningDirectory}
                   >
-                    規劃
+                    套用
                   </button>
                 </div>
               {/if}
@@ -910,7 +1122,7 @@
             <div class="path-preview-box hairline-all font-mono">
               <div class="preview-title">
                 <span class="material-symbols-outlined" style="font-size: 14px;">account_tree</span>
-                <span>預計檔案儲存結構預覽 (LIVE PREVIEW)</span>
+                <span>預計產生的資料夾結構預覽</span>
               </div>
 
               <div class="preview-tree">
@@ -922,20 +1134,20 @@
                   {#each directoryPlan.folders as folder}
                     <div class="tree-line indent">
                       <span class="tree-leaf">├─ 📂 {folder.subPath}/</span>
-                      <span class="tree-counter amber">({folder.photoIds.length} 幀成片)</span>
+                      <span class="tree-counter amber">({folder.photoIds.length} 張 .{fileExtension})</span>
                     </div>
                   {/each}
                 {:else}
                   <div class="tree-line indent">
-                    <span class="tree-leaf">├─ 🖼️ Final_JPG/</span>
-                    <span class="tree-counter amber">({finalExportPhotos.length} 幀成片)</span>
+                    <span class="tree-leaf">├─ 🖼️ *_graded.{fileExtension}</span>
+                    <span class="tree-counter amber">({finalExportPhotos.length} 張成片 · {formatSummaryLabel} · {sizeSummaryLabel})</span>
                   </div>
                 {/if}
 
                 {#if backupRawFiles}
                   <div class="tree-line indent">
                     <span class="tree-leaf amber">└─ 💾 {directoryPlan?.rawBackupSubPath || 'Raw_Backup'}/</span>
-                    <span class="tree-counter amber">({finalExportPhotos.length} 幀原始 RAW 母帶)</span>
+                    <span class="tree-counter amber">({finalExportPhotos.length} 份原始 RAW 備份)</span>
                   </div>
                 {/if}
               </div>
@@ -946,17 +1158,18 @@
     </div>
   </div>
 
-  <!-- 底部常駐發射台 -->
+  <!-- 底部常駐匯出按鈕列 -->
   <footer class="action-dock hairline-t font-mono">
     <div class="dock-summary">
       <div class="summary-left">
-        <span class="summary-count amber">{finalExportPhotos.length} 幀底片就緒</span>
+        <span class="summary-count amber">已選擇 {finalExportPhotos.length} 張相片</span>
+        <span class="summary-spec-pill">{formatSummaryLabel} · {sizeSummaryLabel}</span>
         {#if excludedPhotoIds.size > 0}
-          <span class="summary-sub">({excludedPhotoIds.size} 幀已排除)</span>
+          <span class="summary-sub">（已排除 {excludedPhotoIds.size} 張）</span>
         {/if}
       </div>
       <div class="summary-path truncate" title={resolvedPreviewPath || targetDirectory}>
-        <span class="path-label">目標路徑：</span>
+        <span class="path-label">儲存至：</span>
         <span class="path-val">{resolvedPreviewPath || targetDirectory}</span>
       </div>
     </div>
@@ -979,7 +1192,7 @@
             type="button" 
             class="archival-btn-secondary icon-only" 
             onclick={handleOpenDestination}
-            title="在檔案總管/Finder中開啟匯出目錄"
+            title="在檔案總管 / Finder 中開啟儲存資料夾"
           >
             <span class="material-symbols-outlined" style="font-size: 16px;">folder_open</span>
             <span>開啟資料夾</span>
@@ -992,14 +1205,14 @@
           onclick={handleTriggerExportWithCopy}
           disabled={finalExportPhotos.length === 0}
         >
-          <span class="material-symbols-outlined" style="font-size: 18px;">play_arrow</span>
+          <span class="material-symbols-outlined" style="font-size: 18px;">download</span>
           <span>
             {#if effectivePhotos.length === 0}
-              目前範圍無底片 · 請切換範疇
+              目前範圍沒有相片 · 請切換範圍
             {:else if finalExportPhotos.length === 0}
-              全部底片已排除 · 請至少勾選 1 幀
+              全部相片已排除 · 請至少勾選 1 張
             {:else}
-              啟動批次導出 ({finalExportPhotos.length} 幀) ↵
+              開始匯出 ({finalExportPhotos.length} 張) ↵
             {/if}
           </span>
         </button>
@@ -1421,11 +1634,23 @@
     grid-template-columns: 1fr 1fr;
     gap: 10px;
   }
+  .pipeline-switch-grid.three-cols {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .custom-mode-pill {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: var(--radius-xs);
+    background: rgba(212, 163, 115, 0.15);
+    border: 1px solid rgba(212, 163, 115, 0.4);
+    color: var(--amber-highlight);
+  }
 
   .pipeline-toggle-card {
     background: var(--surface-elevated);
     border-radius: var(--radius-sm);
-    padding: 12px;
+    padding: 10px;
     text-align: left;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -1448,6 +1673,7 @@
     align-items: center;
   }
   .icon.amber { color: var(--amber-highlight); }
+  .icon.cyan { color: var(--cyan-accent, #56b6c2); }
   .icon.indigo { color: #818cf8; }
 
   .pipe-badge {
@@ -1456,6 +1682,7 @@
     border-radius: 2px;
   }
   .pipe-badge.amber { background: rgba(212, 163, 115, 0.2); color: var(--amber-highlight); }
+  .pipe-badge.cyan { background: rgba(86, 182, 194, 0.2); color: var(--cyan-accent, #56b6c2); }
   .pipe-badge.indigo { background: rgba(96, 130, 182, 0.2); color: #818cf8; }
 
   .pipe-name {
@@ -1472,6 +1699,7 @@
 
   .pipe-tags {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
     margin-top: 4px;
   }
@@ -1483,6 +1711,7 @@
     color: var(--parchment-dim);
   }
   .chip.amber { color: var(--amber-highlight); }
+  .chip.cyan { color: var(--cyan-accent, #56b6c2); }
   .chip.indigo { color: #818cf8; }
 
   .spec-detail-box {
@@ -1500,15 +1729,94 @@
     align-items: center;
     gap: 8px;
   }
-  .spec-label { color: var(--parchment-dim); }
+  .spec-label {
+    color: var(--parchment-dim);
+    min-width: 72px;
+    flex-shrink: 0;
+  }
   .spec-select {
     flex: 1;
     background: var(--canvas-base);
     border: 1px solid var(--hairline-slate);
     color: var(--parchment-bright);
-    padding: 4px 8px;
+    padding: 5px 8px;
     border-radius: 3px;
     font-size: 11px;
+  }
+  .segmented-group {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    background: var(--canvas-base);
+    padding: 3px;
+    border-radius: 4px;
+    border: 1px solid var(--hairline-slate);
+  }
+  .seg-btn {
+    padding: 4px 6px;
+    font-size: 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--parchment-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .seg-btn:hover {
+    color: var(--parchment-bright);
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .seg-btn.active {
+    background: rgba(212, 163, 115, 0.18);
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+  .spec-static-hint {
+    font-size: 10px;
+    color: var(--parchment-muted);
+    padding: 4px 0;
+  }
+  .size-control-wrap {
+    flex: 1;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .custom-px-box {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--canvas-base);
+    border: 1px solid var(--hairline-slate);
+    border-radius: 3px;
+    padding: 2px 6px;
+  }
+  .custom-px-input {
+    width: 64px;
+    background: transparent;
+    border: none;
+    color: var(--amber-highlight);
+    font-size: 11px;
+    outline: none;
+  }
+  .px-unit {
+    font-size: 10px;
+    color: var(--parchment-dim);
+  }
+  .date-subdir-toggle {
+    margin-top: 4px;
+    font-size: 11px;
+  }
+  .summary-spec-pill {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--hairline-slate);
+    color: var(--parchment-bright);
   }
 
   .spec-toggles {
@@ -1812,5 +2120,8 @@
 
   @media (max-width: 860px) {
     .export-dual-columns { grid-template-columns: 1fr; }
+    .pipeline-switch-grid.three-cols { grid-template-columns: 1fr; }
+    .spec-row { flex-direction: column; align-items: stretch; }
+    .spec-label { min-width: 0; }
   }
 </style>

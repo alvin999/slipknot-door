@@ -101,9 +101,9 @@
           desc: '隨時於「挑圖」、「精修」、「導出/分享」、「風格庫」與「設定」之間切換',
         },
         {
-          action: '選擇輸出模式',
-          title: 'Mode A 極速 / Mode B 典藏',
-          desc: '依需求切換所見即所得快速出圖，或 16-bit 高品質典藏輸出',
+          action: '選擇輸出規格',
+          title: '社群分享 / 高畫質 / 無損原圖',
+          desc: '可依用途挑選快速預設，或自由調整 JPG / PNG / WebP 格式、畫質與長邊尺寸',
           highlight: true,
           tone: 'green',
         },
@@ -441,8 +441,8 @@
                     <kbd class="kbd-chip">Ctrl+E</kbd>
                   </div>
                   <div class="action-desc">
-                    <span class="desc-main">單張即時出圖 (Quick Export)</span>
-                    <span class="desc-sub font-mono">跳出專屬出圖視窗，無需進入批次頁面即可立即儲存</span>
+                    <span class="desc-main">快速匯出這張相片 (Quick Export)</span>
+                    <span class="desc-sub font-mono">跳出快速匯出視窗（按 1 社群分享 / 2 高畫質 / 3 無損原圖），免進批次頁面即可儲存</span>
                   </div>
                 </div>
 
@@ -492,11 +492,11 @@
               </div>
             </div>
 
-            <!-- 模組 3: 批次匯出管線 -->
+            <!-- 模組 3: 相片匯出設定 -->
             <div class="shortcut-group hairline-all">
               <div class="group-header font-mono">
                 <span class="group-badge">STEP 03</span>
-                <span class="group-title">批次導出管線 (EXPORT)</span>
+                <span class="group-title">相片匯出設定 (EXPORT)</span>
               </div>
               <div class="shortcut-list">
                 <div class="shortcut-row highlight">
@@ -504,8 +504,8 @@
                     <kbd class="kbd-chip green">Enter</kbd>
                   </div>
                   <div class="action-desc">
-                    <span class="desc-main">啟動批次出圖管線 ⚡</span>
-                    <span class="desc-sub font-mono">立即執行 Mode A 極速出圖或 Mode B 滿血典藏</span>
+                    <span class="desc-main">開始匯出已選相片</span>
+                    <span class="desc-sub font-mono">依所選格式（JPG / PNG / WebP）、畫質與長邊尺寸立即輸出並歸檔</span>
                   </div>
                 </div>
 
@@ -623,16 +623,16 @@
             <div class="workflow-step-card hairline-all">
               <div class="step-num-badge">03</div>
               <div class="step-content">
-                <h3 class="step-title font-headline">雙管線批次導出 (Dual Pipeline Export)</h3>
+                <h3 class="step-title font-headline">智慧分類與批次匯出 (Export & Archive)</h3>
                 {#if isMobile}
                   <p class="step-desc">
-                    點選底部導航切換至「導出/分享」，自由選擇 <span class="highlight-text">Mode A（所見即所得極速出圖）</span> 或 <span class="highlight-text">Mode B（16-bit 滿血無損典藏輸出）</span>。
-                    內建 Groq 策展文案自動生成，確認設定後點擊匯出或使用系統分享面板立即分享成品。
+                    點選底部導航切換至「導出/分享」，自由挑選 <span class="highlight-text">社群分享、高畫質相片或無損典藏</span> 預設，亦可自訂格式（JPG / PNG / WebP）、畫質與長邊尺寸。
+                    內建 AI 策展文案與資料夾自動分類，確認設定後點擊匯出或使用系統分享面板即可完成。
                   </p>
                 {:else}
                   <p class="step-desc">
-                    自由切換 <span class="highlight-text">Mode A（所見即所得極速出圖）</span> 或 <span class="highlight-text">Mode B（16-bit 滿血無損典藏輸出）</span>。
-                    內建 Groq 策展文案自動生成，確認設定後按下 <span class="highlight-text">Enter</span> 立即啟動批次出圖管線，自動保存至指定典藏資料夾。
+                    自由挑選 <span class="highlight-text">社群分享、高畫質相片或無損典藏</span> 用途預設，亦可自訂格式（JPG / PNG / WebP）、畫質百分比與長邊像素限制。
+                    支援 AI 場景資料夾分類與 RAW 備份，確認後按下 <span class="highlight-text">Enter</span> 立即開始匯出。
                   </p>
                 {/if}
               </div>

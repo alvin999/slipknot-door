@@ -32,7 +32,11 @@
     CustomLutService,
     type CustomLutRecord,
   } from "$lib/services/customLutService";
-  import { ExportService } from "$lib/services/exportService";
+  import {
+    ExportService,
+    getExportExtension,
+    type ExportFormat,
+  } from "$lib/services/exportService";
   import { SessionService } from "$lib/services/sessionService";
   import { STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
   import type {
@@ -4056,10 +4060,31 @@
   let exportNotice = $state<string>("");
 
   // Single photo export
-  async function handleSingleQuickExport(mode: "modeA" | "modeB") {
+  async function handleSingleQuickExport(
+    quickOptions:
+      | "modeA"
+      | "modeB"
+      | {
+          mode: "modeA" | "modeB";
+          format: ExportFormat;
+          quality: number;
+          maxLongEdge: number | null;
+        },
+  ) {
     if (!activePhoto) return;
     try {
-      const quality = mode === "modeA" ? 0.95 : 1.0;
+      const resolvedOpts =
+        typeof quickOptions === "string"
+          ? {
+              mode: quickOptions,
+              format: "jpeg" as ExportFormat,
+              quality: quickOptions === "modeA" ? 0.95 : 1.0,
+              maxLongEdge: null as number | null,
+            }
+          : quickOptions;
+      const format = resolvedOpts.format;
+      const quality = resolvedOpts.quality;
+      const maxLongEdge = resolvedOpts.maxLongEdge;
       const currentCrop =
         activePhoto.crop ||
         (cropWidth < 1 || cropHeight < 1 || cropRotation !== 0 || flipH || flipV
@@ -4105,7 +4130,9 @@
           },
           crop: currentCrop,
         },
+        format,
         quality,
+        maxLongEdge,
         profileDefaults: allProfiles,
         customLuts: userCustomLuts,
       });
@@ -4123,8 +4150,8 @@
           ? new Date().toISOString().slice(0, 10)
           : undefined;
         const baseName = activePhoto.filename.replace(/\.[^/.]+$/, "");
-        const suffix = mode === "modeA" ? "_preview" : "_graded";
-        const filename = `${baseName}${suffix}.jpg`;
+        const ext = getExportExtension(format);
+        const filename = `${baseName}_graded.${ext}`;
 
         const saveResult = await ExportService.saveExportedPhoto({
           targetDir,
@@ -4134,11 +4161,11 @@
         });
 
         exportNotice = saveResult.savedPath
-          ? `已即時匯出至 ${saveResult.savedPath}`
-          : `已即時匯出 ${activePhoto.filename} (${mode === "modeA" ? "極速模式" : "滿血典藏"})`;
+          ? `已快速匯出至 ${saveResult.savedPath}`
+          : `已快速匯出 ${filename}`;
       }
     } catch {
-      exportNotice = "即時匯出發生錯誤";
+      exportNotice = "快速匯出發生錯誤";
     } finally {
       setTimeout(() => {
         exportNotice = "";
@@ -4153,6 +4180,11 @@
       autoDateSubdir: boolean;
       backupRawFiles: boolean;
       directoryPlan?: DirectoryPlanResult | null;
+      format?: ExportFormat;
+      quality?: number;
+      maxLongEdge?: number | null;
+      colorSpace?: "sRGB" | "DisplayP3" | "ProPhotoRGB";
+      preserveExif?: boolean;
     },
   ) {
     const listToExport =
@@ -4165,12 +4197,29 @@
             : [];
 
     if (listToExport.length === 0) {
-      exportNotice = "目前相簿為空，請先載入照片";
+      exportNotice = "目前相簿為空，請先載入相片";
       setTimeout(() => {
         exportNotice = "";
       }, 2500);
       return;
     }
+
+    const exportFormat: ExportFormat =
+      options?.format ??
+      ((typeof localStorage !== "undefined"
+        ? (localStorage.getItem("slipknot_export_format") as ExportFormat)
+        : null) ||
+        "jpeg");
+    const exportQuality =
+      options?.quality ??
+      (typeof localStorage !== "undefined" &&
+      localStorage.getItem("slipknot_export_quality")
+        ? Number(localStorage.getItem("slipknot_export_quality"))
+        : exportMode === "modeA"
+          ? 0.95
+          : 1.0);
+    const maxLongEdge = options?.maxLongEdge ?? null;
+    const ext = getExportExtension(exportFormat);
 
     const targetDir =
       options?.targetDir ||
@@ -4199,7 +4248,7 @@
 
     isExporting = true;
     exportProgress = 5;
-    exportNotice = `準備批次匯出 ${listToExport.length} 幀底片...`;
+    exportNotice = `準備匯出 ${listToExport.length} 張相片...`;
 
     let lastSavedPath = "";
 
@@ -4207,11 +4256,11 @@
       for (let i = 0; i < listToExport.length; i++) {
         const p = listToExport[i];
         exportProgress = Math.round(((i + 0.5) / listToExport.length) * 100);
-        exportNotice = `正在渲染第 ${i + 1}/${listToExport.length} 幀: ${p.filename}...`;
+        exportNotice = `正在處理第 ${i + 1}/${listToExport.length} 張：${p.filename}...`;
 
         let blobToSave: Blob | null = null;
         const baseName = p.filename.replace(/\.[^/.]+$/, "");
-        const filename = `${baseName}_graded.jpg`;
+        const filename = `${baseName}_graded.${ext}`;
 
         // 計算該照片實際的目標子路徑 (結合日期子目錄與智慧規劃目錄)
         const itemPlanSubPath = photoSubPathMap.get(p.id);
@@ -4224,10 +4273,12 @@
           actualSubDir = dateSubDir;
         }
 
-        // 渲染成片：依序以完整解析度、個別調色與幾何裁切算圖
+        // 渲染成片：依序以設定格式、畫質、尺寸與個別調色裁切算圖
         blobToSave = await ExportService.renderPhotoToBlob({
           photo: p,
-          quality: exportMode === "modeA" ? 0.95 : 1.0,
+          format: exportFormat,
+          quality: exportQuality,
+          maxLongEdge,
           profileDefaults: allProfiles,
           customLuts: userCustomLuts,
         });
@@ -4271,12 +4322,9 @@
 
       exportProgress = 100;
       const planNotice = directoryPlan
-        ? `（智慧歸檔為 ${directoryPlan.folders.length} 個目錄）`
+        ? `（已自動分類為 ${directoryPlan.folders.length} 個資料夾）`
         : "";
-      exportNotice =
-        exportMode === "modeA"
-          ? `已成功批次匯出 ${listToExport.length} 幀 (極速完成)${planNotice} 至 ${lastSavedPath || targetDir}`
-          : `已成功批次儲存 ${listToExport.length} 幀 (典藏模式)${planNotice} 至 ${lastSavedPath || targetDir}`;
+      exportNotice = `已完成匯出 ${listToExport.length} 張相片${planNotice} 至 ${lastSavedPath || targetDir}`;
     } catch {
       exportNotice = "匯出發生錯誤";
     } finally {

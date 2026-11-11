@@ -9,6 +9,20 @@ import { IngestionService } from './ingestionService';
 import { WebglLutRenderer } from './webglLutRenderer';
 import type { CustomLutRecord } from './customLutService';
 
+export type ExportFormat = 'jpeg' | 'png' | 'webp';
+
+export function getExportMimeType(format: ExportFormat = 'jpeg'): string {
+  if (format === 'png') return 'image/png';
+  if (format === 'webp') return 'image/webp';
+  return 'image/jpeg';
+}
+
+export function getExportExtension(format: ExportFormat = 'jpeg'): string {
+  if (format === 'png') return 'png';
+  if (format === 'webp') return 'webp';
+  return 'jpg';
+}
+
 export interface SaveExportedPhotoParams {
   targetDir: string;
   subDir?: string;
@@ -66,7 +80,9 @@ export interface RenderPhotoOptions {
       flipV?: boolean;
     };
   };
+  format?: ExportFormat;
   quality?: number;
+  maxLongEdge?: number | null;
   profileDefaults?: {
     id: string;
     evDefault: number;
@@ -259,7 +275,7 @@ export class ExportService {
       );
 
       const crop = options.photo.crop;
-      const hasGeometry = crop && (
+      const hasGeometry = !!(crop && (
         crop.x > 0.001 ||
         crop.y > 0.001 ||
         crop.width < 0.999 ||
@@ -267,29 +283,41 @@ export class ExportService {
         Math.abs(crop.rotation || 0) > 0.05 ||
         crop.flipH ||
         crop.flipV
-      );
+      ));
 
-      const quality = options.quality ?? 0.95;
+      const format: ExportFormat = options.format ?? 'jpeg';
+      const mimeType = getExportMimeType(format);
+      const quality = format === 'png' ? 1.0 : (options.quality ?? 0.95);
+      const maxLongEdge = options.maxLongEdge && options.maxLongEdge > 0 ? Math.round(options.maxLongEdge) : null;
 
-      if (!hasGeometry || !this.exportCanvas) {
-        return await this.exportRenderer.exportBlob('image/jpeg', quality);
+      if (!this.exportCanvas) {
+        return await this.exportRenderer.exportBlob(mimeType, quality);
       }
 
-      // Apply crop / flip / rotation geometry transformation
-      const cropX = Math.max(0, Math.min(1, crop.x || 0));
-      const cropY = Math.max(0, Math.min(1, crop.y || 0));
-      const cropW = Math.max(0.01, Math.min(1 - cropX, crop.width || 1));
-      const cropH = Math.max(0.01, Math.min(1 - cropY, crop.height || 1));
-      const rotDeg = crop.rotation || 0;
-      const flipH = !!crop.flipH;
-      const flipV = !!crop.flipV;
+      const cropX = hasGeometry && crop ? Math.max(0, Math.min(1, crop.x || 0)) : 0;
+      const cropY = hasGeometry && crop ? Math.max(0, Math.min(1, crop.y || 0)) : 0;
+      const cropW = hasGeometry && crop ? Math.max(0.01, Math.min(1 - cropX, crop.width || 1)) : 1;
+      const cropH = hasGeometry && crop ? Math.max(0.01, Math.min(1 - cropY, crop.height || 1)) : 1;
+      const rotDeg = hasGeometry && crop ? (crop.rotation || 0) : 0;
+      const flipH = hasGeometry && crop ? !!crop.flipH : false;
+      const flipV = hasGeometry && crop ? !!crop.flipV : false;
 
+      const srcW = Math.max(1, Math.round(cropW * w));
+      const srcH = Math.max(1, Math.round(cropH * h));
+      const currentLongEdge = Math.max(srcW, srcH);
+      const needsResize = maxLongEdge !== null && currentLongEdge > maxLongEdge;
+
+      if (!hasGeometry && !needsResize) {
+        return await this.exportRenderer.exportBlob(mimeType, quality);
+      }
+
+      let sourceCanvas: HTMLCanvasElement = this.exportCanvas;
       if (Math.abs(rotDeg) > 0.05 || flipH || flipV) {
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = w;
         tempCanvas.height = h;
         const tempCtx = tempCanvas.getContext('2d');
-        if (!tempCtx) return await this.exportRenderer.exportBlob('image/jpeg', quality);
+        if (!tempCtx) return await this.exportRenderer.exportBlob(mimeType, quality);
 
         tempCtx.translate(w / 2, h / 2);
         if (rotDeg !== 0) {
@@ -299,55 +327,35 @@ export class ExportService {
           tempCtx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
         }
         tempCtx.drawImage(this.exportCanvas, -w / 2, -h / 2, w, h);
-
-        const outW = Math.max(1, Math.round(cropW * w));
-        const outH = Math.max(1, Math.round(cropH * h));
-        const outCanvas = document.createElement('canvas');
-        outCanvas.width = outW;
-        outCanvas.height = outH;
-        const outCtx = outCanvas.getContext('2d');
-        if (!outCtx) return await this.exportRenderer.exportBlob('image/jpeg', quality);
-
-        outCtx.drawImage(
-          tempCanvas,
-          Math.round(cropX * w),
-          Math.round(cropY * h),
-          outW,
-          outH,
-          0,
-          0,
-          outW,
-          outH
-        );
-
-        return new Promise<Blob | null>((resolve) => {
-          outCanvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
-        });
-      } else {
-        const outW = Math.max(1, Math.round(cropW * w));
-        const outH = Math.max(1, Math.round(cropH * h));
-        const outCanvas = document.createElement('canvas');
-        outCanvas.width = outW;
-        outCanvas.height = outH;
-        const outCtx = outCanvas.getContext('2d');
-        if (!outCtx) return await this.exportRenderer.exportBlob('image/jpeg', quality);
-
-        outCtx.drawImage(
-          this.exportCanvas,
-          Math.round(cropX * w),
-          Math.round(cropY * h),
-          outW,
-          outH,
-          0,
-          0,
-          outW,
-          outH
-        );
-
-        return new Promise<Blob | null>((resolve) => {
-          outCanvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
-        });
+        sourceCanvas = tempCanvas;
       }
+
+      const scale = needsResize && maxLongEdge ? maxLongEdge / currentLongEdge : 1;
+      const outW = Math.max(1, Math.round(srcW * scale));
+      const outH = Math.max(1, Math.round(srcH * scale));
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = outW;
+      outCanvas.height = outH;
+      const outCtx = outCanvas.getContext('2d');
+      if (!outCtx) return await this.exportRenderer.exportBlob(mimeType, quality);
+
+      outCtx.imageSmoothingEnabled = true;
+      outCtx.imageSmoothingQuality = 'high';
+      outCtx.drawImage(
+        sourceCanvas,
+        Math.round(cropX * w),
+        Math.round(cropY * h),
+        srcW,
+        srcH,
+        0,
+        0,
+        outW,
+        outH
+      );
+
+      return new Promise<Blob | null>((resolve) => {
+        outCanvas.toBlob((blob) => resolve(blob), mimeType, quality);
+      });
     } catch (err) {
       console.warn('[ExportService] renderPhotoToBlob error:', err);
       return null;
