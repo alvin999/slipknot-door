@@ -172,6 +172,7 @@
       blacks?: number;
       vibrance?: number;
       vignette?: number;
+      monochrome?: boolean;
       hsl?: HslAdjustments;
     };
   }
@@ -204,6 +205,7 @@
   let blacks = $state<number>(0.0);
   let vibrance = $state<number>(0.0);
   let vignette = $state<number>(0.0);
+  let monochrome = $state<boolean>(false);
   let hsl = $state<HslAdjustments>(createDefaultHslAdjustments());
 
   // 專業 Diff 視覺比對狀態 (由 darkroomState 作為單一真相來源)
@@ -250,7 +252,7 @@
         };
 
   let aiScope = $state<AiScopePreferences>(initialScope);
-  let isAiScopeOpen = $state<boolean>(false); // 側邊欄 AI 職責勾選面板摺疊開關
+  let isAiScopeOpen = $state<boolean>(aiPipeline.isAiScopeOpen); // 側邊欄 AI 職責勾選面板摺疊開關
 
   function saveAiScope() {
     if (typeof localStorage !== "undefined") {
@@ -828,6 +830,7 @@
       );
       const isDefault =
         isDefaultHsl &&
+        !monochrome &&
         Math.abs(exposure - asShotExp) < 0.001 &&
         Math.abs(highlights - 0.0) < 0.001 &&
         Math.abs(contrast - 0.0) < 0.001 &&
@@ -868,6 +871,7 @@
             halation,
             grainAmount,
             vignette,
+            monochrome,
             hsl: cloneHslAdjustments(hsl),
           };
 
@@ -943,6 +947,7 @@
       blacks = plate.tuning.blacks ?? 0;
       vibrance = plate.tuning.vibrance ?? 0;
       vignette = plate.tuning.vignette ?? 0;
+      monochrome = plate.tuning.monochrome ?? false;
       hsl = cloneHslAdjustments(plate.tuning.hsl);
     } else {
       exposure = plate.asShotExposure ?? 0.0;
@@ -964,6 +969,7 @@
       blacks = 0.0;
       vibrance = 0.0;
       vignette = 0.0;
+      monochrome = false;
       hsl = createDefaultHslAdjustments();
     }
 
@@ -1041,6 +1047,7 @@
     const blk = darkroomState.blacks;
     const vib = darkroomState.vibrance;
     const vig = darkroomState.vignette;
+    const mono = darkroomState.monochrome;
     const hslClone = cloneHslAdjustments(darkroomState.hsl);
 
     // 同步至 +page.svelte 局部狀態供匯出與其他邏輯使用
@@ -1063,6 +1070,7 @@
     halation = hal;
     grainAmount = grn;
     vignette = vig;
+    monochrome = mono;
     hsl = hslClone;
 
     cropX = darkroomState.cropX;
@@ -1472,7 +1480,7 @@
 
     const plate = thumbnailRenderQueue.shift();
     if (plate && plate.thumbnail) {
-      if (plate.appliedProfile === "Profile_00_StandardNatural") {
+      if (plate.appliedProfile === "Profile_00_StandardNatural" && !plate.tuning) {
         if (plate.gradedThumbnail !== undefined) {
           plate.gradedThumbnail = undefined;
           photoPlates = photoPlates.map((p) =>
@@ -1560,6 +1568,9 @@
           const currentVignette = isCurrentActive
             ? vignette
             : (plate.tuning?.vignette ?? 0.0);
+          const currentMonochrome = isCurrentActive
+            ? monochrome
+            : (plate.tuning?.monochrome ?? false);
           const currentHsl = isCurrentActive
             ? hsl
             : plate.tuning?.hsl;
@@ -1577,7 +1588,7 @@
               vibrance: currentVibrance,
               shadowLift: currentShadows,
               lutIntensity: currentLut,
-              bypassLut: false,
+              bypassLut: plate.appliedProfile === "Profile_00_StandardNatural",
               clarity: currentClarity,
               sharpness: currentSharpness,
               colorDensity: currentColorDensity,
@@ -1588,6 +1599,7 @@
               halation: currentHalation,
               grainAmount: currentGrainAmount,
               vignette: currentVignette,
+              monochrome: currentMonochrome,
               hsl: currentHsl,
             },
             img.naturalWidth || 400,
@@ -1625,6 +1637,7 @@
   async function renderPass1PreviewForCritic(
     previewSrc: string,
     decision: any,
+    targetMonochrome = false,
   ): Promise<string | null> {
     if (!ensureOffscreenRenderer() || !offscreenRenderer) return null;
     try {
@@ -1704,7 +1717,7 @@
           vibrance: decision.vibrance ?? 0.0,
           shadowLift: decision.lift_shadows ?? 0.0,
           lutIntensity: decision.lut_intensity ?? 1.0,
-          bypassLut: false,
+          bypassLut: targetProf === "Profile_00_StandardNatural",
           clarity: decision.clarity ?? 0.0,
           sharpness: decision.sharpness ?? 0.0,
           colorDensity: decision.color_density ?? 0.0,
@@ -1715,6 +1728,7 @@
           halation: decision.halation ?? 0.0,
           grainAmount: decision.grain_amount ?? 0.15,
           vignette: decision.vignette ?? 0.0,
+          monochrome: targetMonochrome,
           hsl: decision.hsl,
         },
         targetW,
@@ -1752,6 +1766,7 @@
     blacks = 0.0;
     vibrance = 0.0;
     vignette = 0.0;
+    monochrome = false;
     hsl = createDefaultHslAdjustments();
 
     darkroomState.colorTemp = colorTemp;
@@ -1773,6 +1788,7 @@
     darkroomState.halation = halation;
     darkroomState.grainAmount = grainAmount;
     darkroomState.vignette = vignette;
+    darkroomState.monochrome = monochrome;
     darkroomState.hsl = cloneHslAdjustments(hsl);
 
     triggerWebglRender();
@@ -1798,6 +1814,7 @@
 
     const isDefaultTuning =
       isDefaultHsl &&
+      !monochrome &&
       Math.abs(exposure - asShotExp) < 0.001 &&
       Math.abs(highlights - 0.0) < 0.001 &&
       Math.abs(contrast - 0.0) < 0.001 &&
@@ -1838,6 +1855,7 @@
           halation,
           grainAmount,
           vignette,
+          monochrome,
           hsl: cloneHslAdjustments(hsl),
         };
 
@@ -1915,7 +1933,9 @@
         ) < 0.001 &&
         Math.abs(
           (currentPlate.tuning.vignette ?? 0) - (targetTuning.vignette ?? 0),
-        ) < 0.001);
+        ) < 0.001 &&
+        (currentPlate.tuning.monochrome ?? false) ===
+          (targetTuning.monochrome ?? false));
 
     const profileMatches =
       currentPlate?.appliedProfile === activePhoto.appliedProfile;
@@ -1972,6 +1992,7 @@
     });
     return (
       hslModified ||
+      darkroomState.monochrome !== (t.monochrome ?? false) ||
       Math.abs(darkroomState.exposure - t.exposure) > 0.001 ||
       Math.abs(darkroomState.highlights - (t.highlights ?? 0.0)) > 0.001 ||
       Math.abs(darkroomState.contrast - t.contrast) > 0.001 ||
@@ -2062,6 +2083,8 @@
     darkroomState.grainAmount = grainAmount;
     vignette = snapshot.tuning.vignette ?? 0.0;
     darkroomState.vignette = vignette;
+    monochrome = snapshot.tuning.monochrome ?? false;
+    darkroomState.monochrome = monochrome;
     hsl = cloneHslAdjustments(snapshot.tuning.hsl);
     darkroomState.hsl = cloneHslAdjustments(hsl);
 
@@ -2121,6 +2144,7 @@
     blacks = 0.0;
     vibrance = 0.0;
     vignette = 0.0;
+    monochrome = false;
     hsl = createDefaultHslAdjustments();
     darkroomState.resetTuningParams();
     darkroomState.resetCropState();
@@ -2868,6 +2892,7 @@
             halation,
             grainAmount,
             vignette,
+            monochrome,
             hsl: cloneHslAdjustments(hsl),
           };
           photoPlates = photoPlates.map((p) =>
@@ -2975,6 +3000,11 @@
       );
     }
 
+    const targetMonochrome =
+      isCurrentActive || !isBatchAiRunning
+        ? darkroomState.monochrome
+        : (photoToProcess.tuning?.monochrome ?? false);
+
     try {
       const decision = await AiSceneService.analyzeScene(
         photoToProcess.thumbnail,
@@ -2992,10 +3022,12 @@
           styleKeywords: darkroomState.selectedStyleKeywords,
           customStylePrompt: finalStylePrompt || undefined,
           customLuts: userCustomLuts,
+          monochrome: targetMonochrome,
           onLog: async (msg: string) => {
             await appendAiLog(msg, 15);
           },
-          renderPreview: renderPass1PreviewForCritic,
+          renderPreview: (src, dec) =>
+            renderPass1PreviewForCritic(src, dec, targetMonochrome),
           scope: aiScope,
         },
       );
@@ -3105,6 +3137,8 @@
       const baseHsl = applyFilmPhysics
         ? cloneHslAdjustments(decision.hsl)
         : cloneHslAdjustments(photoToProcess.tuning?.hsl);
+      // 黑白模式完全由使用者獨立切換，AI 僅調光影與 6 段光學濾鏡權重，不擅自更改輸出模式
+      const baseMonochrome = targetMonochrome;
 
       const origEv =
         photoToProcess.tuning?.exposure ?? photoToProcess.asShotExposure ?? 0.0;
@@ -3252,6 +3286,7 @@
         halation: baseHalation,
         grainAmount: baseGrainAmount,
         vignette: baseVignette,
+        monochrome: baseMonochrome,
         hsl: cloneHslAdjustments(baseHsl),
       };
       if (targetCrop) {
@@ -3281,6 +3316,7 @@
           halation: baseHalation,
           grainAmount: baseGrainAmount,
           vignette: baseVignette,
+          monochrome: baseMonochrome,
           hsl: cloneHslAdjustments(baseHsl),
         },
         crop: targetCrop ? { ...targetCrop } : undefined,
@@ -3346,10 +3382,12 @@
           blacks = baseBlacks;
           clarity = baseClarity;
           sharpness = baseSharpness;
+          monochrome = baseMonochrome;
           darkroomState.highlights = baseHighlights;
           darkroomState.blacks = baseBlacks;
           darkroomState.clarity = baseClarity;
           darkroomState.sharpness = baseSharpness;
+          darkroomState.monochrome = baseMonochrome;
           if (applyFilmPhysics) {
             vibrance = baseVibrance;
             colorDensity = baseColorDensity;
@@ -3408,6 +3446,7 @@
           halation = baseHalation;
           grainAmount = baseGrainAmount;
           vignette = baseVignette;
+          monochrome = baseMonochrome;
           hsl = cloneHslAdjustments(baseHsl);
           darkroomState.highlights = baseHighlights;
           darkroomState.blacks = baseBlacks;
@@ -3422,6 +3461,7 @@
           darkroomState.halation = baseHalation;
           darkroomState.grainAmount = baseGrainAmount;
           darkroomState.vignette = baseVignette;
+          darkroomState.monochrome = baseMonochrome;
           darkroomState.hsl = cloneHslAdjustments(baseHsl);
           if (targetCrop) {
             cropX = targetCrop.x;
@@ -4009,6 +4049,7 @@
             halation,
             grainAmount,
             vignette,
+            monochrome,
             hsl: cloneHslAdjustments(hsl),
           },
           crop: currentCrop,
@@ -4353,7 +4394,9 @@
           {isAiScopeOpen}
           {copiedLogNotice}
           onToggleAiScope={toggleAiScope}
-          onToggleIsAiScopeOpen={() => (isAiScopeOpen = !isAiScopeOpen)}
+          onToggleIsAiScopeOpen={() => {
+            isAiScopeOpen = aiPipeline.toggleAiScopeOpen();
+          }}
           onCopyTerminalLogs={copyTerminalLogs}
           onRunAiAnalysis={() => runAiAnalysis()}
           onRequestBatchAi={requestBatchAiAnalysis}

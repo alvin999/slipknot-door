@@ -11,6 +11,7 @@
     photos?: PhotoPlateItem[];
     activeQueue?: PhotoPlateItem[];
     exportNotice?: string;
+    monochrome?: boolean;
     exposure?: number;
     highlights?: number;
     contrast?: number;
@@ -63,6 +64,7 @@
     photos: propsPhotos = [],
     activeQueue: propsActiveQueue = [],
     exportNotice = "",
+    monochrome: propsMonochrome,
     exposure: propsExposure,
     highlights: propsHighlights,
     contrast: propsContrast,
@@ -127,6 +129,7 @@
   const isScanningMounts = $derived(photoLibrary.isScanningMounts);
 
   // 參數解析：優先使用傳入的 prop，若未傳入則使用 darkroomState
+  const currentMonochrome = $derived(propsMonochrome ?? darkroomState.monochrome);
   const currentExposure = $derived(propsExposure ?? darkroomState.exposure);
   const currentHighlights = $derived(propsHighlights ?? darkroomState.highlights);
   const currentContrast = $derived(propsContrast ?? darkroomState.contrast);
@@ -447,6 +450,7 @@
     if (currentShowABComparison) {
       webglRenderer.render(
         {
+          monochrome: false,
           exposure: 0.0,
           highlights: 0.0,
           contrast: 0.0,
@@ -485,6 +489,7 @@
     webglRenderer.setProfile(currentPid);
     webglRenderer.render(
       {
+        monochrome: currentMonochrome,
         exposure: currentExposure,
         highlights: currentHighlights,
         contrast: currentContrast,
@@ -531,6 +536,7 @@
     const _photoId = activePhoto?.id;
     const _thumb = activePhoto?.thumbnail;
     const _profile = activePhoto?.appliedProfile;
+    const _monochrome = currentMonochrome;
     const _exp = currentExposure;
     const _highlights = currentHighlights;
     const _contrast = currentContrast;

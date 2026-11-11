@@ -1,11 +1,17 @@
 <script lang="ts">
-  import { darkroomState, type CropRatioPreset } from "$lib/stores/darkroomState.svelte";
+  import { darkroomState, type CropRatioPreset, type BwFilterPresetKey } from "$lib/stores/darkroomState.svelte";
   import { photoLibrary, type PhotoPlateItem } from "$lib/stores/photoLibrary.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
   import { HSL_BAND_KEYS, createDefaultHslAdjustments, type HslBandKey } from "$lib/types/photo";
   import DarkroomSlider from "./DarkroomSlider.svelte";
   import DarkroomHistogram from "./DarkroomHistogram.svelte";
   import { toastStore } from "$lib/stores/toastStore.svelte";
+  import {
+    TUNING_PANEL_UI_STORAGE_KEY,
+    DEFAULT_TUNING_PANEL_UI_STATE,
+    readLocalJson,
+    writeLocalJson,
+  } from "$lib/utils/panelStorage";
 
   const HSL_BAND_META: {
     key: HslBandKey;
@@ -21,8 +27,42 @@
     { key: "blue", label: "藍", color: "#4e79d9", hueGradient: "linear-gradient(to right, #46b8c4 0%, #4e79d9 50%, #b558d6 100%)" },
   ];
 
-  let selectedHslBand = $state<HslBandKey>("red");
-  let hslExpanded = $state<boolean>(false);
+  const initialTuningUi = readLocalJson(
+    TUNING_PANEL_UI_STORAGE_KEY,
+    DEFAULT_TUNING_PANEL_UI_STATE
+  );
+  let selectedHslBand = $state<HslBandKey>(
+    HSL_BAND_KEYS.includes(initialTuningUi.selectedHslBand)
+      ? initialTuningUi.selectedHslBand
+      : "red"
+  );
+  let lutTuningExpanded = $state<boolean>(Boolean(initialTuningUi.lutTuningExpanded));
+  let toningExpanded = $state<boolean>(Boolean(initialTuningUi.toningExpanded));
+  let hslExpanded = $state<boolean>(Boolean(initialTuningUi.hslExpanded));
+  let cropExpanded = $state<boolean>(Boolean(initialTuningUi.cropExpanded));
+
+  function saveTuningPanelUi(): void {
+    writeLocalJson(TUNING_PANEL_UI_STORAGE_KEY, {
+      lutTuningExpanded,
+      toningExpanded,
+      hslExpanded,
+      cropExpanded,
+      selectedHslBand,
+    });
+  }
+
+  const BW_FILTER_PRESETS: { key: BwFilterPresetKey; label: string; title: string }[] = [
+    { key: "neutral", label: "標準", title: "全色性中性灰階（歸零各色濾鏡權重）" },
+    { key: "yellow", label: "黃鏡", title: "微壓藍天與反差增強（街拍常用）" },
+    { key: "orange", label: "橙鏡", title: "明顯壓暗藍天、提亮暖色磚牆與膚色" },
+    { key: "red", label: "紅鏡", title: "極致深黑戲劇天空與強烈白雲反差" },
+    { key: "green", label: "綠鏡", title: "提亮森林樹葉層次、壓實紅色花果" },
+    { key: "portrait", label: "人像", title: "柔和提亮橙紅膚質與細膩中間調" },
+  ];
+
+  const hasAnyBwLumAdjustment = $derived(
+    HSL_BAND_KEYS.some((k) => Math.abs(darkroomState.hsl?.[k]?.lum ?? 0) > 0.001)
+  );
 
   const hasAnyHslAdjustment = $derived(
     HSL_BAND_KEYS.some((k) => {
@@ -97,6 +137,16 @@
 
   const activePhoto = $derived(propsActivePhoto ?? photoLibrary.activePhoto);
   const isAiAnalyzing = $derived(aiPipeline.isAiAnalyzing);
+  const currentProfileId = $derived(
+    propsActiveProfileId ?? activePhoto?.appliedProfile ?? "Profile_00_StandardNatural",
+  );
+  const activeStyleTitle = $derived.by(() => {
+    const preset = styleGradingPresets.find((sp) => sp.profileId === currentProfileId);
+    if (preset) return preset.shortLabel || preset.title;
+    const prof = profiles.find((p) => p.id === currentProfileId);
+    if (prof) return prof.name || prof.id;
+    return "原色自然 (Standard)";
+  });
 
   // 監聽各項參數變更以自動記錄快照歷史 (防抖 300ms)
   $effect(() => {
@@ -181,10 +231,66 @@
 <!-- 光學即時直方圖波形 -->
 <DarkroomHistogram {activePhoto} />
 
+<!-- 獨立顯影輸出模式切換 (預設彩色 / 可選黑白暗房管線) -->
+<div class="output-mode-panel hairline-b font-mono">
+  <div class="output-mode-bar">
+    <span class="output-mode-label">OUTPUT // 顯影輸出</span>
+    <div class="output-mode-switch" role="group" aria-label="顯影輸出色彩模式">
+      <button
+        type="button"
+        class="output-mode-btn"
+        class:active={!darkroomState.monochrome}
+        onclick={() => {
+          if (darkroomState.monochrome) {
+            darkroomState.monochrome = false;
+            darkroomState.recordSnapshot(true);
+          }
+        }}
+        title="標準彩色 3D LUT 顯影管線"
+      >
+        <span class="mode-dot color"></span>
+        <span>彩色 COLOR</span>
+      </button>
+      <button
+        type="button"
+        class="output-mode-btn"
+        class:active={darkroomState.monochrome}
+        onclick={() => {
+          if (!darkroomState.monochrome) {
+            darkroomState.monochrome = true;
+            darkroomState.recordSnapshot(true);
+          }
+        }}
+        title="黑白暗房管線（繼承當前 LUT 階調曲線 + 6 色光譜濾鏡混色 + 銀鹽光暈）"
+      >
+        <span class="mode-dot mono"></span>
+        <span>黑白 B&W</span>
+      </button>
+    </div>
+  </div>
+  <div class="output-style-title-row" title={`當前套用 LUT：${activeStyleTitle}`}>
+    <span class="output-style-prefix">STYLE // 當前風格</span>
+    <span class="output-style-name">{activeStyleTitle}</span>
+  </div>
+</div>
+
 <!-- 1. Color Adjustment Sliders (3D LUT TUNING) - 置頂第一順位 -->
 <div class="telemetry-box hairline-b">
-  <div class="tuning-box-header">
-    <div class="box-title font-mono">3D LUT TUNING</div>
+  <div class="tuning-box-header" style="margin-bottom: {lutTuningExpanded ? '8px' : '0'};">
+    <button
+      type="button"
+      class="hsl-collapse-toggle font-mono"
+      onclick={() => {
+        lutTuningExpanded = !lutTuningExpanded;
+        saveTuningPanelUi();
+      }}
+      title="展開或收合 3D LUT 調色與基礎光影"
+    >
+      <span class="material-symbols-outlined" style="font-size: 14px;">
+        {lutTuningExpanded ? "expand_more" : "chevron_right"}
+      </span>
+      <span class="box-title font-mono" style="margin-bottom: 0;">3D LUT TUNING</span>
+    </button>
     <div style="display: flex; gap: 4px; align-items: center;">
       <!-- 單步復原 (Undo) 與 重做 (Redo) -->
       <button
@@ -329,6 +435,7 @@
     </div>
   </div>
 
+  {#if lutTuningExpanded}
   <!-- Slider 1: Exposure -->
   <DarkroomSlider
     label="EXPOSURE (EV)"
@@ -441,13 +548,14 @@
 
   <!-- Slider 4.8: Vibrance (Skin-Aware Natural Saturation) -->
   <DarkroomSlider
-    label="VIBRANCE (自然飽和度)"
+    label={darkroomState.monochrome ? "VIBRANCE (黑白模式停用)" : "VIBRANCE (自然飽和度)"}
     bind:value={darkroomState.vibrance}
     defaultValue={0}
     min={-1.0}
     max={1.0}
     step={0.02}
     isBipolar={true}
+    disabled={darkroomState.monochrome}
     formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
     parseInput={parsePercentage}
   />
@@ -477,12 +585,26 @@
     formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
     parseInput={parsePercentage}
   />
+  {/if}
 </div>
 
 <!-- 1.5 Toning & Texture (減色密度 / 分區調色 / 光暈與銀鹽微粒) -->
 <div class="telemetry-box hairline-b">
-  <div class="tuning-box-header">
-    <div class="box-title font-mono">TONING & TEXTURE</div>
+  <div class="tuning-box-header" style="margin-bottom: {toningExpanded ? '8px' : '0'};">
+    <button
+      type="button"
+      class="hsl-collapse-toggle font-mono"
+      onclick={() => {
+        toningExpanded = !toningExpanded;
+        saveTuningPanelUi();
+      }}
+      title="展開或收合分區調色與底片質感"
+    >
+      <span class="material-symbols-outlined" style="font-size: 14px;">
+        {toningExpanded ? "expand_more" : "chevron_right"}
+      </span>
+      <span class="box-title font-mono" style="margin-bottom: 0;">TONING & TEXTURE</span>
+    </button>
     <button
       type="button"
       class="reset-tuning-btn font-mono"
@@ -504,15 +626,17 @@
     </button>
   </div>
 
+  {#if toningExpanded}
   <!-- Subtractive Color Density -->
   <DarkroomSlider
-    label="COLOR DENSITY (減色密度)"
+    label={darkroomState.monochrome ? "COLOR DENSITY (黑白模式停用)" : "COLOR DENSITY (減色密度)"}
     bind:value={darkroomState.colorDensity}
     defaultValue={0}
     min={-1.0}
     max={1.0}
     step={0.02}
     isBipolar={true}
+    disabled={darkroomState.monochrome}
     formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
     parseInput={parsePercentage}
   />
@@ -543,6 +667,11 @@
   />
 
   <!-- Split Toning: Shadow Hue & Amount -->
+  {#if darkroomState.monochrome}
+    <div class="bw-toning-hint font-mono">
+      暗房調色液 // SPLIT TONING (SELENIUM / SEPIA)
+    </div>
+  {/if}
   <DarkroomSlider
     label="SHADOW HUE (暗部色相)"
     bind:value={darkroomState.shadowHue}
@@ -600,34 +729,46 @@
     formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
     parseInput={parsePercentage}
   />
+  {/if}
 </div>
 
-<!-- 1.8 HSL Color Mixer (6-Band Targeted Color Mixer) -->
+  <!-- 1.8 HSL Color Mixer / B&W Spectral Filter Mix -->
 <div class="telemetry-box hairline-b">
   <div class="tuning-box-header" style="margin-bottom: {hslExpanded ? '10px' : '0'};">
     <button
       type="button"
       class="hsl-collapse-toggle font-mono"
-      onclick={() => (hslExpanded = !hslExpanded)}
-      title="展開或收合 6 段色彩微調 (HSL Color Mixer)"
+      onclick={() => {
+        hslExpanded = !hslExpanded;
+        saveTuningPanelUi();
+      }}
+      title={darkroomState.monochrome
+        ? "展開或收合黑白 6 色光學濾鏡混色器 (B&W Spectral Mix)"
+        : "展開或收合 6 段色彩微調 (HSL Color Mixer)"}
     >
       <span class="material-symbols-outlined" style="font-size: 14px;">
         {hslExpanded ? "expand_more" : "chevron_right"}
       </span>
-      <span class="box-title font-mono" style="margin-bottom: 0;">HSL COLOR MIXER</span>
-      {#if hasAnyHslAdjustment}
-        <span class="hsl-active-badge" title="已有 HSL 色域調整"></span>
+      <span class="box-title font-mono" style="margin-bottom: 0;">
+        {darkroomState.monochrome ? "B&W 濾鏡混色 (SPECTRAL MIX)" : "HSL COLOR MIXER"}
+      </span>
+      {#if darkroomState.monochrome ? hasAnyBwLumAdjustment : hasAnyHslAdjustment}
+        <span class="hsl-active-badge" title="已有色域調整"></span>
       {/if}
     </button>
-    {#if hasAnyHslAdjustment}
+    {#if darkroomState.monochrome ? hasAnyBwLumAdjustment : hasAnyHslAdjustment}
       <button
         type="button"
         class="reset-tuning-btn font-mono"
         onclick={() => {
-          darkroomState.hsl = createDefaultHslAdjustments();
-          darkroomState.recordSnapshot(true);
+          if (darkroomState.monochrome) {
+            darkroomState.applyBwFilterPreset("neutral");
+          } else {
+            darkroomState.hsl = createDefaultHslAdjustments();
+            darkroomState.recordSnapshot(true);
+          }
         }}
-        title="歸零全部 6 段 HSL 調整"
+        title={darkroomState.monochrome ? "歸零黑白光學濾鏡混色權重" : "歸零全部 6 段 HSL 調整"}
       >
         <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
         <span>全部歸零</span>
@@ -636,90 +777,135 @@
   </div>
 
   {#if hslExpanded}
-    <div class="hsl-band-tabs">
+    {#if darkroomState.monochrome}
+      <div class="bw-filter-presets font-mono">
+        {#each BW_FILTER_PRESETS as preset}
+          <button
+            type="button"
+            class="bw-filter-chip"
+            onclick={() => darkroomState.applyBwFilterPreset(preset.key)}
+            title={preset.title}
+          >
+            {preset.label}
+          </button>
+        {/each}
+      </div>
+
       {#each HSL_BAND_META as band}
-        <button
-          type="button"
-          class="hsl-band-tab font-mono"
-          class:active={selectedHslBand === band.key}
-          onclick={() => (selectedHslBand = band.key)}
-          title={`${band.label}色域調整`}
-        >
-          <span class="hsl-dot" style="background: {band.color};"></span>
-          <span>{band.label}</span>
-          {#if isHslBandDirty(band.key)}
-            <span class="hsl-band-dirty-dot"></span>
-          {/if}
-        </button>
+        <DarkroomSlider
+          label={`${band.label} (${band.key.toUpperCase()} 濾鏡明度)`}
+          bind:value={darkroomState.hsl[band.key].lum}
+          defaultValue={0}
+          min={-1.0}
+          max={1.0}
+          step={0.02}
+          isBipolar={true}
+          formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+          parseInput={parsePercentage}
+        />
       {/each}
-    </div>
-
-    <div class="hsl-band-subbar">
-      <span class="font-mono" style="font-size: 10px; color: var(--parchment-dim);">
-        ACTIVE BAND: <strong style="color: {selectedHslMeta.color};">{selectedHslMeta.label} ({selectedHslMeta.key.toUpperCase()})</strong>
-      </span>
-      {#if isHslBandDirty(selectedHslBand)}
-        <button
-          type="button"
-          class="hsl-band-reset font-mono"
-          onclick={() => {
-            darkroomState.hsl[selectedHslBand] = { hue: 0, sat: 0, lum: 0 };
-            darkroomState.recordSnapshot(true);
+    {:else}
+      <div class="hsl-band-tabs">
+        {#each HSL_BAND_META as band}
+          <button
+            type="button"
+            class="hsl-band-tab font-mono"
+            class:active={selectedHslBand === band.key}
+            onclick={() => {
+            selectedHslBand = band.key;
+            saveTuningPanelUi();
           }}
-        >
-          歸零此色
-        </button>
-      {/if}
-    </div>
+            title={`${band.label}色域調整`}
+          >
+            <span class="hsl-dot" style="background: {band.color};"></span>
+            <span>{band.label}</span>
+            {#if isHslBandDirty(band.key)}
+              <span class="hsl-band-dirty-dot"></span>
+            {/if}
+          </button>
+        {/each}
+      </div>
 
-    <DarkroomSlider
-      label="HUE (色相偏移)"
-      bind:value={darkroomState.hsl[selectedHslBand].hue}
-      defaultValue={0}
-      min={-1.0}
-      max={1.0}
-      step={0.02}
-      isBipolar={true}
-      customTrackGradient={selectedHslMeta.hueGradient}
-      formatValue={(v) => {
-        const deg = Math.round(v * 30);
-        return deg > 0 ? `+${deg}°` : `${deg}°`;
-      }}
-      parseInput={(text) => {
-        const num = parseCleanNumber(text);
-        if (num === null) return null;
-        return Math.abs(num) > 1.0 ? Math.max(-1, Math.min(1, num / 30)) : num;
-      }}
-    />
-    <DarkroomSlider
-      label="SATURATION (彩度)"
-      bind:value={darkroomState.hsl[selectedHslBand].sat}
-      defaultValue={0}
-      min={-1.0}
-      max={1.0}
-      step={0.02}
-      isBipolar={true}
-      formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
-      parseInput={parsePercentage}
-    />
-    <DarkroomSlider
-      label="LUMINANCE (明度)"
-      bind:value={darkroomState.hsl[selectedHslBand].lum}
-      defaultValue={0}
-      min={-1.0}
-      max={1.0}
-      step={0.02}
-      isBipolar={true}
-      formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
-      parseInput={parsePercentage}
-    />
+      <div class="hsl-band-subbar">
+        <span class="font-mono" style="font-size: 10px; color: var(--parchment-dim);">
+          ACTIVE BAND: <strong style="color: {selectedHslMeta.color};">{selectedHslMeta.label} ({selectedHslMeta.key.toUpperCase()})</strong>
+        </span>
+        {#if isHslBandDirty(selectedHslBand)}
+          <button
+            type="button"
+            class="hsl-band-reset font-mono"
+            onclick={() => {
+              darkroomState.hsl[selectedHslBand] = { hue: 0, sat: 0, lum: 0 };
+              darkroomState.recordSnapshot(true);
+            }}
+          >
+            歸零此色
+          </button>
+        {/if}
+      </div>
+
+      <DarkroomSlider
+        label="HUE (色相偏移)"
+        bind:value={darkroomState.hsl[selectedHslBand].hue}
+        defaultValue={0}
+        min={-1.0}
+        max={1.0}
+        step={0.02}
+        isBipolar={true}
+        customTrackGradient={selectedHslMeta.hueGradient}
+        formatValue={(v) => {
+          const deg = Math.round(v * 30);
+          return deg > 0 ? `+${deg}°` : `${deg}°`;
+        }}
+        parseInput={(text) => {
+          const num = parseCleanNumber(text);
+          if (num === null) return null;
+          return Math.abs(num) > 1.0 ? Math.max(-1, Math.min(1, num / 30)) : num;
+        }}
+      />
+      <DarkroomSlider
+        label="SATURATION (彩度)"
+        bind:value={darkroomState.hsl[selectedHslBand].sat}
+        defaultValue={0}
+        min={-1.0}
+        max={1.0}
+        step={0.02}
+        isBipolar={true}
+        formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+        parseInput={parsePercentage}
+      />
+      <DarkroomSlider
+        label="LUMINANCE (明度)"
+        bind:value={darkroomState.hsl[selectedHslBand].lum}
+        defaultValue={0}
+        min={-1.0}
+        max={1.0}
+        step={0.02}
+        isBipolar={true}
+        formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+        parseInput={parsePercentage}
+      />
+    {/if}
   {/if}
 </div>
 
 <!-- 2. CROP & GEOMETRY TELEMETRY BOX - 第二順位 -->
 <div class="telemetry-box hairline-b">
-  <div class="tuning-box-header">
-    <div class="box-title font-mono">CROP & GEOMETRY</div>
+  <div class="tuning-box-header" style="margin-bottom: {cropExpanded ? '8px' : '0'};">
+    <button
+      type="button"
+      class="hsl-collapse-toggle font-mono"
+      onclick={() => {
+        cropExpanded = !cropExpanded;
+        saveTuningPanelUi();
+      }}
+      title="展開或收合裁切與幾何校正"
+    >
+      <span class="material-symbols-outlined" style="font-size: 14px;">
+        {cropExpanded ? "expand_more" : "chevron_right"}
+      </span>
+      <span class="box-title font-mono" style="margin-bottom: 0;">CROP & GEOMETRY</span>
+    </button>
     <div style="display: flex; gap: 4px;">
       {#if onQuickAiCrop}
         <button
@@ -757,6 +943,7 @@
     </div>
   </div>
 
+  {#if cropExpanded}
   <!-- Aspect Ratio Presets -->
   <div class="aspect-ratio-row font-mono">
     {#each ["original", "1:1", "4:5", "16:9", "9:16", "free"] as ratio}
@@ -833,9 +1020,126 @@
       <span>重設幾何</span>
     </button>
   </div>
+  {/if}
 </div>
 
 <style>
+  .output-mode-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 9px 16px;
+    background: rgba(12, 13, 16, 0.45);
+  }
+  .output-mode-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .output-style-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 5px;
+    border-top: 1px dashed var(--border-hairline);
+  }
+  .output-style-prefix {
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    color: var(--parchment-muted);
+    white-space: nowrap;
+  }
+  .output-style-name {
+    font-size: 10.5px;
+    color: var(--amber-highlight);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .output-mode-label {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--parchment-dim);
+    white-space: nowrap;
+  }
+  .output-mode-switch {
+    display: inline-flex;
+    background: var(--surface-panel);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+    gap: 2px;
+  }
+  .output-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border: 1px solid transparent;
+    border-radius: calc(var(--radius-sm) - 1px);
+    background: transparent;
+    color: var(--parchment-dim);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .output-mode-btn:hover {
+    color: var(--parchment-bright);
+  }
+  .output-mode-btn.active {
+    background: var(--surface-overlay);
+    border-color: var(--amber-highlight);
+    color: var(--parchment-bright);
+  }
+  .mode-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .mode-dot.color {
+    background: conic-gradient(#e05555, #d9bd45, #52b365, #4e79d9, #e05555);
+  }
+  .mode-dot.mono {
+    background: linear-gradient(135deg, #f3f4f6 0%, #9ca3af 50%, #1f2937 100%);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+  }
+  .bw-toning-hint {
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    color: var(--amber-highlight);
+    opacity: 0.85;
+    margin: 4px 0 8px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border-hairline);
+  }
+  .bw-filter-presets {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+  .bw-filter-chip {
+    padding: 4px 2px;
+    background: var(--surface-panel);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-dim);
+    font-size: 10px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s ease;
+  }
+  .bw-filter-chip:hover {
+    color: var(--parchment-bright);
+    border-color: var(--amber-highlight);
+    background: var(--surface-overlay);
+  }
+
   .telemetry-box {
     padding: 14px 16px;
     box-sizing: border-box;
@@ -983,6 +1287,8 @@
     align-items: center;
     gap: 4px;
     cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .hsl-collapse-toggle:hover {
     color: var(--parchment-bright);

@@ -204,7 +204,8 @@ export function buildStyleInstructionBlock(
   preset?: StylePresetKey | string,
   styleKeywords?: StyleKeywordId[],
   customStylePrompt?: string,
-  customLuts?: CustomLutRecord[]
+  customLuts?: CustomLutRecord[],
+  monochrome?: boolean
 ): {
   instructionBlock: string;
   recommendedProfileSchemaHint: string;
@@ -257,6 +258,9 @@ ${manifest}`;
   if (targetAesthetics.length > 0) {
     baseBlock += `\n\nTarget Aesthetic Intent: ${targetAesthetics.join(', ')}`;
   }
+  if (monochrome) {
+    baseBlock += `\n\nMonochrome Output Mode: ACTIVE (User-selected B&W darkroom output). The 3D LUT tonal curve is preserved and converted to pure monochrome via 6-band spectral luminance weights BEFORE desaturation. In this mode: vibrance and color_density are bypassed; use hsl[band].lum (-1.0 to +1.0) as B&W optical color filter weights (e.g., negative blue/cyan.lum deepens skies, positive orange/red.lum brightens skin); keep shadow_tint_amount and highlight_tint_amount at 0.0 unless subtle darkroom split-toning (selenium/sepia) fits the intent; focus on tonal contrast, blacks, highlights, and silver grain.`;
+  }
   baseBlock += `\n\nWebGL 2.0 Hardware Pipeline Specification:
 1. exposure_compensation: Global luminance scaling before LUT.
 2. lift_shadows: Shadow toe adjustment affecting darkest 40% luminance. Negative deepens blacks; positive lifts blacks.
@@ -297,7 +301,8 @@ export function buildCriticInstructionBlock(
   firstPassInput: string | AiSceneDecision,
   stylePreset?: StylePresetKey,
   styleKeywords?: StyleKeywordId[],
-  customStylePrompt?: string
+  customStylePrompt?: string,
+  monochrome?: boolean
 ): string {
   const isDecisionObj = typeof firstPassInput === 'object' && firstPassInput !== null;
   const firstPassProfile = isDecisionObj ? firstPassInput.recommended_profile : firstPassInput;
@@ -325,12 +330,12 @@ export function buildCriticInstructionBlock(
     const vignette = firstPassInput.vignette ?? 0.0;
     const activeHslEntries = firstPassInput.hsl
       ? HSL_BAND_KEYS.filter((k) => {
-          const b = firstPassInput.hsl?.[k];
-          return b && (Math.abs(b.hue) > 0.01 || Math.abs(b.sat) > 0.01 || Math.abs(b.lum) > 0.01);
-        }).map((k) => {
-          const b = firstPassInput.hsl![k];
-          return `${k}(H:${b.hue.toFixed(2)},S:${b.sat.toFixed(2)},L:${b.lum.toFixed(2)})`;
-        })
+        const b = firstPassInput.hsl?.[k];
+        return b && (Math.abs(b.hue) > 0.01 || Math.abs(b.sat) > 0.01 || Math.abs(b.lum) > 0.01);
+      }).map((k) => {
+        const b = firstPassInput.hsl![k];
+        return `${k}(H:${b.hue.toFixed(2)},S:${b.sat.toFixed(2)},L:${b.lum.toFixed(2)})`;
+      })
       : [];
 
     baselineParamsBlock = `Current Pass 1 Baseline Parameters Applied on Image 2:
@@ -357,6 +362,9 @@ export function buildCriticInstructionBlock(
   const aestheticLine = targetAesthetics.length > 0
     ? `- Target Aesthetic Intent: ${targetAesthetics.join(', ')}. Harmonize all delta adjustments to fulfill this target aesthetic.\n`
     : '';
+  const monochromeLine = monochrome
+    ? `- Monochrome Output Mode: ACTIVE (User-selected B&W output). Image 2 is rendered in monochrome; keep vibrance_delta & color_density_delta at 0.0, use hsl_deltas[band].lum as B&W optical filter refinements, and preserve neutral grayscale unless subtle darkroom split-toning is intended.\n`
+    : '';
 
   let criticPrompt = `You are an elite darkroom quality-control colorist and technical critic.
 You are inspecting TWO images:
@@ -366,7 +374,7 @@ Note: Do not supply positive clarity/sharpness deltas to compensate for proxy re
 
 ${baselineParamsBlock}YOUR MISSION & GUIDELINES:
 - Baseline Film Aesthetic: The designated 3D film profile is "${firstPassProfile}". Maintain and respect this baseline film aesthetic.
-${aestheticLine}- Since you have Image 2 (rendered actual result) as concrete ground truth, supply the necessary Delta adjustments to harmonize exposure, dynamic range, and tonal balance toward the intended aesthetic.
+${aestheticLine}${monochromeLine}- Since you have Image 2 (rendered actual result) as concrete ground truth, supply the necessary Delta adjustments to harmonize exposure, dynamic range, and tonal balance toward the intended aesthetic.
 - Inspect and fine-tune the following parameters (Respecting the hardware shader boundaries):
   1. EXPOSURE & HIGHLIGHT HARMONY (exposure_delta, valid range: -2.0 to 2.0 EV):
      - Evaluate overall luminance and highlight roll-off relative to the target aesthetic.
@@ -523,13 +531,14 @@ Respond ONLY with raw JSON matching this schema:
  * 幾何視角已由前置階段或使用者手動固定，專注於物理動態範圍與色調曲線
  */
 export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions): string {
-  const { exif, stylePreset, styleKeywords, customStylePrompt, customLuts, scope } = options;
+  const { exif, stylePreset, styleKeywords, customStylePrompt, customLuts, scope, monochrome } = options;
 
   const { instructionBlock, recommendedProfileSchemaHint } = buildStyleInstructionBlock(
     stylePreset,
     styleKeywords,
     customStylePrompt,
-    customLuts
+    customLuts,
+    monochrome
   );
 
   // 根據 AiScope 偏好決定啟用的物理通道，若未傳入 scope 則預設全開

@@ -8,6 +8,7 @@ import type { CustomLutRecord } from './customLutService';
 import { HSL_BAND_KEYS, type HslAdjustments } from '../types/photo';
 
 export interface TuningParameters {
+  monochrome?: boolean; // true for darkroom B&W spectral output (default false = color)
   exposure: number;     // -2.0 ~ +2.0 EV
   highlights?: number;  // -1.0 ~ +1.0 Highlight recovery / boost
   contrast: number;     // -1.0 ~ +1.0
@@ -75,6 +76,7 @@ uniform float u_grainAmount;
 uniform float u_vignette;
 uniform vec3 u_hsl[6];
 uniform int u_hasHsl;
+uniform bool u_monochrome;
 
 // Non-linear shadow lift (Toe lift, predominantly affects lower 40% luminance)
 vec3 applyShadowLift(vec3 color, float lift) {
@@ -182,8 +184,8 @@ vec3 applySplitToning(vec3 c, float shHue, float shAmt, float hiHue, float hiAmt
     return res;
 }
 
-// Film Halation (單通道 12-tap 同心雙環取樣：模擬強高光穿透乳劑自片基反射的暖紅橘暈染)
-vec3 applyFilmHalation(vec3 c, vec2 uv, vec2 texSize, float strength) {
+// Film Halation (單通道 12-tap 同心雙環取樣：彩色為紅橘片基反射暈染，黑白模式切換為純銀白高光柔暈)
+vec3 applyFilmHalation(vec3 c, vec2 uv, vec2 texSize, float strength, bool monochrome) {
     if (strength <= 0.001) return c;
     vec2 texel = 1.0 / texSize;
     float resScale = max(1.0, max(texSize.x, texSize.y) / 1000.0);
@@ -226,7 +228,8 @@ vec3 applyFilmHalation(vec3 c, vec2 uv, vec2 texSize, float strength) {
     }
 
     float haloEnergy = energySum / weightSum;
-    vec3 scatter = vec3(1.0, 0.30, 0.06) * (haloEnergy * strength * 0.55);
+    vec3 haloTint = monochrome ? vec3(1.0) : vec3(1.0, 0.30, 0.06);
+    vec3 scatter = haloTint * (haloEnergy * strength * 0.55);
     // Screen 軟疊加防止純白處過度溢位
     return clamp(c + scatter * (1.0 - c), 0.0, 1.0);
 }
@@ -330,28 +333,28 @@ vec3 hslToRgb(vec3 hsl) {
 }
 
 // 6-Band targeted HSL Mixer: red(0), orange(30), yellow(60), green(120), cyan(185), blue(240)
+vec3 sampleHslBandAdj(float deg) {
+    if (deg < 30.0) {
+        return mix(u_hsl[0], u_hsl[1], smoothstep(0.0, 30.0, deg));
+    } else if (deg < 60.0) {
+        return mix(u_hsl[1], u_hsl[2], smoothstep(30.0, 60.0, deg));
+    } else if (deg < 120.0) {
+        return mix(u_hsl[2], u_hsl[3], smoothstep(60.0, 120.0, deg));
+    } else if (deg < 185.0) {
+        return mix(u_hsl[3], u_hsl[4], smoothstep(120.0, 185.0, deg));
+    } else if (deg < 240.0) {
+        return mix(u_hsl[4], u_hsl[5], smoothstep(185.0, 240.0, deg));
+    }
+    return mix(u_hsl[5], u_hsl[0], smoothstep(240.0, 360.0, deg));
+}
+
 vec3 applyHslMixer(vec3 c) {
     if (u_hasHsl == 0) return c;
     vec3 hsl = rgbToHsl(clamp(c, 0.0, 1.0));
     float chromaGate = smoothstep(0.01, 0.12, hsl.y);
     if (chromaGate < 0.0001) return c;
 
-    float deg = hsl.x * 360.0;
-    vec3 adj;
-    if (deg < 30.0) {
-        adj = mix(u_hsl[0], u_hsl[1], smoothstep(0.0, 30.0, deg));
-    } else if (deg < 60.0) {
-        adj = mix(u_hsl[1], u_hsl[2], smoothstep(30.0, 60.0, deg));
-    } else if (deg < 120.0) {
-        adj = mix(u_hsl[2], u_hsl[3], smoothstep(60.0, 120.0, deg));
-    } else if (deg < 185.0) {
-        adj = mix(u_hsl[3], u_hsl[4], smoothstep(120.0, 185.0, deg));
-    } else if (deg < 240.0) {
-        adj = mix(u_hsl[4], u_hsl[5], smoothstep(185.0, 240.0, deg));
-    } else {
-        adj = mix(u_hsl[5], u_hsl[0], smoothstep(240.0, 360.0, deg));
-    }
-
+    vec3 adj = sampleHslBandAdj(hsl.x * 360.0);
     if (abs(adj.x) < 0.0005 && abs(adj.y) < 0.0005 && abs(adj.z) < 0.0005) {
         return c;
     }
@@ -361,6 +364,23 @@ vec3 applyHslMixer(vec3 c) {
     float lWeight = clamp(min(hsl.z, 1.0 - hsl.z) * 2.5, 0.0, 1.0);
     float l = clamp(hsl.z + adj.z * 0.25 * chromaGate * lWeight, 0.0, 1.0);
     return clamp(hslToRgb(vec3(h, s, l)), 0.0, 1.0);
+}
+
+// B&W Darkroom Spectral Mix: apply 6-band luminance filter weights BEFORE grayscale conversion
+vec3 applyMonochromeMix(vec3 c) {
+    float baseLuma = lumaOf(c);
+    if (u_hasHsl == 0) return vec3(baseLuma);
+
+    vec3 hsl = rgbToHsl(clamp(c, 0.0, 1.0));
+    float chromaGate = smoothstep(0.01, 0.12, hsl.y);
+    if (chromaGate < 0.0001) return vec3(baseLuma);
+
+    vec3 adj = sampleHslBandAdj(hsl.x * 360.0);
+    if (abs(adj.z) < 0.0005) return vec3(baseLuma);
+
+    float lWeight = clamp(min(hsl.z, 1.0 - hsl.z) * 2.5, 0.0, 1.0);
+    float lumaShift = adj.z * 0.40 * chromaGate * lWeight;
+    return vec3(clamp(baseLuma + lumaShift, 0.0, 1.0));
 }
 
 // Optical radial vignette with aspect-ratio correction
@@ -412,20 +432,32 @@ void main() {
         color = mix(color, graded, u_intensity);
     }
 
-    // 3.5 Subtractive Color Density (高彩度區域同步加深吸光密度)
-    color = applySubtractiveColorDensity(color, u_colorDensity);
+    // 3.5 & 4. Monochrome B&W Darkroom Branch vs. Color Grading Branch
+    if (u_monochrome) {
+        // 先依 6 色光譜濾鏡權重轉為純灰階（繼承 3D LUT 之階調與對比特性），再調整灰階反差
+        color = applyMonochromeMix(color);
+        if (abs(u_contrast) > 0.001) {
+            float factor = 1.0 + u_contrast * 0.5;
+            color = clamp((color - 0.4) * factor + 0.4, 0.0, 1.0);
+        }
+        color = applyHighlights(color, u_highlights);
+        color = applyBlacks(color, u_blacks);
+    } else {
+        // Subtractive Color Density (高彩度區域同步加深吸光密度)
+        color = applySubtractiveColorDensity(color, u_colorDensity);
 
-    // 4. User Optional Contrast, Highlights, Blacks, Vibrance & 6-Band HSL
-    if (abs(u_contrast) > 0.001) {
-        float factor = 1.0 + u_contrast * 0.5;
-        color = clamp((color - 0.4) * factor + 0.4, 0.0, 1.0);
+        // User Optional Contrast, Highlights, Blacks, Vibrance & 6-Band HSL
+        if (abs(u_contrast) > 0.001) {
+            float factor = 1.0 + u_contrast * 0.5;
+            color = clamp((color - 0.4) * factor + 0.4, 0.0, 1.0);
+        }
+        color = applyHighlights(color, u_highlights);
+        color = applyBlacks(color, u_blacks);
+        color = applyVibrance(color, u_vibrance);
+        color = applyHslMixer(color);
     }
-    color = applyHighlights(color, u_highlights);
-    color = applyBlacks(color, u_blacks);
-    color = applyVibrance(color, u_vibrance);
-    color = applyHslMixer(color);
 
-    // 4.5 Split Toning (分區色調分離：不干擾 Pre-LUT 白平衡與 3D LUT 灰軸校準)
+    // 4.5 Split Toning (分區色調分離：彩色為冷暖偏調，黑白為暗房硒/茶調色液)
     color = applySplitToning(
         color,
         u_shadowHue,
@@ -449,15 +481,18 @@ void main() {
         if (u_sharpness >= 0.0) {
             color += vec3(detailFine * u_sharpness * 2.4);
         } else {
-            vec3 softColor = color + (blurredFine - src.rgb);
+            vec3 softDelta = u_monochrome
+                ? vec3(lumaOf(blurredFine) - l)
+                : (blurredFine - src.rgb);
+            vec3 softColor = color + softDelta;
             color = mix(color, softColor, clamp(-u_sharpness, 0.0, 1.0));
         }
         color += vec3(detailCoarse * u_clarity * 1.25 * midMask);
     }
 
-    // 5.5 Film Halation (高光紅橘漫射，置於 Filmic Roll-off 前讓光暈自然融進高光肩部)
+    // 5.5 Film Halation (高光漫射，置於 Filmic Roll-off 前讓光暈自然融進高光肩部)
     vec2 renderTexSize = vec2(textureSize(u_image, 0));
-    color = applyFilmHalation(color, v_uv, renderTexSize, u_halation);
+    color = applyFilmHalation(color, v_uv, renderTexSize, u_halation, u_monochrome);
 
     // 6. Filmic Soft Highlight Shoulder Roll-off, Optical Vignette & Organic Grain
     color = applyFilmicRollOff(color);
@@ -520,6 +555,7 @@ export class WebglLutRenderer {
   private uVignetteLoc: WebGLUniformLocation | null = null;
   private uHslLoc: WebGLUniformLocation | null = null;
   private uHasHslLoc: WebGLUniformLocation | null = null;
+  private uMonochromeLoc: WebGLUniformLocation | null = null;
 
   public initialize(canvas: HTMLCanvasElement): boolean {
     const gl = canvas.getContext('webgl2', {
@@ -565,6 +601,7 @@ export class WebglLutRenderer {
     this.uVignetteLoc = gl.getUniformLocation(program, 'u_vignette');
     this.uHslLoc = gl.getUniformLocation(program, 'u_hsl');
     this.uHasHslLoc = gl.getUniformLocation(program, 'u_hasHsl');
+    this.uMonochromeLoc = gl.getUniformLocation(program, 'u_monochrome');
 
     gl.useProgram(program);
     gl.uniform1i(this.uImageLoc, 0); // Texture unit 0
@@ -695,6 +732,7 @@ export class WebglLutRenderer {
     gl.uniform1f(this.uShadowLiftLoc, params.shadowLift ?? 0);
     gl.uniform1f(this.uIntensityLoc, params.lutIntensity);
     gl.uniform1i(this.uBypassLutLoc, (params.bypassLut || !targetLutTex) ? 1 : 0);
+    gl.uniform1i(this.uMonochromeLoc, params.monochrome ? 1 : 0);
 
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 6);

@@ -63,6 +63,7 @@ export interface AnalyzeSceneOptions {
   customLuts?: import('./customLutService').CustomLutRecord[];
   renderPreview?: (previewSrc: string, decision: AiSceneDecision) => Promise<string | null>;
   scope?: AiScopePreferences;
+  monochrome?: boolean;
 }
 
 export interface CopywritingPayload {
@@ -335,6 +336,7 @@ export class AiSceneService {
             customLuts: options?.customLuts,
             scope,
             stage: 'colorGrade',
+            monochrome: options?.monochrome,
           });
 
           decision = {
@@ -421,6 +423,7 @@ export class AiSceneService {
             customLuts: options?.customLuts,
             scope,
             stage: 'colorGrade',
+            monochrome: options?.monochrome,
           });
           decision = {
             scene_type: colorDecision.scene_type || 'outdoor_street',
@@ -471,6 +474,7 @@ export class AiSceneService {
             customStylePrompt: options?.customStylePrompt,
             customLuts: options?.customLuts,
             timeoutMs: 180000,
+            monochrome: options?.monochrome,
           });
         }
 
@@ -521,6 +525,7 @@ export class AiSceneService {
                 stylePreset: options.stylePreset,
                 styleKeywords: options.styleKeywords,
                 customStylePrompt: options.customStylePrompt,
+                monochrome: options.monochrome,
               });
 
               // 記錄 Pass 1 原始基準值以供差值對照紀錄

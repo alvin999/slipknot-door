@@ -144,14 +144,16 @@
       ctx.stroke();
     };
 
-    if (displayMode === "rgb") {
+    if (displayMode === "rgb" && !darkroomState.monochrome) {
       ctx.globalCompositeOperation = "screen";
       drawChannel(rShifted, "rgba(224, 108, 117, 0.9)", "rgba(224, 108, 117, 0.2)");
       drawChannel(gShifted, "rgba(152, 195, 121, 0.9)", "rgba(152, 195, 121, 0.2)");
       drawChannel(bShifted, "rgba(97, 175, 239, 0.9)", "rgba(97, 175, 239, 0.2)");
       ctx.globalCompositeOperation = "source-over";
     } else {
-      drawChannel(lumaShifted, "rgba(212, 163, 115, 0.95)", "rgba(212, 163, 115, 0.25)");
+      const stroke = darkroomState.monochrome ? "rgba(229, 231, 235, 0.92)" : "rgba(212, 163, 115, 0.95)";
+      const fill = darkroomState.monochrome ? "rgba(229, 231, 235, 0.22)" : "rgba(212, 163, 115, 0.25)";
+      drawChannel(lumaShifted, stroke, fill);
     }
   }
 
@@ -177,6 +179,7 @@
     const _shd = darkroomState.shadows;
     const _tmp = darkroomState.colorTemp;
     const _tnt = darkroomState.tint;
+    const _mono = darkroomState.monochrome;
     const _mode = displayMode;
     drawHistogram();
   });

@@ -190,7 +190,8 @@ export class GroqAdapter implements IVisionStrategy, ITextStrategy {
       options.stylePreset,
       options.styleKeywords,
       options.customStylePrompt,
-      options.customLuts
+      options.customLuts,
+      options.monochrome
     );
 
     const promptText = `You are a master analog darkroom colorist and curatorial director.
@@ -312,7 +313,8 @@ Respond ONLY with raw JSON matching this schema:
       firstPassDecision,
       options.stylePreset,
       options.styleKeywords,
-      options.customStylePrompt
+      options.customStylePrompt,
+      options.monochrome
     );
 
     let response: Response;

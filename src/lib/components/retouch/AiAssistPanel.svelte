@@ -98,6 +98,16 @@
   const currentCropRationale = $derived(propsAiCropRationale ?? darkroomState.aiCropRationale);
   const currentVisionTags = $derived(propsAiVisionTags ?? aiPipeline.aiVisionTags);
   const currentAiScope = $derived(propsAiScope ?? aiPipeline.aiScope);
+  const aiScopeActiveCount = $derived(
+    [
+      currentAiScope?.lutProfile,
+      currentAiScope?.crop,
+      currentAiScope?.keystone,
+      currentAiScope?.tone,
+      currentAiScope?.whiteBalance,
+      currentAiScope?.filmPhysics !== false,
+    ].filter(Boolean).length,
+  );
   const currentIsScopeOpen = $derived(propsIsAiScopeOpen ?? aiPipeline.isAiScopeOpen);
   const currentCopiedNotice = $derived(propsCopiedLogNotice ?? aiPipeline.copiedLogNotice);
 
@@ -273,7 +283,7 @@
           checklist
         </span>
         <span>
-          AI 職責範圍勾選 ({Object.values(currentAiScope).filter(Boolean).length}/5)
+          AI 職責範圍勾選 ({aiScopeActiveCount}/6)
         </span>
       </div>
       <span
@@ -381,6 +391,41 @@
             </span>
           </button>
         </div>
+        <div class="style-output-sync-bar font-mono">
+          <span class="style-output-sync-label">顯影輸出</span>
+          <div class="style-output-sync-switch" role="group" aria-label="顯影輸出色彩模式">
+            <button
+              type="button"
+              class="style-output-sync-btn"
+              class:active={!darkroomState.monochrome}
+              onclick={() => {
+                if (darkroomState.monochrome) {
+                  darkroomState.monochrome = false;
+                  darkroomState.recordSnapshot(true);
+                }
+              }}
+              title="標準彩色 3D LUT 顯影管線"
+            >
+              <span class="sync-dot color"></span>
+              <span>彩色 COLOR</span>
+            </button>
+            <button
+              type="button"
+              class="style-output-sync-btn"
+              class:active={darkroomState.monochrome}
+              onclick={() => {
+                if (!darkroomState.monochrome) {
+                  darkroomState.monochrome = true;
+                  darkroomState.recordSnapshot(true);
+                }
+              }}
+              title="黑白暗房管線（保留上方所選 LUT 階調曲線，並與右側面板同步）"
+            >
+              <span class="sync-dot mono"></span>
+              <span>黑白 B&W</span>
+            </button>
+          </div>
+        </div>
         <div class="style-card-row custom-scroll" class:is-expanded={isExpandedStyles}>
           {#each styleGradingPresets as preset}
             <button
@@ -406,6 +451,7 @@
             >
               <span
                 class="style-card-swatch"
+                class:is-mono={darkroomState.monochrome && preset.key !== "auto"}
                 style:background={stylePreviewThumbs[preset.key]
                   ? `center / cover no-repeat url(${stylePreviewThumbs[preset.key]})`
                   : preset.key === "auto"
@@ -983,6 +1029,65 @@
     color: var(--amber-highlight);
     background: rgba(212, 163, 115, 0.12);
   }
+  .style-output-sync-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 4px 6px;
+    background: rgba(12, 13, 16, 0.45);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-xs);
+  }
+  .style-output-sync-label {
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    color: var(--parchment-dim);
+    white-space: nowrap;
+  }
+  .style-output-sync-switch {
+    display: inline-flex;
+    gap: 2px;
+    background: var(--surface-panel);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-xs);
+    padding: 2px;
+  }
+  .style-output-sync-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border: 1px solid transparent;
+    border-radius: calc(var(--radius-xs) - 1px);
+    background: transparent;
+    color: var(--parchment-dim);
+    font-size: 9.5px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+  }
+  .style-output-sync-btn:hover {
+    color: var(--parchment-bright);
+  }
+  .style-output-sync-btn.active {
+    background: var(--surface-overlay);
+    border-color: var(--amber-highlight);
+    color: var(--parchment-bright);
+  }
+  .sync-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .sync-dot.color {
+    background: conic-gradient(#e05555, #d9bd45, #52b365, #4e79d9, #e05555);
+  }
+  .sync-dot.mono {
+    background: linear-gradient(135deg, #f3f4f6 0%, #9ca3af 50%, #1f2937 100%);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+  }
   .style-card-row {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -1028,6 +1133,10 @@
     align-items: center;
     justify-content: center;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    transition: filter 0.2s ease;
+  }
+  .style-card-swatch.is-mono {
+    filter: grayscale(1) contrast(1.06);
   }
   .style-card-title {
     font-size: 11px;

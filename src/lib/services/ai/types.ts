@@ -44,6 +44,7 @@ export interface VisionInferenceOptions {
   customLuts?: CustomLutRecord[];
   scope?: AiScopePreferences;
   stage?: 'all' | 'geometry' | 'colorGrade';
+  monochrome?: boolean;
 }
 
 export interface GeometryDecision {
@@ -151,6 +152,7 @@ export interface RefinementInferenceOptions {
   stylePreset?: StylePresetKey;
   styleKeywords?: StyleKeywordId[];
   customStylePrompt?: string;
+  monochrome?: boolean;
 }
 
 export interface RefinementDecision {

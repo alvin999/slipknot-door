@@ -128,6 +128,7 @@ export function cloneHslAdjustments(src?: Partial<Record<HslBandKey, Partial<Hsl
 }
 
 export interface TuningParameters {
+  monochrome?: boolean;   // 黑白暗房輸出模式 (預設 false 為彩色)
   exposure: number;       // EV (-2.00 ~ +2.00)
   contrast: number;       // (-0.8 ~ +0.8)
   highlights?: number;    // (-1.0 ~ +1.0) 高光壓回/提亮

@@ -51,6 +51,7 @@ export interface RenderPhotoOptions {
       blacks?: number;
       vibrance?: number;
       vignette?: number;
+      monochrome?: boolean;
       hsl?: import('../types/photo').HslAdjustments;
     };
     crop?: {
@@ -194,6 +195,7 @@ export class ExportService {
       const profileDefault = options.profileDefaults?.find((p) => p.id === profileId);
 
       const tuning = options.photo.tuning;
+      const monochrome = tuning?.monochrome ?? false;
       const exposure = tuning?.exposure ?? (profileDefault ? profileDefault.evDefault : (options.photo.asShotExposure ?? 0.0));
       const contrast = tuning?.contrast ?? (profileDefault?.contrastDefault ?? 0.0);
       const colorTemp = tuning?.colorTemp ?? (options.photo.asShotTemp ?? 5500);
@@ -229,6 +231,7 @@ export class ExportService {
       this.exportRenderer.setProfile(profileId);
       this.exportRenderer.render(
         {
+          monochrome,
           exposure,
           contrast,
           colorTemp,

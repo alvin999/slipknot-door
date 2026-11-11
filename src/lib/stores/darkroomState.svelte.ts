@@ -18,8 +18,19 @@ import { composeStyleKeywordPrompt, STYLE_KEYWORD_ENTRIES } from "$lib/services/
 
 export type DiffMode = "off" | "split" | "sideBySide";
 export type CropRatioPreset = "original" | "1:1" | "4:5" | "16:9" | "9:16" | "free";
+export type BwFilterPresetKey = "neutral" | "yellow" | "orange" | "red" | "green" | "portrait";
+
+const BW_FILTER_LUM_PRESETS: Record<BwFilterPresetKey, Record<keyof HslAdjustments, number>> = {
+  neutral: { red: 0, orange: 0, yellow: 0, green: 0, cyan: 0, blue: 0 },
+  yellow: { red: 0.15, orange: 0.25, yellow: 0.30, green: 0.05, cyan: -0.20, blue: -0.35 },
+  orange: { red: 0.30, orange: 0.35, yellow: 0.20, green: -0.15, cyan: -0.35, blue: -0.55 },
+  red: { red: 0.45, orange: 0.30, yellow: 0.10, green: -0.35, cyan: -0.55, blue: -0.80 },
+  green: { red: -0.25, orange: 0.10, yellow: 0.25, green: 0.40, cyan: 0.15, blue: -0.15 },
+  portrait: { red: 0.20, orange: 0.42, yellow: 0.25, green: -0.10, cyan: -0.15, blue: -0.25 },
+};
 
 export interface DarkroomHistorySnapshot {
+  monochrome: boolean;
   exposure: number;
   highlights: number;
   contrast: number;
@@ -95,6 +106,9 @@ export class DarkroomStateStore {
   get canRedo(): boolean {
     return this.historyIndex >= 0 && this.historyIndex < this.historyStack.length - 1;
   }
+
+  // 顯影輸出模式 (預設 false = 彩色；true = 黑白暗房管線)
+  monochrome = $state<boolean>(false);
 
   // 基礎光影控制 (Tonal Parameters)
   exposure = $state<number>(0.0);
@@ -297,6 +311,7 @@ export class DarkroomStateStore {
    * 重設調色參數為標準值
    */
   resetTuningParams(): void {
+    this.monochrome = false;
     this.exposure = 0.0;
     this.contrast = 0.0;
     this.highlights = 0.0;
@@ -328,6 +343,7 @@ export class DarkroomStateStore {
    */
   resetToAsShot(photo: PhotoPlateItem | null): void {
     if (!photo) return;
+    this.monochrome = false;
     this.exposure = photo.asShotExposure ?? 0.0;
     this.contrast = 0.0;
     this.highlights = 0.0;
@@ -362,6 +378,7 @@ export class DarkroomStateStore {
    */
   captureSnapshot(): DarkroomHistorySnapshot {
     return {
+      monochrome: this.monochrome,
       exposure: this.exposure,
       highlights: this.highlights,
       contrast: this.contrast,
@@ -400,6 +417,7 @@ export class DarkroomStateStore {
    */
   applySnapshot(snap: DarkroomHistorySnapshot): void {
     this.isTraversingHistory = true;
+    this.monochrome = snap.monochrome;
     this.exposure = snap.exposure;
     this.highlights = snap.highlights;
     this.contrast = snap.contrast;
@@ -498,6 +516,7 @@ export class DarkroomStateStore {
     );
     return (
       hslEqual &&
+      a.monochrome === b.monochrome &&
       Math.abs(a.exposure - b.exposure) < 0.001 &&
       Math.abs(a.highlights - b.highlights) < 0.001 &&
       Math.abs(a.contrast - b.contrast) < 0.001 &&
@@ -551,6 +570,20 @@ export class DarkroomStateStore {
   }
 
   /**
+   * 套用黑白暗房光學色鏡預設 (更新 6 區段灰階明度權重，並保留既有色相與彩度)
+   */
+  applyBwFilterPreset(presetKey: BwFilterPresetKey): void {
+    const preset = BW_FILTER_LUM_PRESETS[presetKey];
+    if (!preset) return;
+    const next = cloneHslAdjustments(this.hsl);
+    for (const k of HSL_BAND_KEYS) {
+      next[k].lum = preset[k];
+    }
+    this.hsl = next;
+    this.recordSnapshot(true);
+  }
+
+  /**
    * 單項參數雙擊歸零專用方法
    */
   resetExposure(): void { this.exposure = 0.0; this.recordSnapshot(true); }
@@ -566,6 +599,7 @@ export class DarkroomStateStore {
 
   loadFromPhoto(photo: PhotoPlateItem): void {
     if (photo.tuning) {
+      this.monochrome = photo.tuning.monochrome ?? false;
       this.exposure = photo.tuning.exposure;
       this.highlights = photo.tuning.highlights ?? 0;
       this.contrast = photo.tuning.contrast;
@@ -587,6 +621,7 @@ export class DarkroomStateStore {
       this.vignette = photo.tuning.vignette ?? 0;
       this.hsl = cloneHslAdjustments(photo.tuning.hsl);
     } else {
+      this.monochrome = false;
       this.exposure = photo.asShotExposure ?? 0.0;
       this.highlights = 0.0;
       this.contrast = 0.0;
@@ -643,6 +678,7 @@ export class DarkroomStateStore {
 
     return (
       isDefaultHsl &&
+      !this.monochrome &&
       Math.abs(this.exposure - asShotExp) < 0.001 &&
       Math.abs(this.highlights - 0.0) < 0.001 &&
       Math.abs(this.contrast - 0.0) < 0.001 &&
@@ -671,6 +707,7 @@ export class DarkroomStateStore {
       return undefined;
     }
     return {
+      monochrome: this.monochrome,
       exposure: this.exposure,
       highlights: this.highlights,
       contrast: this.contrast,
@@ -792,6 +829,7 @@ export class DarkroomStateStore {
     this.copiedTuning = {
       appliedProfile,
       tuning: {
+        monochrome: this.monochrome,
         exposure: this.exposure,
         highlights: this.highlights,
         contrast: this.contrast,
@@ -822,6 +860,7 @@ export class DarkroomStateStore {
   pasteCopiedTuning(): { appliedProfile: string; tuning: TuningParameters } | null {
     if (!this.copiedTuning) return null;
     const { appliedProfile, tuning } = this.copiedTuning;
+    this.monochrome = tuning.monochrome ?? false;
     this.exposure = tuning.exposure;
     this.highlights = tuning.highlights ?? 0.0;
     this.contrast = tuning.contrast;

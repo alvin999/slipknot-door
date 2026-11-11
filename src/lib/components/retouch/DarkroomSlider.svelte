@@ -17,6 +17,7 @@
     step: number;
     isBipolar?: boolean;
     amberValue?: boolean;
+    disabled?: boolean;
     customTrackGradient?: string;
     formatValue?: (val: number) => string;
     parseInput?: (text: string) => number | null;
@@ -31,6 +32,7 @@
     step,
     isBipolar = false,
     amberValue = false,
+    disabled = false,
     customTrackGradient,
     formatValue,
     parseInput,
@@ -46,12 +48,13 @@
 
   // 重設為預設值（點兩下歸零）
   function resetToDefault() {
+    if (disabled) return;
     value = defaultValue;
   }
 
   // 滑鼠滾輪懸停微調
   function handleWheel(e: WheelEvent) {
-    if (isEditing) return;
+    if (disabled || isEditing) return;
     e.preventDefault();
     const direction = e.deltaY < 0 ? 1 : -1;
     let multiplier = 1;
@@ -74,6 +77,7 @@
 
   // 啟動就地文字編輯
   function startEditing() {
+    if (disabled) return;
     isEditing = true;
     editInputText = formatValue ? formatValue(value).replace(/[^0-9.-]/g, "") : String(value);
     setTimeout(() => {
@@ -144,6 +148,7 @@
 
 <div
   class="control-row"
+  class:is-disabled={disabled}
   onwheel={handleWheel}
   role="region"
   aria-label={label}
@@ -205,11 +210,12 @@
       {min}
       {max}
       {step}
+      {disabled}
       bind:value
       ondblclick={resetToDefault}
       class="darkroom-slider"
       style:background={trackBackground}
-      title="拖曳滑動，懸停滾輪微調，點兩下歸零"
+      title={disabled ? "黑白模式下停用此色彩通道" : "拖曳滑動，懸停滾輪微調，點兩下歸零"}
     />
     {#if isBipolar}
       <!-- 中心 0 刻度指示點 -->
@@ -226,6 +232,10 @@
   .control-row {
     margin-bottom: 12px;
     user-select: none;
+  }
+  .control-row.is-disabled {
+    opacity: 0.36;
+    pointer-events: none;
   }
 
   .control-header {

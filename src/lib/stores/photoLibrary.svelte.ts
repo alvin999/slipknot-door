@@ -59,6 +59,7 @@ export interface PhotoPlateItem {
     blacks?: number;
     vibrance?: number;
     vignette?: number;
+    monochrome?: boolean;
     hsl?: import("$lib/types/photo").HslAdjustments;
   };
 }

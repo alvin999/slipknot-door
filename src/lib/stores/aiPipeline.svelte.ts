@@ -6,6 +6,12 @@
  */
 
 import type { AiScopePreferences } from "$lib/types/photo";
+import {
+  AI_PANEL_UI_STORAGE_KEY,
+  DEFAULT_AI_PANEL_UI_STATE,
+  readLocalJson,
+  updateLocalJson,
+} from "$lib/utils/panelStorage";
 
 export const AI_SCOPE_STORAGE_KEY = "slipknot_ai_scope_prefs";
 
@@ -41,7 +47,9 @@ export function loadInitialAiScope(): AiScopePreferences {
 export class AiPipelineStore {
   // AI 職責範圍偏好矩陣 (AI Scope Matrix)
   aiScope = $state<AiScopePreferences>(loadInitialAiScope());
-  isAiScopeOpen = $state<boolean>(false);
+  isAiScopeOpen = $state<boolean>(
+    Boolean(readLocalJson(AI_PANEL_UI_STORAGE_KEY, DEFAULT_AI_PANEL_UI_STATE).isAiScopeOpen)
+  );
 
   // AI 推論與批次排程狀態
   isAiAnalyzing = $state<boolean>(false);
@@ -138,6 +146,18 @@ export class AiPipelineStore {
     this.aiStyleInsight = "";
     this.aiRecommendedMood = "";
     this.aiRecommendedProfile = "";
+  }
+
+  /**
+   * 切換並持久化 AI 職責範圍面板開關狀態
+   */
+  toggleAiScopeOpen(): boolean {
+    const next = !this.isAiScopeOpen;
+    this.isAiScopeOpen = next;
+    updateLocalJson(AI_PANEL_UI_STORAGE_KEY, DEFAULT_AI_PANEL_UI_STATE, {
+      isAiScopeOpen: next,
+    });
+    return next;
   }
 }
 
