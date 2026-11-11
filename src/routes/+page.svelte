@@ -72,26 +72,60 @@
   });
   let hasKey = $state<boolean>(false);
 
-  // Hardware Ingestion State
-  let cameraMounts = $state<CameraMountInfo[]>([]);
-  let isScanningMounts = $state<boolean>(false);
-  let latestExtractionMs = $state<number>(18);
+  // Hardware & Photo Library State (由 photoLibrary Store 統一管理)
+  type PhotoPlate = import("$lib/stores/photoLibrary.svelte").PhotoPlateItem;
+  const photoPlates = $derived(photoLibrary.photoPlates);
+  const activePhoto = $derived(photoLibrary.activePhoto);
+  const isLoadingPhotos = $derived(photoLibrary.isLoadingPhotos);
+  const currentDirectoryName = $derived(photoLibrary.currentDirectoryName);
+  const cameraMounts = $derived(photoLibrary.cameraMounts);
+  const isScanningMounts = $derived(photoLibrary.isScanningMounts);
+  const latestExtractionMs = $derived(photoLibrary.latestExtractionMs);
 
   onMount(() => {
     refreshCameraMounts();
     refreshKeyStatus();
 
+    photoLibrary.onCatalogLoaded = () => {
+      activeTab = "catalog";
+    };
+
+    photoLibrary.onPhotoSelected = (plate) => {
+      // 載入當前選中相片的專屬 AI 決策與場景 Label (若尚未分析則顯示初始狀態)
+      if (plate.aiDecision) {
+        aiSuggestedScene = `${plate.aiDecision.scene_type} (視覺即時判讀)`;
+        aiSceneTitle =
+          plate.aiDecision.scene_title || plate.aiDecision.scene_type;
+        aiStyleInsight = plate.aiDecision.style_insight || "";
+        aiRecommendedMood = plate.aiDecision.recommended_mood || "";
+        aiRecommendedProfile =
+          plate.aiDecision.recommended_profile || plate.appliedProfile;
+        aiVisionTags = plate.aiDecision.tags || [];
+      } else {
+        aiSuggestedScene = "尚未分析";
+        aiSceneTitle =
+          plate.sceneTag && plate.sceneTag !== "本機相簿幀"
+            ? plate.sceneTag
+            : "";
+        aiStyleInsight = "";
+        aiRecommendedMood = "";
+        aiRecommendedProfile =
+          plate.appliedProfile || "Profile_00_StandardNatural";
+        aiVisionTags = [];
+      }
+    };
+
     // 註冊離屏縮圖渲染完成後的狀態同步回呼
     thumbnailRenderService.onThumbnailRendered = (photoId, dataUrl) => {
-      photoPlates = photoPlates.map((p) =>
+      photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
         p.id === photoId ? { ...p, gradedThumbnail: dataUrl } : p,
       );
       if (
-        activePhoto &&
-        activePhoto.id === photoId &&
-        activePhoto.gradedThumbnail !== dataUrl
+        photoLibrary.activePhoto &&
+        photoLibrary.activePhoto.id === photoId &&
+        photoLibrary.activePhoto.gradedThumbnail !== dataUrl
       ) {
-        activePhoto.gradedThumbnail = dataUrl;
+        photoLibrary.activePhoto.gradedThumbnail = dataUrl;
       }
     };
 
@@ -129,74 +163,8 @@
   }
 
   async function refreshCameraMounts() {
-    isScanningMounts = true;
-    try {
-      cameraMounts = await IngestionService.detectMounts();
-    } finally {
-      isScanningMounts = false;
-    }
+    await photoLibrary.refreshCameraMounts();
   }
-
-  // Photographic Plate Interface
-  interface PhotoPlate {
-    id: string;
-    frameNo: string;
-    filename: string;
-    camera: string;
-    lens: string;
-    iso: number;
-    shutter: string;
-    aperture: string;
-    focalLength: string;
-    thumbnail: string;
-    sceneTag: string;
-    selected: boolean;
-    flagged?: boolean;
-    appliedProfile: string;
-    fileHandle?: File;
-    filePath?: string;
-    gradedThumbnail?: string;
-    exposureBias?: number;
-    exposureProgram?: string;
-    meteringMode?: string;
-    colorSpace?: string;
-    flash?: string;
-    asShotTemp?: number;
-    asShotTint?: number;
-    asShotExposure?: number;
-    crop?: CropGeometry;
-    aiDecision?: AiSceneDecision;
-    aiTuningSnapshot?: AiTuningSnapshot;
-    tuning?: {
-      exposure: number;
-      contrast: number;
-      shadows?: number;
-      lutIntensity: number;
-      colorTemp: number;
-      tint: number;
-      clarity?: number;
-      sharpness?: number;
-      colorDensity?: number;
-      shadowHue?: number;
-      shadowTintAmount?: number;
-      highlightHue?: number;
-      highlightTintAmount?: number;
-      halation?: number;
-      grainAmount?: number;
-      highlights?: number;
-      blacks?: number;
-      vibrance?: number;
-      vignette?: number;
-      monochrome?: boolean;
-      hsl?: HslAdjustments;
-    };
-  }
-
-  let photoPlates = $state<PhotoPlate[]>([]);
-  let activePhoto = $state<PhotoPlate | null>(null);
-  let isLoadingPhotos = $state<boolean>(false);
-  let photoLoadToken = 0;
-  let currentDirectoryName = $state<string>("");
 
   // 專業暗房光影與色彩參數由 darkroomState 作為單一真相來源
   type DiffMode = "off" | "split" | "sideBySide";
@@ -269,7 +237,7 @@
     }
 
     activePhoto.crop = targetCrop;
-    photoPlates = photoPlates.map((p) =>
+    photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
       p.id === activePhoto!.id
         ? {
             ...p,
@@ -343,95 +311,24 @@
   let copyNotice = $state<string>("");
 
   // Curatorial Queue: 若有標記挑圖 (flagged)，精修與匯出僅聚焦選取的相片；若無選取則全部顯示
-  let activeQueue = $derived<PhotoPlate[]>(
-    photoPlates.filter((p) => p.flagged).length > 0
-      ? photoPlates.filter((p) => p.flagged)
-      : photoPlates,
-  );
-
-  let flaggedCount = $derived<number>(
-    photoPlates.filter((p) => p.flagged).length,
-  );
-
-  let flaggedPhotos = $derived<PhotoPlate[]>(
-    photoPlates.filter((p) => p.flagged),
-  );
+  const activeQueue = $derived(photoLibrary.activeQueue);
+  const flaggedCount = $derived(photoLibrary.flaggedCount);
+  const flaggedPhotos = $derived(photoLibrary.flaggedPhotos);
 
   function togglePhotoFlag(photo: PhotoPlate, event?: MouseEvent) {
-    if (event) event.stopPropagation();
-    photo.flagged = !photo.flagged;
-    photoPlates = [...photoPlates];
+    photoLibrary.togglePhotoFlag(photo, event);
   }
 
   function clearAllFlags() {
-    photoPlates.forEach((p) => (p.flagged = false));
-    photoPlates = [...photoPlates];
+    photoLibrary.clearAllFlags();
   }
 
   function handleFlagToggled() {
-    photoPlates = [...photoPlates];
+    photoLibrary.handleFlagToggled();
   }
 
   function selectPhoto(plate: PhotoPlate) {
-    // 記憶前一張相片的自訂調色與裁切狀態（僅在有實質調整且與原儲存不同時寫入）
-    if (activePhoto && activePhoto.id !== plate.id) {
-      const currentPlate = photoPlates.find((p) => p.id === activePhoto!.id);
-      const targetTuning = darkroomState.buildTuningSnapshot(
-        activePhoto as any,
-      );
-      const targetCrop = darkroomState.buildCropSnapshot();
-
-      const tuningChanged =
-        JSON.stringify(currentPlate?.tuning) !== JSON.stringify(targetTuning);
-      const cropChanged =
-        JSON.stringify(currentPlate?.crop) !== JSON.stringify(targetCrop);
-
-      if (tuningChanged) {
-        activePhoto.tuning = targetTuning;
-      }
-      if (cropChanged) {
-        activePhoto.crop = targetCrop;
-      }
-
-      if (tuningChanged || cropChanged) {
-        photoPlates = photoPlates.map((p) =>
-          p.id === activePhoto!.id
-            ? { ...p, tuning: activePhoto!.tuning, crop: activePhoto!.crop }
-            : p,
-        );
-      }
-    }
-
-    activePhoto = plate;
-    photoPlates.forEach((p) => (p.selected = p.id === plate.id));
-
-    // 載入當前選中相片的專屬調色與裁切狀態至 darkroomState
-    darkroomState.loadFromPhoto(plate as any);
-
-    // 載入當前選中相片的專屬 AI 決策與場景 Label (若尚未分析則顯示初始狀態)
-    if (plate.aiDecision) {
-      aiSuggestedScene = `${plate.aiDecision.scene_type} (視覺即時判讀)`;
-      aiSceneTitle =
-        plate.aiDecision.scene_title || plate.aiDecision.scene_type;
-      aiStyleInsight = plate.aiDecision.style_insight || "";
-      aiRecommendedMood = plate.aiDecision.recommended_mood || "";
-      aiRecommendedProfile =
-        plate.aiDecision.recommended_profile || plate.appliedProfile;
-      aiVisionTags = plate.aiDecision.tags || [];
-    } else {
-      aiSuggestedScene = "尚未分析";
-      aiSceneTitle =
-        plate.sceneTag && plate.sceneTag !== "本機相簿幀" ? plate.sceneTag : "";
-      aiStyleInsight = "";
-      aiRecommendedMood = "";
-      aiRecommendedProfile =
-        plate.appliedProfile || "Profile_00_StandardNatural";
-      aiVisionTags = [];
-    }
-
-    // 雙向同步至全域領域 Store
-    photoLibrary.activePhoto = plate as any;
-    photoLibrary.photoPlates = photoPlates as any;
+    photoLibrary.selectPhoto(plate);
   }
 
   // 自動持久化相卷工作區進度至本機快取 (Session Auto-Persistence)
@@ -524,12 +421,7 @@
 
   // 在精修佇列中循環切換上一張/下一張相片
   function selectAdjacentPhoto(delta: number) {
-    if (activeQueue.length === 0) return;
-    const currentIndex = activeQueue.findIndex((p) => p.id === activePhoto?.id);
-    let nextIndex = currentIndex + delta;
-    if (nextIndex < 0) nextIndex = activeQueue.length - 1;
-    if (nextIndex >= activeQueue.length) nextIndex = 0;
-    selectPhoto(activeQueue[nextIndex]);
+    photoLibrary.selectAdjacentPhoto(delta);
   }
 
   // 全域工作流程導航與精修鍵盤操作 (方案 A 流水線)
@@ -694,10 +586,7 @@
   function applyProfile(profileId: string) {
     if (!activePhoto) return;
     activePhoto.appliedProfile = profileId;
-    if (photoLibrary.activePhoto) {
-      photoLibrary.activePhoto.appliedProfile = profileId;
-    }
-    photoPlates = photoPlates.map((p) =>
+    photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
       p.id === activePhoto!.id ? { ...p, appliedProfile: profileId } : p,
     );
     darkroomState.applyProfileDefaults(profileId);
@@ -706,7 +595,7 @@
   }
 
   function applyProfileToAll(profileId: string) {
-    photoPlates.forEach((p) => {
+    photoLibrary.photoPlates.forEach((p) => {
       p.appliedProfile = profileId;
       enqueueThumbnailRender(p);
     });
@@ -843,7 +732,7 @@
 
     activePhoto.tuning = targetTuning;
 
-    photoPlates = photoPlates.map((p) =>
+    photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
       p.id === activePhoto!.id
         ? {
             ...p,
@@ -954,7 +843,7 @@
       activePhoto.aiDecision = undefined;
       activePhoto.aiTuningSnapshot = undefined;
       activePhoto.sceneTag = "本機相簿幀";
-      photoPlates = photoPlates.map((p) =>
+      photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
         p.id === activePhoto!.id
           ? {
               ...p,
@@ -985,545 +874,48 @@
     });
   }
 
-  async function loadPhotosFromItems(
-    items: import("$lib/services/ingestionService").RawPhotoItem[],
-    append = false,
-  ) {
-    if (items.length > 0) {
-      if (!append) {
-        // 清理前一個相卷所佔用的 Blob URL，防止記憶體洩漏
-        IngestionService.revokeAllBlobUrls();
-      }
-      const isTauriEnv = IngestionService.isTauri();
-
-      // 追加模式下，過濾掉已存在於目前相卷中的相片（以檔名比對）
-      let itemsToLoad = items;
-      if (append && photoPlates.length > 0) {
-        const existingNames = new Set(photoPlates.map((p) => p.filename));
-        itemsToLoad = items.filter((item) => !existingNames.has(item.filename));
-        if (itemsToLoad.length === 0) {
-          toastStore.show("所選相片均已在相卷中，未有新增相片", "info", 2500);
-          return;
-        }
-      }
-
-      const startIndex = append ? photoPlates.length : 0;
-      // Step 1: Instant zero-latency initialization (< 5ms) for all frames
-      const loaded: PhotoPlate[] = itemsToLoad.map((item, i) => {
-        let directUrl = "";
-        if (item.fileHandle) {
-          if (item.extension === "jpg" || item.extension === "jpeg") {
-            directUrl = IngestionService.createTrackedBlobUrl(item.fileHandle);
-          }
-        } else if (!isTauriEnv && item.file_path) {
-          directUrl = `/api/extract-preview?path=${encodeURIComponent(item.file_path)}`;
-        }
-        const frameIdx = startIndex + i + 1;
-        return {
-          id: `photo_${frameIdx}_${Date.now()}`,
-          frameNo: item.frame_no || `${String(frameIdx).padStart(2, "0")}A`,
-          filename: item.filename,
-          camera: `${item.extension.toUpperCase()} 底片`,
-          lens: "標準光學鏡頭",
-          iso: 100,
-          shutter: "--",
-          aperture: "--",
-          focalLength: "--",
-          thumbnail: directUrl,
-          sceneTag: "本機相簿幀",
-          selected: !append && i === 0,
-          appliedProfile: "Profile_00_StandardNatural",
-          fileHandle: item.fileHandle,
-          filePath: item.file_path,
-        };
-      });
-
-      if (append) {
-        photoPlates = [...photoPlates, ...loaded];
-        if (!activePhoto && photoPlates.length > 0) {
-          activePhoto = photoPlates[0];
-          photoPlates[0].selected = true;
-        }
-        photoLibrary.photoPlates = photoPlates as any;
-        toastStore.show(
-          `已成功追加 ${loaded.length} 幀底片 ✓`,
-          "success",
-          2500,
-        );
-      } else {
-        const restoredCount = SessionService.restoreSession(
-          currentDirectoryName,
-          loaded,
-        );
-        photoPlates = loaded;
-        activePhoto = loaded[0];
-        photoLibrary.photoPlates = loaded as any;
-        photoLibrary.activePhoto = loaded[0] as any;
-        activeTab = "catalog"; // Switch to catalog grid view immediately
-        if (restoredCount > 0) {
-          toastStore.show(
-            `已自動恢復 ${restoredCount} 幀底片的挑圖與調色進度 ✓`,
-            "info",
-            3500,
-          );
-        }
-      }
-
-      // Step 2: Progressive enhancement for EXIF and thumbnails with controlled concurrency worker pool
-      // Limits simultaneous I/O to avoid blocking system or network FUSE pipelines while keeping UI responsive
-      const currentToken = ++photoLoadToken;
-      const CONCURRENCY = 3;
-      let nextIndex = 0;
-
-      const runWorker = async () => {
-        while (nextIndex < itemsToLoad.length) {
-          if (currentToken !== photoLoadToken) return;
-          const i = nextIndex++;
-          const item = itemsToLoad[i];
-          const plateIndex = startIndex + i;
-          if (
-            !photoPlates[plateIndex]?.thumbnail ||
-            isTauriEnv ||
-            item.fileHandle
-          ) {
-            try {
-              const preview = await IngestionService.extractPreview(
-                item.file_path,
-                item.fileHandle,
-              );
-              if (currentToken !== photoLoadToken) return;
-              if (photoPlates[plateIndex]) {
-                if (preview.blob_url || preview.jpeg_base64) {
-                  photoPlates[plateIndex].thumbnail =
-                    preview.blob_url ||
-                    `data:image/jpeg;base64,${preview.jpeg_base64}`;
-                  if (
-                    photoPlates[plateIndex].appliedProfile &&
-                    photoPlates[plateIndex].appliedProfile !==
-                      "Profile_00_StandardNatural"
-                  ) {
-                    enqueueThumbnailRender(photoPlates[plateIndex]);
-                  }
-                }
-                photoPlates[plateIndex].camera =
-                  preview.exif.camera_model || photoPlates[plateIndex].camera;
-                photoPlates[plateIndex].lens =
-                  preview.exif.lens_model || photoPlates[plateIndex].lens;
-                photoPlates[plateIndex].iso =
-                  preview.exif.iso || photoPlates[plateIndex].iso;
-                photoPlates[plateIndex].shutter =
-                  preview.exif.shutter_speed || photoPlates[plateIndex].shutter;
-                photoPlates[plateIndex].aperture =
-                  preview.exif.aperture || photoPlates[plateIndex].aperture;
-                photoPlates[plateIndex].focalLength =
-                  preview.exif.focal_length ||
-                  photoPlates[plateIndex].focalLength;
-                photoPlates[plateIndex].exposureBias =
-                  preview.exif.exposure_bias ?? 0.0;
-                photoPlates[plateIndex].exposureProgram =
-                  preview.exif.exposure_program || "標準自動";
-                photoPlates[plateIndex].meteringMode =
-                  preview.exif.metering_mode || "多重測光";
-                photoPlates[plateIndex].colorSpace =
-                  preview.exif.color_space || "sRGB";
-                photoPlates[plateIndex].flash = preview.exif.flash || "未擊發";
-                photoPlates[plateIndex].asShotTemp =
-                  preview.exif.color_temp ?? 5500;
-                photoPlates[plateIndex].asShotTint = preview.exif.tint ?? 0;
-                photoPlates[plateIndex].asShotExposure =
-                  preview.exif.exposure_bias ?? 0.0;
-                latestExtractionMs = preview.extraction_time_ms || 18;
-
-                // 若剛好是當前活躍檢視相片，且尚未調整過，立即同步載入相機拍攝原值
-                if (
-                  activePhoto &&
-                  activePhoto.id === photoPlates[plateIndex].id &&
-                  !activePhoto.tuning
-                ) {
-                  activePhoto = { ...photoPlates[plateIndex] };
-                  darkroomState.colorTemp =
-                    photoPlates[plateIndex].asShotTemp ?? 5500;
-                  darkroomState.tint =
-                    photoPlates[plateIndex].asShotTint ?? 0.0;
-                  darkroomState.exposure =
-                    photoPlates[plateIndex].asShotExposure ?? 0.0;
-                }
-              }
-            } catch (err) {
-              console.warn(`[+page] 解析相片預覽失敗 (${item.filename}):`, err);
-            }
-          }
-        }
-      };
-
-      const workerCount = Math.min(itemsToLoad.length, CONCURRENCY);
-      for (let w = 0; w < workerCount; w++) {
-        runWorker();
-      }
-    }
-  }
-
-  // ── 相片工作區排除與復原機制 (Photo Workspace Removal & Undo) ──
-  interface RemovedPhotoItemSnapshot {
-    photo: PhotoPlate;
-    originalIndex: number; // 記錄排除前在相卷中的原始索引位置
-  }
-  interface RemovedPhotosSnapshot {
-    items: RemovedPhotoItemSnapshot[];
-    prevActiveId: string | null;
-  }
-  let lastRemovedSnapshot = $state<RemovedPhotosSnapshot | null>(null);
-
   async function handleDeletePhotoFromDisk(photo: PhotoPlate) {
-    await handleBatchDeletePhotosFromDisk([photo]);
+    await photoLibrary.handleDeletePhotoFromDisk(photo);
   }
 
   async function handleBatchDeletePhotosFromDisk(photos: PhotoPlate[]) {
-    if (!photos || photos.length === 0) return;
-
-    const count = photos.length;
-    const names =
-      photos
-        .slice(0, 3)
-        .map((p) => p.filename)
-        .join("、") + (count > 3 ? ` 等共 ${count} 幀` : "");
-
-    let confirmed = false;
-    if (IngestionService.isTauri()) {
-      try {
-        const { confirm } = await import("@tauri-apps/plugin-dialog");
-        confirmed = await confirm(
-          `確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`,
-          {
-            title: "磁碟實體刪除確認",
-            kind: "warning",
-            okLabel: "移至回收筒",
-            cancelLabel: "取消",
-          },
-        );
-      } catch (err) {
-        console.warn(
-          "Tauri confirm dialog failed, fallback to window.confirm:",
-          err,
-        );
-        confirmed = window.confirm(
-          `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`,
-        );
-      }
-    } else {
-      confirmed = window.confirm(
-        `⚠️ 【磁碟實體刪除確認】\n\n確定要將以下底片自電腦磁碟刪除（移至資源回收筒 / 廢紙簍）嗎？\n\n${names}\n\n此操作將從磁碟移除檔案！`,
-      );
-    }
-    if (!confirmed) return;
-
-    let deletedCount = 0;
-    let failedCount = 0;
-
-    for (const p of photos) {
-      if (p.filePath) {
-        try {
-          await IngestionService.deleteDiskFile(p.filePath);
-          deletedCount++;
-        } catch (err) {
-          console.error(`刪除磁碟檔案失敗 (${p.filePath}):`, err);
-          failedCount++;
-        }
-      } else {
-        failedCount++;
-      }
-    }
-
-    // 磁碟刪除成功後，直接自相卷清單移除（切勿呼叫 handleBatchRemovePhotos，以避免產生復原棧與排除提示）
-    const idSet = new Set(photos.map((p) => p.id));
-    let nextActive: PhotoPlate | null = activePhoto;
-    if (activePhoto && idSet.has(activePhoto.id)) {
-      const remaining = photoPlates.filter((p) => !idSet.has(p.id));
-      if (remaining.length > 0) {
-        const curIndex = photoPlates.findIndex((p) => p.id === activePhoto!.id);
-        const nextIndex = Math.min(curIndex, remaining.length - 1);
-        nextActive = remaining[Math.max(0, nextIndex)];
-        nextActive.selected = true;
-      } else {
-        nextActive = null;
-      }
-    }
-    photoPlates = photoPlates.filter((p) => !idSet.has(p.id));
-    activePhoto = nextActive;
-    photoLibrary.photoPlates = photoPlates as any;
-    photoLibrary.activePhoto = activePhoto as any;
-
-    if (deletedCount > 0) {
-      toastStore.show(
-        `已將 ${deletedCount} 幀底片移入資源回收筒 / 廢紙簍 🗑️`,
-        "success",
-        3500,
-      );
-    }
-    if (failedCount > 0) {
-      toastStore.show(
-        `${failedCount} 幀底片無實體磁碟路徑或刪除失敗`,
-        "error",
-        4000,
-      );
-    }
+    await photoLibrary.handleBatchDeletePhotosFromDisk(photos);
   }
 
   function handleRemovePhoto(photoId: string) {
-    handleBatchRemovePhotos([photoId]);
+    photoLibrary.handleRemovePhoto(photoId);
   }
 
   function handleBatchRemovePhotos(photoIds: string[]) {
-    if (!photoIds || photoIds.length === 0) return;
-    const idSet = new Set(photoIds);
-
-    // 依序記錄被排除相片及其原始索引位置，以便復原時精準插回原序
-    const toRemoveWithIndex: RemovedPhotoItemSnapshot[] = [];
-    photoPlates.forEach((p, idx) => {
-      if (idSet.has(p.id)) {
-        toRemoveWithIndex.push({ photo: p, originalIndex: idx });
-      }
-    });
-    if (toRemoveWithIndex.length === 0) return;
-
-    lastRemovedSnapshot = {
-      items: toRemoveWithIndex,
-      prevActiveId: activePhoto?.id || null,
-    };
-
-    // 若作用中相片被移除，自動聚焦至下一張相鄰底片
-    let nextActive: PhotoPlate | null = activePhoto;
-    if (activePhoto && idSet.has(activePhoto.id)) {
-      const remaining = photoPlates.filter((p) => !idSet.has(p.id));
-      if (remaining.length > 0) {
-        const curIndex = photoPlates.findIndex((p) => p.id === activePhoto!.id);
-        const nextIndex = Math.min(curIndex, remaining.length - 1);
-        nextActive = remaining[Math.max(0, nextIndex)];
-        nextActive.selected = true;
-      } else {
-        nextActive = null;
-      }
-    }
-
-    photoPlates = photoPlates.filter((p) => !idSet.has(p.id));
-    activePhoto = nextActive;
-    photoLibrary.photoPlates = photoPlates as any;
-    photoLibrary.activePhoto = activePhoto as any;
-
-    toastStore.show(
-      `已自相卷排除 ${toRemoveWithIndex.length} 幀底片`,
-      "info",
-      5000,
-      {
-        label: "復原 ↺",
-        onClick: () => handleUndoRemove(),
-      },
-    );
+    photoLibrary.handleBatchRemovePhotos(photoIds);
   }
 
-  function handleUndoRemove() {
-    if (!lastRemovedSnapshot || lastRemovedSnapshot.items.length === 0) return;
-    const restoredItems = lastRemovedSnapshot.items;
-
-    // 依原始索引升冪排序，並依序精準插回相卷原始位置（保持載入順序不變）
-    const nextPlates = [...photoPlates];
-    const sorted = [...restoredItems].sort(
-      (a, b) => a.originalIndex - b.originalIndex,
-    );
-    for (const item of sorted) {
-      const insertAt = Math.min(
-        Math.max(0, item.originalIndex),
-        nextPlates.length,
-      );
-      nextPlates.splice(insertAt, 0, item.photo);
-    }
-
-    photoPlates = nextPlates;
-    photoLibrary.photoPlates = photoPlates as any;
-
-    if (lastRemovedSnapshot.prevActiveId) {
-      const found = photoPlates.find(
-        (p) => p.id === lastRemovedSnapshot!.prevActiveId,
-      );
-      if (found) {
-        activePhoto = found;
-        found.selected = true;
-        photoLibrary.activePhoto = found as any;
-      }
-    }
-
-    toastStore.show(
-      `已原位復原 ${restoredItems.length} 幀底片 ✓`,
-      "success",
-      2500,
-    );
-    lastRemovedSnapshot = null;
-  }
-
-  // Ingestion 反饋通知輔助函式：讓使用者清楚了解載入結果或未支援原因
-  function notifyIngestionResult(
-    loadedCount: number,
-    actionName: string = "相片",
-  ) {
-    const summary = IngestionService.lastSummary;
-    const skipped = summary?.skippedCount || 0;
-    const skippedExts = summary?.skippedExtensions || [];
-    const extsText =
-      skippedExts.length > 0
-        ? `（如 ${skippedExts
-            .slice(0, 3)
-            .map((e) => "." + e.toUpperCase())
-            .join(", ")}${skippedExts.length > 3 ? " 等" : ""}）`
-        : "";
-
-    if (loadedCount > 0) {
-      if (skipped > 0) {
-        toastStore.show(
-          `已成功載入 ${loadedCount} 幀底片（已略過 ${skipped} 個不支援或非影像檔案${extsText}）`,
-          "info",
-          4000,
-        );
-      } else {
-        toastStore.show(`已成功載入 ${loadedCount} 幀底片 ✓`, "success", 2500);
-      }
-    } else {
-      // 未讀到任何相片
-      if (skipped > 0) {
-        toastStore.show(
-          `未在此${actionName}中找到支援的底片格式（已略過 ${skipped} 個不相容檔案${extsText}）。支援各大廠相機 RAW 及主流影像。`,
-          "warning",
-          5000,
-        );
-      } else {
-        toastStore.show(
-          `未找到相片檔案。請確認目錄或檔案是否包含支援的相機 RAW 或影像。`,
-          "warning",
-          4000,
-        );
-      }
-    }
-  }
-
-  // Open directory and load real photos (Replace)
   async function handlePickDirectory() {
-    isLoadingPhotos = true;
-    try {
-      const items = await IngestionService.pickWebDirectory();
-      if (items.length > 0) {
-        currentDirectoryName =
-          IngestionService.currentDirectoryName || "相片資料夾";
-        await loadPhotosFromItems(items, false);
-      }
-      notifyIngestionResult(items.length, "目錄");
-    } finally {
-      isLoadingPhotos = false;
-    }
+    await photoLibrary.handlePickDirectory();
   }
 
-  // Append directory to existing catalog
   async function handleAppendDirectory() {
-    isLoadingPhotos = true;
-    try {
-      const items = await IngestionService.pickWebDirectory();
-      if (items.length > 0) {
-        await loadPhotosFromItems(items, true);
-      }
-      notifyIngestionResult(items.length, "目錄");
-    } finally {
-      isLoadingPhotos = false;
-    }
+    await photoLibrary.handleAppendDirectory();
   }
 
-  // Append individual files to existing catalog
   async function handleAppendFiles() {
-    isLoadingPhotos = true;
-    try {
-      const items = await IngestionService.pickWebFiles();
-      if (items.length > 0) {
-        await loadPhotosFromItems(items, true);
-      }
-      notifyIngestionResult(items.length, "選取項目");
-    } finally {
-      isLoadingPhotos = false;
-    }
+    await photoLibrary.handleAppendFiles();
   }
 
-  // Load directory directly by path (from recent directories list)
   async function handleLoadDirectoryByPath(path: string) {
-    if (!path) return;
-    isLoadingPhotos = true;
-    try {
-      const items = await IngestionService.scanDirectory(path);
-      if (items.length > 0) {
-        currentDirectoryName =
-          IngestionService.currentDirectoryName || "相片資料夾";
-        await loadPhotosFromItems(items, false);
-      }
-      notifyIngestionResult(items.length, "目錄");
-    } finally {
-      isLoadingPhotos = false;
-    }
+    await photoLibrary.handleLoadDirectoryByPath(path);
   }
 
-  // Handle Drag & Drop files or directories from OS Desktop / Explorer
   async function handleFilesDropped(dataTransfer: DataTransfer) {
-    isLoadingPhotos = true;
-    try {
-      const items = await IngestionService.processDataTransfer(dataTransfer);
-      if (items.length > 0) {
-        currentDirectoryName =
-          IngestionService.currentDirectoryName || "拖放相片集";
-        await loadPhotosFromItems(items);
-      }
-      notifyIngestionResult(items.length, "拖放內容");
-    } catch (err) {
-      console.warn("Drag and drop ingestion failed:", err);
-      toastStore.show("載入相片失敗，請重試", "error", 3000);
-    } finally {
-      isLoadingPhotos = false;
-    }
+    await photoLibrary.handleFilesDropped(dataTransfer);
   }
 
-  // Load photos directly from camera mount
   async function handleLoadCameraMount(mount: CameraMountInfo) {
-    const targetPath = mount.dcim_path || mount.mount_path;
-    isLoadingPhotos = true;
-    try {
-      const items = await IngestionService.scanDirectory(targetPath);
-      if (items.length > 0) {
-        currentDirectoryName =
-          mount.volume_name ||
-          IngestionService.currentDirectoryName ||
-          "相機外接裝置";
-        await loadPhotosFromItems(items);
-      }
-      notifyIngestionResult(items.length, "相機裝置");
-    } finally {
-      isLoadingPhotos = false;
-    }
+    await photoLibrary.handleLoadCameraMount(mount);
   }
 
-  // 智慧處理：頂部全域目錄與相機切換
   async function handleSelectMountOrDirectory() {
-    if (cameraMounts.length > 0) {
-      const camera = cameraMounts[0];
-      if (photoPlates.length > 0) {
-        const confirmLoad = window.confirm(
-          `【偵測到外接相機連線】\n相機名稱：${camera.volume_name}\n可載入底片：${camera.file_count} 幀 RAW\n\n點擊「確定」載入此相機相卷\n點擊「取消」瀏覽挑選其他本機目錄`,
-        );
-        if (confirmLoad) {
-          await handleLoadCameraMount(camera);
-          return;
-        } else {
-          await handlePickDirectory();
-          return;
-        }
-      } else {
-        await handleLoadCameraMount(camera);
-        return;
-      }
-    }
-    await handlePickDirectory();
+    await photoLibrary.handleSelectMountOrDirectory();
   }
 
   // AI Adjustment Slider Organic Tween Animation (AI 手動推拉滑桿感)
@@ -1557,7 +949,7 @@
         activePhoto.tuning = darkroomState.buildTuningSnapshot(
           activePhoto as any,
         );
-        photoPlates = photoPlates.map((p) =>
+        photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
           p.id === activePhoto!.id ? { ...p, tuning: activePhoto!.tuning } : p,
         );
       }
@@ -2112,11 +1504,14 @@
       }
 
       // 更新陣列中該相片，並排程非同步離屏縮圖渲染
-      photoPlates = photoPlates.map((p) =>
+      photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
         p.id === photoToProcess.id ? { ...photoToProcess } : p,
       );
-      if (activePhoto && activePhoto.id === photoToProcess.id) {
-        activePhoto = { ...photoToProcess };
+      if (
+        photoLibrary.activePhoto &&
+        photoLibrary.activePhoto.id === photoToProcess.id
+      ) {
+        photoLibrary.activePhoto = { ...photoToProcess };
       }
       enqueueThumbnailRender(photoToProcess);
 
