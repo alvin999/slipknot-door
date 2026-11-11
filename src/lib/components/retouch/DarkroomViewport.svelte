@@ -1,10 +1,20 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { darkroomState, type DiffMode } from "$lib/stores/darkroomState.svelte";
-  import { photoLibrary, type PhotoPlateItem } from "$lib/stores/photoLibrary.svelte";
+  import {
+    darkroomState,
+    type DiffMode,
+  } from "$lib/stores/darkroomState.svelte";
+  import {
+    photoLibrary,
+    type PhotoPlateItem,
+  } from "$lib/stores/photoLibrary.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
   import { WebglLutRenderer } from "$lib/services/webglLutRenderer";
-  import { HSL_BAND_KEYS, createDefaultHslAdjustments, type HslAdjustments } from "$lib/types/photo";
+  import {
+    HSL_BAND_KEYS,
+    createDefaultHslAdjustments,
+    type HslAdjustments,
+  } from "$lib/types/photo";
 
   interface Props {
     activePhoto?: PhotoPlateItem | null;
@@ -51,7 +61,11 @@
     hasApiKey?: boolean;
     isAiAnalyzing?: boolean;
     isBatchAiRunning?: boolean;
-    batchProgress?: { current: number; total: number; countdown: number } | null;
+    batchProgress?: {
+      current: number;
+      total: number;
+      countdown: number;
+    } | null;
     aiSceneTitle?: string;
     aiTerminalLogs?: string[];
     hasAiBaseline?: boolean;
@@ -140,20 +154,30 @@
         ? propsPhotos
         : photoLibrary.activeQueue.length > 0
           ? photoLibrary.activeQueue
-          : photoLibrary.photoPlates
+          : photoLibrary.photoPlates,
   );
   const flaggedCount = $derived(
-    activeQueue.filter((p) => p.flagged).length || photoLibrary.flaggedCount
+    activeQueue.filter((p) => p.flagged).length || photoLibrary.flaggedCount,
   );
   const isLoadingPhotos = $derived(photoLibrary.isLoadingPhotos);
   const isScanningMounts = $derived(photoLibrary.isScanningMounts);
 
   // AI 執行狀態與即時進度膠囊資料解析
-  const currentIsAiAnalyzing = $derived(propsIsAiAnalyzing ?? aiPipeline.isAiAnalyzing);
-  const currentIsBatchAiRunning = $derived(propsIsBatchAiRunning ?? aiPipeline.isBatchAiRunning);
-  const currentBatchProgress = $derived(propsBatchProgress ?? aiPipeline.batchProgress);
-  const currentAiSceneTitle = $derived(propsAiSceneTitle ?? aiPipeline.aiSceneTitle);
-  const currentAiLogs = $derived(propsAiTerminalLogs ?? aiPipeline.aiTerminalLogs);
+  const currentIsAiAnalyzing = $derived(
+    propsIsAiAnalyzing ?? aiPipeline.isAiAnalyzing,
+  );
+  const currentIsBatchAiRunning = $derived(
+    propsIsBatchAiRunning ?? aiPipeline.isBatchAiRunning,
+  );
+  const currentBatchProgress = $derived(
+    propsBatchProgress ?? aiPipeline.batchProgress,
+  );
+  const currentAiSceneTitle = $derived(
+    propsAiSceneTitle ?? aiPipeline.aiSceneTitle,
+  );
+  const currentAiLogs = $derived(
+    propsAiTerminalLogs ?? aiPipeline.aiTerminalLogs,
+  );
 
   function formatProfileShortName(profileId?: string): string {
     if (!profileId) return "原色自然";
@@ -176,7 +200,10 @@
       const cur = currentBatchProgress?.current || 1;
       const tot = currentBatchProgress?.total || 1;
       const pct = Math.min(100, Math.round((cur / Math.max(1, tot)) * 100));
-      if (currentBatchProgress?.countdown && currentBatchProgress.countdown > 0) {
+      if (
+        currentBatchProgress?.countdown &&
+        currentBatchProgress.countdown > 0
+      ) {
         return {
           status: "batch" as const,
           icon: "hourglass_top",
@@ -205,7 +232,9 @@
       activePhoto?.aiDecision?.scene_title ||
       activePhoto?.aiDecision?.scene_type ||
       currentAiSceneTitle ||
-      (activePhoto?.sceneTag && activePhoto.sceneTag !== "本機相簿幀" ? activePhoto.sceneTag : "");
+      (activePhoto?.sceneTag && activePhoto.sceneTag !== "本機相簿幀"
+        ? activePhoto.sceneTag
+        : "");
 
     if (sceneLabel || activePhoto?.aiTuningSnapshot) {
       const profLabel = formatProfileShortName(activePhoto?.appliedProfile);
@@ -226,40 +255,66 @@
   });
 
   // 參數解析：優先使用傳入的 prop，若未傳入則使用 darkroomState
-  const currentMonochrome = $derived(propsMonochrome ?? darkroomState.monochrome);
+  const currentMonochrome = $derived(
+    propsMonochrome ?? darkroomState.monochrome,
+  );
   const currentExposure = $derived(propsExposure ?? darkroomState.exposure);
-  const currentHighlights = $derived(propsHighlights ?? darkroomState.highlights);
+  const currentHighlights = $derived(
+    propsHighlights ?? darkroomState.highlights,
+  );
   const currentContrast = $derived(propsContrast ?? darkroomState.contrast);
   const currentShadows = $derived(propsShadows ?? darkroomState.shadows);
   const currentBlacks = $derived(propsBlacks ?? darkroomState.blacks);
   const currentColorTemp = $derived(propsColorTemp ?? darkroomState.colorTemp);
   const currentTint = $derived(propsTint ?? darkroomState.tint);
   const currentVibrance = $derived(propsVibrance ?? darkroomState.vibrance);
-  const currentLutIntensity = $derived(propsLutIntensity ?? darkroomState.lutIntensity);
+  const currentLutIntensity = $derived(
+    propsLutIntensity ?? darkroomState.lutIntensity,
+  );
   const currentClarity = $derived(propsClarity ?? darkroomState.clarity);
   const currentSharpness = $derived(propsSharpness ?? darkroomState.sharpness);
-  const currentColorDensity = $derived(propsColorDensity ?? darkroomState.colorDensity);
+  const currentColorDensity = $derived(
+    propsColorDensity ?? darkroomState.colorDensity,
+  );
   const currentShadowHue = $derived(propsShadowHue ?? darkroomState.shadowHue);
-  const currentShadowTintAmount = $derived(propsShadowTintAmount ?? darkroomState.shadowTintAmount);
-  const currentHighlightHue = $derived(propsHighlightHue ?? darkroomState.highlightHue);
-  const currentHighlightTintAmount = $derived(propsHighlightTintAmount ?? darkroomState.highlightTintAmount);
+  const currentShadowTintAmount = $derived(
+    propsShadowTintAmount ?? darkroomState.shadowTintAmount,
+  );
+  const currentHighlightHue = $derived(
+    propsHighlightHue ?? darkroomState.highlightHue,
+  );
+  const currentHighlightTintAmount = $derived(
+    propsHighlightTintAmount ?? darkroomState.highlightTintAmount,
+  );
   const currentHalation = $derived(propsHalation ?? darkroomState.halation);
-  const currentGrainAmount = $derived(propsGrainAmount ?? darkroomState.grainAmount);
+  const currentGrainAmount = $derived(
+    propsGrainAmount ?? darkroomState.grainAmount,
+  );
   const currentVignette = $derived(propsVignette ?? darkroomState.vignette);
   const currentHsl = $derived(propsHsl ?? darkroomState.hsl);
 
   const currentCropX = $derived(propsCropX ?? darkroomState.cropX);
   const currentCropY = $derived(propsCropY ?? darkroomState.cropY);
   const currentCropWidth = $derived(propsCropWidth ?? darkroomState.cropWidth);
-  const currentCropHeight = $derived(propsCropHeight ?? darkroomState.cropHeight);
-  const currentCropRotation = $derived(propsCropRotation ?? darkroomState.cropRotation);
+  const currentCropHeight = $derived(
+    propsCropHeight ?? darkroomState.cropHeight,
+  );
+  const currentCropRotation = $derived(
+    propsCropRotation ?? darkroomState.cropRotation,
+  );
   const currentKeystoneV = $derived(propsKeystoneV ?? darkroomState.keystoneV);
   const currentKeystoneH = $derived(propsKeystoneH ?? darkroomState.keystoneH);
-  const currentCropAspectRatio = $derived(propsCropAspectRatio ?? darkroomState.cropAspectRatio);
+  const currentCropAspectRatio = $derived(
+    propsCropAspectRatio ?? darkroomState.cropAspectRatio,
+  );
   const currentFlipH = $derived(propsFlipH ?? darkroomState.flipH);
   const currentFlipV = $derived(propsFlipV ?? darkroomState.flipV);
-  const currentIsCropMode = $derived(propsIsCropMode ?? darkroomState.isCropMode);
-  const currentAiCropRationale = $derived(propsAiCropRationale ?? darkroomState.aiCropRationale);
+  const currentIsCropMode = $derived(
+    propsIsCropMode ?? darkroomState.isCropMode,
+  );
+  const currentAiCropRationale = $derived(
+    propsAiCropRationale ?? darkroomState.aiCropRationale,
+  );
 
   // ── 桌面端畫布自由縮放與平移檢視 (Zoom & Pan) ──
   let desktopZoom = $state<number>(1.0);
@@ -313,7 +368,8 @@
     const kv = currentKeystoneV;
     const kh = currentKeystoneH;
     const zoom = isMobileZoomed ? 1.8 : desktopZoom;
-    const pan = desktopZoom > 1.0 ? `translate(${panOffsetX}px, ${panOffsetY}px) ` : "";
+    const pan =
+      desktopZoom > 1.0 ? `translate(${panOffsetX}px, ${panOffsetY}px) ` : "";
 
     if (!kv && !kh) {
       return `${pan}scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg) scale(${zoom})`;
@@ -323,11 +379,16 @@
     return `${pan}perspective(1000px) rotateX(${-kv}deg) rotateY(${kh}deg) scaleX(${flipX}) scaleY(${flipY}) rotate(${rot}deg) scale(${zoom})`;
   });
 
-
   const currentDiffMode = $derived(propsDiffMode ?? darkroomState.diffMode);
-  const currentSplitPosition = $derived(propsSplitPosition ?? darkroomState.splitPosition);
-  const currentShowABComparison = $derived(propsShowABComparison ?? darkroomState.showABComparison);
-  const currentHoverProfile = $derived(propsPreviewHoverProfileId ?? darkroomState.previewHoverProfileId);
+  const currentSplitPosition = $derived(
+    propsSplitPosition ?? darkroomState.splitPosition,
+  );
+  const currentShowABComparison = $derived(
+    propsShowABComparison ?? darkroomState.showABComparison,
+  );
+  const currentHoverProfile = $derived(
+    propsPreviewHoverProfileId ?? darkroomState.previewHoverProfileId,
+  );
 
   // DOM 參考與 WebGL 2.0 狀態
   let canvasContainerRef = $state<HTMLDivElement | null>(null);
@@ -338,9 +399,15 @@
     const currentId = activePhoto?.id;
     if (currentId && stripScrollRef) {
       setTimeout(() => {
-        const activeCard = stripScrollRef?.querySelector('.film-frame-card.selected') as HTMLElement | null;
+        const activeCard = stripScrollRef?.querySelector(
+          ".film-frame-card.selected",
+        ) as HTMLElement | null;
         if (activeCard) {
-          activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+          activeCard.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+            inline: "center",
+          });
         }
       }, 50);
     }
@@ -390,7 +457,11 @@
 
       // 2. 左右滑動切換底片 (Swipe Left / Right)
       // 在非縮放、非裁切調整與非簾幕拖曳狀態下觸發
-      if (!isMobileZoomed && !currentIsCropMode && !darkroomState.isDraggingSplit) {
+      if (
+        !isMobileZoomed &&
+        !currentIsCropMode &&
+        !darkroomState.isDraggingSplit
+      ) {
         if (deltaX < -50 && Math.abs(deltaY) < 60) {
           // 向左滑動 -> 下一張
           photoLibrary.selectAdjacentPhoto(1);
@@ -454,48 +525,120 @@
     const dy = curY - cropDragStartY;
     const handle = darkroomState.isDraggingCrop;
 
-    if (handle === 'move') {
-      const newX = Math.max(0, Math.min(1 - cropInitialBox.width, cropInitialBox.x + dx));
-      const newY = Math.max(0, Math.min(1 - cropInitialBox.height, cropInitialBox.y + dy));
+    if (handle === "move") {
+      const newX = Math.max(
+        0,
+        Math.min(1 - cropInitialBox.width, cropInitialBox.x + dx),
+      );
+      const newY = Math.max(
+        0,
+        Math.min(1 - cropInitialBox.height, cropInitialBox.y + dy),
+      );
       darkroomState.cropX = parseFloat(newX.toFixed(3));
       darkroomState.cropY = parseFloat(newY.toFixed(3));
-    } else if (handle === 'se') {
-      let newW = Math.max(0.08, Math.min(1 - cropInitialBox.x, cropInitialBox.width + dx));
-      let newH = Math.max(0.08, Math.min(1 - cropInitialBox.y, cropInitialBox.height + dy));
+    } else if (handle === "se") {
+      let newW = Math.max(
+        0.08,
+        Math.min(1 - cropInitialBox.x, cropInitialBox.width + dx),
+      );
+      let newH = Math.max(
+        0.08,
+        Math.min(1 - cropInitialBox.y, cropInitialBox.height + dy),
+      );
       darkroomState.cropWidth = parseFloat(newW.toFixed(3));
       darkroomState.cropHeight = parseFloat(newH.toFixed(3));
-    } else if (handle === 'nw') {
-      let newX = Math.max(0, Math.min(cropInitialBox.x + cropInitialBox.width - 0.08, cropInitialBox.x + dx));
-      let newY = Math.max(0, Math.min(cropInitialBox.y + cropInitialBox.height - 0.08, cropInitialBox.y + dy));
-      darkroomState.cropWidth = parseFloat((cropInitialBox.x + cropInitialBox.width - newX).toFixed(3));
-      darkroomState.cropHeight = parseFloat((cropInitialBox.y + cropInitialBox.height - newY).toFixed(3));
+    } else if (handle === "nw") {
+      let newX = Math.max(
+        0,
+        Math.min(
+          cropInitialBox.x + cropInitialBox.width - 0.08,
+          cropInitialBox.x + dx,
+        ),
+      );
+      let newY = Math.max(
+        0,
+        Math.min(
+          cropInitialBox.y + cropInitialBox.height - 0.08,
+          cropInitialBox.y + dy,
+        ),
+      );
+      darkroomState.cropWidth = parseFloat(
+        (cropInitialBox.x + cropInitialBox.width - newX).toFixed(3),
+      );
+      darkroomState.cropHeight = parseFloat(
+        (cropInitialBox.y + cropInitialBox.height - newY).toFixed(3),
+      );
       darkroomState.cropX = parseFloat(newX.toFixed(3));
       darkroomState.cropY = parseFloat(newY.toFixed(3));
-    } else if (handle === 'ne') {
-      let newY = Math.max(0, Math.min(cropInitialBox.y + cropInitialBox.height - 0.08, cropInitialBox.y + dy));
-      let newW = Math.max(0.08, Math.min(1 - cropInitialBox.x, cropInitialBox.width + dx));
-      darkroomState.cropHeight = parseFloat((cropInitialBox.y + cropInitialBox.height - newY).toFixed(3));
+    } else if (handle === "ne") {
+      let newY = Math.max(
+        0,
+        Math.min(
+          cropInitialBox.y + cropInitialBox.height - 0.08,
+          cropInitialBox.y + dy,
+        ),
+      );
+      let newW = Math.max(
+        0.08,
+        Math.min(1 - cropInitialBox.x, cropInitialBox.width + dx),
+      );
+      darkroomState.cropHeight = parseFloat(
+        (cropInitialBox.y + cropInitialBox.height - newY).toFixed(3),
+      );
       darkroomState.cropWidth = parseFloat(newW.toFixed(3));
       darkroomState.cropY = parseFloat(newY.toFixed(3));
-    } else if (handle === 'sw') {
-      let newX = Math.max(0, Math.min(cropInitialBox.x + cropInitialBox.width - 0.08, cropInitialBox.x + dx));
-      let newH = Math.max(0.08, Math.min(1 - cropInitialBox.y, cropInitialBox.height + dy));
-      darkroomState.cropWidth = parseFloat((cropInitialBox.x + cropInitialBox.width - newX).toFixed(3));
+    } else if (handle === "sw") {
+      let newX = Math.max(
+        0,
+        Math.min(
+          cropInitialBox.x + cropInitialBox.width - 0.08,
+          cropInitialBox.x + dx,
+        ),
+      );
+      let newH = Math.max(
+        0.08,
+        Math.min(1 - cropInitialBox.y, cropInitialBox.height + dy),
+      );
+      darkroomState.cropWidth = parseFloat(
+        (cropInitialBox.x + cropInitialBox.width - newX).toFixed(3),
+      );
       darkroomState.cropHeight = parseFloat(newH.toFixed(3));
       darkroomState.cropX = parseFloat(newX.toFixed(3));
-    } else if (handle === 'n') {
-      let newY = Math.max(0, Math.min(cropInitialBox.y + cropInitialBox.height - 0.08, cropInitialBox.y + dy));
-      darkroomState.cropHeight = parseFloat((cropInitialBox.y + cropInitialBox.height - newY).toFixed(3));
+    } else if (handle === "n") {
+      let newY = Math.max(
+        0,
+        Math.min(
+          cropInitialBox.y + cropInitialBox.height - 0.08,
+          cropInitialBox.y + dy,
+        ),
+      );
+      darkroomState.cropHeight = parseFloat(
+        (cropInitialBox.y + cropInitialBox.height - newY).toFixed(3),
+      );
       darkroomState.cropY = parseFloat(newY.toFixed(3));
-    } else if (handle === 's') {
-      let newH = Math.max(0.08, Math.min(1 - cropInitialBox.y, cropInitialBox.height + dy));
+    } else if (handle === "s") {
+      let newH = Math.max(
+        0.08,
+        Math.min(1 - cropInitialBox.y, cropInitialBox.height + dy),
+      );
       darkroomState.cropHeight = parseFloat(newH.toFixed(3));
-    } else if (handle === 'w') {
-      let newX = Math.max(0, Math.min(cropInitialBox.x + cropInitialBox.width - 0.08, cropInitialBox.x + dx));
-      darkroomState.cropWidth = parseFloat((cropInitialBox.x + cropInitialBox.width - newX).toFixed(3));
+    } else if (handle === "w") {
+      let newX = Math.max(
+        0,
+        Math.min(
+          cropInitialBox.x + cropInitialBox.width - 0.08,
+          cropInitialBox.x + dx,
+        ),
+      );
+      darkroomState.cropWidth = parseFloat(
+        (cropInitialBox.x + cropInitialBox.width - newX).toFixed(3),
+      );
       darkroomState.cropX = parseFloat(newX.toFixed(3));
-    } else if (handle === 'e') {
-      let newW = Math.max(0.08, Math.min(1 - cropInitialBox.x, cropInitialBox.width + dx));
+    } else if (handle === "e") {
+      let newW = Math.max(
+        0.08,
+        Math.min(1 - cropInitialBox.x, cropInitialBox.width + dx),
+      );
       darkroomState.cropWidth = parseFloat(newW.toFixed(3));
     }
   }
@@ -571,7 +714,7 @@
           hsl: createDefaultHslAdjustments(),
         },
         imgWidth,
-        imgHeight
+        imgHeight,
       );
       return;
     }
@@ -610,7 +753,7 @@
         hsl: currentHsl,
       },
       imgWidth,
-      imgHeight
+      imgHeight,
     );
     hasRenderedFirstFrame = true;
   }
@@ -622,7 +765,11 @@
       webglRenderer = new WebglLutRenderer();
       isWebglActive = webglRenderer.initialize(webglCanvas);
     }
-    if (webglRenderer && sourceImgElement && sourceImgElement.naturalWidth > 0) {
+    if (
+      webglRenderer &&
+      sourceImgElement &&
+      sourceImgElement.naturalWidth > 0
+    ) {
       ensureImageTexture();
       triggerWebglRender();
     }
@@ -654,8 +801,11 @@
     const _grain = currentGrainAmount;
     const _vignette = currentVignette;
     const _hslSig = currentHsl
-      ? HSL_BAND_KEYS.map((k) => `${currentHsl[k].hue},${currentHsl[k].sat},${currentHsl[k].lum}`).join(';')
-      : '';
+      ? HSL_BAND_KEYS.map(
+          (k) =>
+            `${currentHsl[k].hue},${currentHsl[k].sat},${currentHsl[k].lum}`,
+        ).join(";")
+      : "";
     const _ab = currentShowABComparison;
     const _diff = currentDiffMode;
     const _hover = currentHoverProfile;
@@ -681,7 +831,10 @@
   });
 </script>
 
-<div class="photo-stage-viewport" class:mobile-drawer-split={isMobileDrawerOpen}>
+<div
+  class="photo-stage-viewport"
+  class:mobile-drawer-split={isMobileDrawerOpen}
+>
   {#if exportNotice}
     <div class="export-notice-banner hairline-all font-mono">
       <span
@@ -740,7 +893,9 @@
                 onclick={() => darkroomState.setDiffMode("split")}
                 title="簾幕滑桿比對 (可左右拖曳分割線)"
               >
-                <span class="material-symbols-outlined" style="font-size: 13px;">vertical_split</span>
+                <span class="material-symbols-outlined" style="font-size: 13px;"
+                  >vertical_split</span
+                >
                 <span>簾幕滑桿</span>
               </button>
               <button
@@ -750,7 +905,9 @@
                 onclick={() => darkroomState.setDiffMode("sideBySide")}
                 title="雙聯幅並排比對"
               >
-                <span class="material-symbols-outlined" style="font-size: 13px;">view_column</span>
+                <span class="material-symbols-outlined" style="font-size: 13px;"
+                  >view_column</span
+                >
                 <span>雙聯並排</span>
               </button>
             </div>
@@ -763,12 +920,18 @@
               class="zoom-hud-btn font-mono"
               class:zoomed={desktopZoom > 1.0}
               onclick={resetDesktopZoom}
-              title={desktopZoom > 1.0 ? "目前已放大，點擊恢復全幅 (FIT)" : "雙擊畫布或滾輪可自由放大 (100%~400%)"}
+              title={desktopZoom > 1.0
+                ? "目前已放大，點擊恢復全幅 (FIT)"
+                : "雙擊畫布或滾輪可自由放大 (100%~400%)"}
             >
               <span class="material-symbols-outlined" style="font-size: 13px;">
                 {desktopZoom > 1.0 ? "zoom_out_map" : "fit_screen"}
               </span>
-              <span>{desktopZoom > 1.0 ? `${Math.round(desktopZoom * 100)}%` : "FIT"}</span>
+              <span
+                >{desktopZoom > 1.0
+                  ? `${Math.round(desktopZoom * 100)}%`
+                  : "FIT"}</span
+              >
             </button>
           </div>
 
@@ -780,7 +943,9 @@
               onclick={() => (darkroomState.isCropMode = !currentIsCropMode)}
               title="開啟/關閉互動構圖裁切框"
             >
-              <span class="material-symbols-outlined" style="font-size: 14px;">crop</span>
+              <span class="material-symbols-outlined" style="font-size: 14px;"
+                >crop</span
+              >
               <span>{currentIsCropMode ? "完成裁切" : "構圖裁切"}</span>
             </button>
 
@@ -794,7 +959,9 @@
                 }}
                 title="還原為原始全幅構圖"
               >
-                <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
+                <span class="material-symbols-outlined" style="font-size: 13px;"
+                  >restart_alt</span
+                >
               </button>
             {/if}
           </div>
@@ -824,12 +991,19 @@
       {#if currentDiffMode === "sideBySide"}
         <div class="diptych-pane left hairline-all">
           <div class="diptych-badge font-mono">ORIGINAL // 本相 RAW</div>
-          <img src={activePhoto.thumbnail} alt="Original RAW" class="plate-render-img" />
+          <img
+            src={activePhoto.thumbnail}
+            alt="Original RAW"
+            class="plate-render-img"
+          />
         </div>
       {/if}
 
       <!-- DIPTYCH RIGHT PANE / MAIN VIEWPORT (唯一的 WebGL 畫布所在) -->
-      <div class="diptych-pane right" class:hairline-all={currentDiffMode === "sideBySide"}>
+      <div
+        class="diptych-pane right"
+        class:hairline-all={currentDiffMode === "sideBySide"}
+      >
         {#if currentDiffMode === "sideBySide"}
           <div class="diptych-badge font-mono amber">
             GRADED // 顯影 {activePhoto.appliedProfile}
@@ -860,7 +1034,12 @@
             class="split-original-layer"
             style:clip-path={`polygon(0 0, ${currentSplitPosition}% 0, ${currentSplitPosition}% 100%, 0 100%)`}
           >
-            <img src={activePhoto.thumbnail} alt="Original RAW" class="plate-render-img" style:transform={viewportImageTransform} />
+            <img
+              src={activePhoto.thumbnail}
+              alt="Original RAW"
+              class="plate-render-img"
+              style:transform={viewportImageTransform}
+            />
             <div class="split-label original font-mono">ORIGINAL 本相</div>
           </div>
           <div class="split-label graded font-mono">GRADED 顯影</div>
@@ -960,7 +1139,9 @@
               ></div>
 
               <div class="crop-readout font-mono">
-                {currentCropAspectRatio.toUpperCase()} · {(currentCropWidth * 100).toFixed(0)}% × {(currentCropHeight * 100).toFixed(0)}%
+                {currentCropAspectRatio.toUpperCase()} · {(
+                  currentCropWidth * 100
+                ).toFixed(0)}% × {(currentCropHeight * 100).toFixed(0)}%
                 {#if currentCropRotation !== 0}
                   · {currentCropRotation > 0
                     ? `+${currentCropRotation}°`
@@ -990,7 +1171,9 @@
               role="button"
               tabindex="0"
               aria-label="構圖裁切預覽框，按 Enter 或雙擊進入編輯"
-              onkeydown={(e) => { if (e.key === 'Enter') darkroomState.isCropMode = true; }}
+              onkeydown={(e) => {
+                if (e.key === "Enter") darkroomState.isCropMode = true;
+              }}
               ondblclick={() => (darkroomState.isCropMode = true)}
               title="雙擊進入構圖裁切編輯"
             >
@@ -1016,19 +1199,33 @@
           ontouchend={() => (darkroomState.showABComparison = false)}
           ontouchcancel={() => (darkroomState.showABComparison = false)}
         >
-          <span class="material-symbols-outlined" style="font-size: 15px;">compare</span>
-          <span>{currentShowABComparison ? "原始本相 (RAW)" : "按住比對原圖 (Space)"}</span>
+          <span class="material-symbols-outlined" style="font-size: 15px;"
+            >compare</span
+          >
+          <span>
+            {#if currentShowABComparison}
+              原始本相 (RAW)
+            {:else}
+              按住比對原圖<span class="ab-shortcut-hint"> (Space)</span>
+            {/if}
+          </span>
         </button>
       </div>
 
       <!-- 底部底片邊緣印字光學遙測條 (FILM REBATE OPTICAL TELEMETRY SLATE) -->
       <div class="plate-rebate-bar font-mono">
         <div class="rebate-camera-block truncate">
-          <span class="material-symbols-outlined rebate-camera-icon">photo_camera</span>
-          <span class="rebate-camera-model truncate">{activePhoto.camera || "CAMERA"}</span>
+          <span class="material-symbols-outlined rebate-camera-icon"
+            >photo_camera</span
+          >
+          <span class="rebate-camera-model truncate"
+            >{activePhoto.camera || "CAMERA"}</span
+          >
           {#if activePhoto.lens}
             <span class="rebate-sep">/</span>
-            <span class="rebate-lens truncate" title={activePhoto.lens}>{activePhoto.lens}</span>
+            <span class="rebate-lens truncate" title={activePhoto.lens}
+              >{activePhoto.lens}</span
+            >
           {/if}
         </div>
 
@@ -1036,8 +1233,12 @@
           {#if activePhoto.focalLength && activePhoto.focalLength !== "--"}
             <span class="rebate-chip">{activePhoto.focalLength}</span>
           {/if}
-          <span class="rebate-chip highlight">{activePhoto.aperture || "ƒ/--"}</span>
-          <span class="rebate-chip highlight">{activePhoto.shutter || "--s"}</span>
+          <span class="rebate-chip highlight"
+            >{activePhoto.aperture || "ƒ/--"}</span
+          >
+          <span class="rebate-chip highlight"
+            >{activePhoto.shutter || "--s"}</span
+          >
           <span class="rebate-chip amber">
             {activePhoto.iso > 0 ? `ISO ${activePhoto.iso}` : "ISO --"}
           </span>
@@ -1051,7 +1252,8 @@
           <span class="rebate-chip">
             {activePhoto.asShotTemp ? `${activePhoto.asShotTemp}K` : "5500K"}
           </span>
-          <span class="rebate-chip dim">{activePhoto.colorSpace || "sRGB"}</span>
+          <span class="rebate-chip dim">{activePhoto.colorSpace || "sRGB"}</span
+          >
 
           <button
             type="button"
@@ -1060,7 +1262,9 @@
             onclick={() => (isExifSlateOpen = !isExifSlateOpen)}
             title="檢視完整 EXIF 測光模式與曝光程式"
           >
-            <span class="material-symbols-outlined" style="font-size: 13px;">info</span>
+            <span class="material-symbols-outlined" style="font-size: 13px;"
+              >info</span
+            >
             <span>EXIF</span>
           </button>
         </div>
@@ -1074,7 +1278,9 @@
                 class="popover-close-btn"
                 onclick={() => (isExifSlateOpen = false)}
               >
-                <span class="material-symbols-outlined" style="font-size: 13px;">close</span>
+                <span class="material-symbols-outlined" style="font-size: 13px;"
+                  >close</span
+                >
               </button>
             </div>
             <div class="popover-grid">
@@ -1100,11 +1306,19 @@
               </div>
               <div class="pop-row">
                 <span>原生色溫</span>
-                <strong>{activePhoto.asShotTemp ? `${activePhoto.asShotTemp}K` : "5500K"}</strong>
+                <strong
+                  >{activePhoto.asShotTemp
+                    ? `${activePhoto.asShotTemp}K`
+                    : "5500K"}</strong
+                >
               </div>
               <div class="pop-row">
                 <span>色偏 Tint</span>
-                <strong>{activePhoto.asShotTint ? `${activePhoto.asShotTint.toFixed(1)}` : "0.0"}</strong>
+                <strong
+                  >{activePhoto.asShotTint
+                    ? `${activePhoto.asShotTint.toFixed(1)}`
+                    : "0.0"}</strong
+                >
               </div>
               <div class="pop-row">
                 <span>色彩空間</span>
@@ -1119,7 +1333,8 @@
     <!-- 行動端畫布下方單行即時 AI 進度／判讀結果小膠囊 -->
     <div
       class="mobile-ai-status-pill font-mono hairline-all"
-      class:is-running={mobileAiPill.status === "running" || mobileAiPill.status === "batch"}
+      class:is-running={mobileAiPill.status === "running" ||
+        mobileAiPill.status === "batch"}
       class:is-done={mobileAiPill.status === "done"}
     >
       <button
@@ -1130,7 +1345,8 @@
       >
         <span
           class="material-symbols-outlined ai-pill-icon"
-          class:spin={mobileAiPill.status === "running" || mobileAiPill.status === "batch"}
+          class:spin={mobileAiPill.status === "running" ||
+            mobileAiPill.status === "batch"}
         >
           {mobileAiPill.icon}
         </span>
@@ -1144,11 +1360,16 @@
           onclick={onRestoreAiTuning}
           title="還原為 AI 顯影基準"
         >
-          <span class="material-symbols-outlined" style="font-size: 12px;">settings_backup_restore</span>
+          <span class="material-symbols-outlined" style="font-size: 12px;"
+            >settings_backup_restore</span
+          >
           <span>還原 AI</span>
         </button>
       {:else if mobileAiPill.status === "done"}
-        <span class="ai-pill-chevron material-symbols-outlined" aria-hidden="true">chevron_right</span>
+        <span
+          class="ai-pill-chevron material-symbols-outlined"
+          aria-hidden="true">chevron_right</span
+        >
       {/if}
 
       {#if mobileAiPill.progressPct !== null}
@@ -1161,29 +1382,33 @@
   {:else}
     <!-- Empty State -->
     <div class="empty-stage-box">
-      <span class="material-symbols-outlined empty-stage-icon">camera_roll</span>
+      <span class="material-symbols-outlined empty-stage-icon">camera_roll</span
+      >
       <h3 class="font-headline empty-stage-title">
-        {#if (propsPhotos && propsPhotos.length > 0) || (photoLibrary.photoPlates.length > 0)}
+        {#if (propsPhotos && propsPhotos.length > 0) || photoLibrary.photoPlates.length > 0}
           尚未選取暗房底片幀
         {:else}
           等待相機裝置連接或底片匯入
         {/if}
       </h3>
       <p class="font-body empty-stage-desc">
-        {#if (propsPhotos && propsPhotos.length > 0) || (photoLibrary.photoPlates.length > 0)}
+        {#if (propsPhotos && propsPhotos.length > 0) || photoLibrary.photoPlates.length > 0}
           目錄中已有底片檔案。請前往膠卷目錄挑選底片，或於下方底片滾軸點選任意幀以啟動顯影。
         {:else}
-          接上相機 USB/Type-C 傳輸線開機自動載入，或手動指定本機 DCIM / RAW 目錄開啟底片作業。
+          接上相機 USB/Type-C 傳輸線開機自動載入，或手動指定本機 DCIM / RAW
+          目錄開啟底片作業。
         {/if}
       </p>
       <div class="empty-actions">
-        {#if ((propsPhotos && propsPhotos.length > 0) || (photoLibrary.photoPlates.length > 0)) && onGoToCatalog}
+        {#if ((propsPhotos && propsPhotos.length > 0) || photoLibrary.photoPlates.length > 0) && onGoToCatalog}
           <button
             type="button"
             class="archival-btn-primary"
             onclick={onGoToCatalog}
           >
-            <span class="material-symbols-outlined" style="font-size: 16px;">photo_library</span>
+            <span class="material-symbols-outlined" style="font-size: 16px;"
+              >photo_library</span
+            >
             <span>返回膠卷目錄挑選底片 →</span>
           </button>
         {:else if onPickDirectory}
@@ -1193,8 +1418,14 @@
             onclick={onPickDirectory}
             disabled={isLoadingPhotos}
           >
-            <span class="material-symbols-outlined" style="font-size: 16px;">folder_open</span>
-            <span>{isLoadingPhotos ? "正在解析 RAW/JPG..." : "開啟相片目錄 (RAW / JPG)"}</span>
+            <span class="material-symbols-outlined" style="font-size: 16px;"
+              >folder_open</span
+            >
+            <span
+              >{isLoadingPhotos
+                ? "正在解析 RAW/JPG..."
+                : "開啟相片目錄 (RAW / JPG)"}</span
+            >
           </button>
         {/if}
         {#if onRefreshMounts}
@@ -1204,8 +1435,14 @@
             onclick={onRefreshMounts}
             disabled={isScanningMounts}
           >
-            <span class="material-symbols-outlined" style="font-size: 16px;">cable</span>
-            <span>{isScanningMounts ? "正在搜尋掛載..." : "重新偵測隨插即讀設備"}</span>
+            <span class="material-symbols-outlined" style="font-size: 16px;"
+              >cable</span
+            >
+            <span
+              >{isScanningMounts
+                ? "正在搜尋掛載..."
+                : "重新偵測隨插即讀設備"}</span
+            >
           </button>
         {/if}
       </div>
@@ -1213,13 +1450,22 @@
       {#if !hasApiKey && onOpenVault}
         <div class="key-vault-empty-banner font-mono">
           <div class="banner-left">
-            <span class="material-symbols-outlined banner-icon">vpn_key_alert</span>
+            <span class="material-symbols-outlined banner-icon"
+              >vpn_key_alert</span
+            >
             <div class="banner-texts">
               <span class="banner-title">尚未配置 AI 雲端金鑰</span>
-              <span class="banner-desc">可預先配置 Gemini / Groq API 金鑰，載入相片後隨即可享受 AI 智慧光學顯影</span>
+              <span class="banner-desc"
+                >可預先配置 Gemini / Groq API 金鑰，載入相片後隨即可享受 AI
+                智慧光學顯影</span
+              >
             </div>
           </div>
-          <button type="button" class="banner-action-hint font-mono" onclick={onOpenVault}>
+          <button
+            type="button"
+            class="banner-action-hint font-mono"
+            onclick={onOpenVault}
+          >
             <span>立即配置 →</span>
           </button>
         </div>
@@ -1229,12 +1475,17 @@
 </div>
 
 <!-- PERSISTENT BOTTOM CONTACT SHEET LIGHT-TABLE STRIP (FILTERED BY SELECTION) -->
-<footer class="contact-sheet-strip hairline-t" class:mobile-drawer-split={isMobileDrawerOpen}>
+<footer
+  class="contact-sheet-strip hairline-t"
+  class:mobile-drawer-split={isMobileDrawerOpen}
+>
   <div class="strip-header font-mono">
     <div class="strip-info-left">
       <span class="strip-label">CONTACT SHEET // EXPOSURE RACK</span>
       <span class="strip-count" class:amber={flaggedCount > 0}>
-        {activeQueue.length} FRAMES {flaggedCount > 0 ? "(已挑選精修佇列)" : "(全量底片佇列)"}
+        {activeQueue.length} FRAMES {flaggedCount > 0
+          ? "(已挑選精修佇列)"
+          : "(全量底片佇列)"}
       </span>
     </div>
     <div class="strip-actions-right">
@@ -1244,7 +1495,9 @@
         onclick={() => photoLibrary.selectAdjacentPhoto(-1)}
         title="前一張底片 (H / ← 鍵)"
       >
-        <span class="material-symbols-outlined" style="font-size: 14px;">arrow_back</span>
+        <span class="material-symbols-outlined" style="font-size: 14px;"
+          >arrow_back</span
+        >
         <span>前一張 [H]</span>
       </button>
       <button
@@ -1254,7 +1507,9 @@
         title="下一張底片 (L / → 鍵)"
       >
         <span>下一張 [L]</span>
-        <span class="material-symbols-outlined" style="font-size: 14px;">arrow_forward</span>
+        <span class="material-symbols-outlined" style="font-size: 14px;"
+          >arrow_forward</span
+        >
       </button>
       {#if onGoToCatalog}
         <button
@@ -1263,7 +1518,9 @@
           onclick={onGoToCatalog}
           title="返回第一步目錄重新選取"
         >
-          <span class="material-symbols-outlined" style="font-size: 14px;">grid_view</span>
+          <span class="material-symbols-outlined" style="font-size: 14px;"
+            >grid_view</span
+          >
           <span>返回挑圖</span>
         </button>
       {/if}
@@ -1272,7 +1529,13 @@
   <div class="strip-frames-scroll custom-scroll" bind:this={stripScrollRef}>
     {#if activeQueue.length > 0}
       {#each activeQueue as plate (plate.id)}
-        {@const isGraded = !!(plate.tuning || plate.gradedThumbnail || (plate.appliedProfile && plate.appliedProfile !== 'Profile_00_StandardNatural') || plate.crop)}
+        {@const isGraded = !!(
+          plate.tuning ||
+          plate.gradedThumbnail ||
+          (plate.appliedProfile &&
+            plate.appliedProfile !== "Profile_00_StandardNatural") ||
+          plate.crop
+        )}
         <button
           type="button"
           class="film-frame-card"
@@ -1295,23 +1558,24 @@
           </div>
           <div class="film-frame-meta font-mono">
             <span class="frame-num">{plate.frameNo}</span>
-            <span class="frame-tag">{plate.camera ? plate.camera.split(" ")[0] : "RAW"}</span>
+            <span class="frame-tag"
+              >{plate.camera ? plate.camera.split(" ")[0] : "RAW"}</span
+            >
           </div>
         </button>
       {/each}
     {:else}
       <div class="empty-strip-hint font-mono">
-        <span class="material-symbols-outlined" style="font-size: 14px;">exposure_zero</span>
+        <span class="material-symbols-outlined" style="font-size: 14px;"
+          >exposure_zero</span
+        >
         <span>尚無載入幀數 · 請點擊上方「開啟相片目錄」載入 RAW 檔</span>
       </div>
     {/if}
   </div>
 </footer>
 
-
 <style>
-
-
   .photo-stage-viewport {
     flex: 1;
     display: flex;
@@ -1916,7 +2180,7 @@
     align-items: center;
     gap: 4px;
   }
-  
+
   .crop-toggle-btn {
     display: flex;
     align-items: center;
@@ -2179,7 +2443,7 @@
     cursor: ew-resize;
     border-radius: 2px;
   }
-  
+
   .zoom-hud-btn {
     display: inline-flex;
     align-items: center;
@@ -2306,8 +2570,12 @@
       animation: ai-pill-spin 1.1s linear infinite;
     }
     @keyframes ai-pill-spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
     }
     .ai-pill-text {
       overflow: hidden;
@@ -2400,8 +2668,6 @@
       flex-shrink: 0;
     }
 
-    
-
     /* 原圖比對按鈕：浮動在手機右下方拇指舒適區 */
     .ab-toggle-btn {
       bottom: 42px;
@@ -2412,6 +2678,10 @@
       background: rgba(18, 19, 22, 0.85);
       backdrop-filter: blur(8px);
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    .ab-shortcut-hint {
+      display: none;
     }
 
     /* 光學遙測條：緊湊橫向滑動，防相機型號折行與焦段重疊 */
