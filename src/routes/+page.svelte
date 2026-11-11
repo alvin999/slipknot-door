@@ -1,20 +1,12 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import {
-    IngestionService,
-    type CameraMountInfo,
-  } from "$lib/services/ingestionService";
+  import { type CameraMountInfo } from "$lib/services/ingestionService";
   import { KeyVaultService } from "$lib/services/keyVaultService";
-  import {
-    AiSceneService,
-    type AiSceneDecision,
-  } from "$lib/services/aiSceneService";
   import KeyVaultModal from "$lib/components/KeyVaultModal.svelte";
   import HelpGuideModal from "$lib/components/HelpGuideModal.svelte";
   import QuickExportModal from "$lib/components/QuickExportModal.svelte";
   import KeyPromptModal from "$lib/components/KeyPromptModal.svelte";
   import TopNav from "$lib/components/navigation/TopNav.svelte";
-  import WorkflowSidebar from "$lib/components/navigation/WorkflowSidebar.svelte";
   import PickedPreviewsRack from "$lib/components/catalog/PickedPreviewsRack.svelte";
   import { toastStore } from "$lib/stores/toastStore.svelte";
   import CatalogView from "$lib/components/views/CatalogView.svelte";
@@ -28,28 +20,18 @@
   import { darkroomState } from "$lib/stores/darkroomState.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
   import { lutCatalog } from "$lib/stores/lutCatalog.svelte";
+  import {
+    exportState,
+    type BatchExportOptions,
+  } from "$lib/stores/exportState.svelte";
   import { thumbnailRenderService } from "$lib/services/thumbnailRenderService.svelte";
   import { type CustomLutRecord } from "$lib/services/customLutService";
-  import {
-    ExportService,
-    getExportExtension,
-    type ExportFormat,
-  } from "$lib/services/exportService";
+  import { type ExportFormat } from "$lib/services/exportService";
   import { SessionService } from "$lib/services/sessionService";
-  import { STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
-  import type {
-    StyleKeywordId,
-    StylePresetKey,
-    DirectoryPlanResult,
-  } from "$lib/services/ai/types";
   import {
     HSL_BAND_KEYS,
     cloneHslAdjustments,
-    createDefaultHslAdjustments,
-    type CropGeometry,
     type AiScopePreferences,
-    type AiTuningSnapshot,
-    type HslAdjustments,
   } from "$lib/types/photo";
 
   // Active module tabs
@@ -99,10 +81,7 @@
     };
 
     aiPipeline.onNotice = (message) => {
-      exportNotice = message;
-      setTimeout(() => {
-        exportNotice = "";
-      }, 2500);
+      exportState.showNotice(message, 2500);
     };
 
     aiPipeline.onTriggerRender = () => {
@@ -890,13 +869,12 @@
     aiPipeline.cancelBatchAi();
   }
 
-  // Export Pipeline State
-  let exportMode = $state<"modeA" | "modeB">("modeA");
-  let exportProgress = $state<number>(100);
-  let isExporting = $state<boolean>(false);
-  let exportNotice = $state<string>("");
+  // Export Pipeline State (由 exportState Store 統一管理)
+  const exportMode = $derived(exportState.exportMode);
+  const exportProgress = $derived(exportState.exportProgress);
+  const isExporting = $derived(exportState.isExporting);
+  const exportNotice = $derived(exportState.exportNotice);
 
-  // Single photo export
   async function handleSingleQuickExport(
     quickOptions:
       | "modeA"
@@ -908,253 +886,14 @@
           maxLongEdge: number | null;
         },
   ) {
-    if (!activePhoto) return;
-    try {
-      const resolvedOpts =
-        typeof quickOptions === "string"
-          ? {
-              mode: quickOptions,
-              format: "jpeg" as ExportFormat,
-              quality: quickOptions === "modeA" ? 0.95 : 1.0,
-              maxLongEdge: null as number | null,
-            }
-          : quickOptions;
-      const format = resolvedOpts.format;
-      const quality = resolvedOpts.quality;
-      const maxLongEdge = resolvedOpts.maxLongEdge;
-      const currentCrop = activePhoto.crop || darkroomState.buildCropSnapshot();
-
-      const blob = await ExportService.renderPhotoToBlob({
-        photo: {
-          ...activePhoto,
-          tuning: activePhoto.tuning || {
-            exposure: darkroomState.exposure,
-            highlights: darkroomState.highlights,
-            contrast: darkroomState.contrast,
-            shadows: darkroomState.shadows,
-            blacks: darkroomState.blacks,
-            colorTemp: darkroomState.colorTemp,
-            tint: darkroomState.tint,
-            vibrance: darkroomState.vibrance,
-            lutIntensity: darkroomState.lutIntensity,
-            clarity: darkroomState.clarity,
-            sharpness: darkroomState.sharpness,
-            colorDensity: darkroomState.colorDensity,
-            shadowHue: darkroomState.shadowHue,
-            shadowTintAmount: darkroomState.shadowTintAmount,
-            highlightHue: darkroomState.highlightHue,
-            highlightTintAmount: darkroomState.highlightTintAmount,
-            halation: darkroomState.halation,
-            grainAmount: darkroomState.grainAmount,
-            vignette: darkroomState.vignette,
-            monochrome: darkroomState.monochrome,
-            hsl: cloneHslAdjustments(darkroomState.hsl),
-          },
-          crop: currentCrop,
-        },
-        format,
-        quality,
-        maxLongEdge,
-        profileDefaults: allProfiles,
-        customLuts: userCustomLuts,
-      });
-
-      if (blob) {
-        const targetDir =
-          typeof localStorage !== "undefined"
-            ? localStorage.getItem("slipknot_export_target_dir") || "./Exports"
-            : "./Exports";
-        const autoDateSubdir =
-          typeof localStorage !== "undefined"
-            ? localStorage.getItem("slipknot_export_date_subdir") !== "false"
-            : true;
-        const subDir = autoDateSubdir
-          ? new Date().toISOString().slice(0, 10)
-          : undefined;
-        const baseName = activePhoto.filename.replace(/\.[^/.]+$/, "");
-        const ext = getExportExtension(format);
-        const filename = `${baseName}_graded.${ext}`;
-
-        const saveResult = await ExportService.saveExportedPhoto({
-          targetDir,
-          subDir,
-          filename,
-          blob,
-        });
-
-        exportNotice = saveResult.savedPath
-          ? `已快速匯出至 ${saveResult.savedPath}`
-          : `已快速匯出 ${filename}`;
-      }
-    } catch {
-      exportNotice = "快速匯出發生錯誤";
-    } finally {
-      setTimeout(() => {
-        exportNotice = "";
-      }, 3500);
-    }
+    await exportState.handleSingleQuickExport(quickOptions);
   }
 
   async function triggerExport(
     subset?: PhotoPlate[],
-    options?: {
-      targetDir: string;
-      autoDateSubdir: boolean;
-      backupRawFiles: boolean;
-      directoryPlan?: DirectoryPlanResult | null;
-      format?: ExportFormat;
-      quality?: number;
-      maxLongEdge?: number | null;
-      colorSpace?: "sRGB" | "DisplayP3" | "ProPhotoRGB";
-      preserveExif?: boolean;
-    },
+    options?: BatchExportOptions,
   ) {
-    const listToExport =
-      subset && subset.length > 0
-        ? subset
-        : activeQueue.length > 0
-          ? activeQueue
-          : activePhoto
-            ? [activePhoto]
-            : [];
-
-    if (listToExport.length === 0) {
-      exportNotice = "目前相簿為空，請先載入相片";
-      setTimeout(() => {
-        exportNotice = "";
-      }, 2500);
-      return;
-    }
-
-    const exportFormat: ExportFormat =
-      options?.format ??
-      ((typeof localStorage !== "undefined"
-        ? (localStorage.getItem("slipknot_export_format") as ExportFormat)
-        : null) ||
-        "jpeg");
-    const exportQuality =
-      options?.quality ??
-      (typeof localStorage !== "undefined" &&
-      localStorage.getItem("slipknot_export_quality")
-        ? Number(localStorage.getItem("slipknot_export_quality"))
-        : exportMode === "modeA"
-          ? 0.95
-          : 1.0);
-    const maxLongEdge = options?.maxLongEdge ?? null;
-    const ext = getExportExtension(exportFormat);
-
-    const targetDir =
-      options?.targetDir ||
-      (typeof localStorage !== "undefined"
-        ? localStorage.getItem("slipknot_export_target_dir") || "./Exports"
-        : "./Exports");
-    const autoDateSubdir =
-      options !== undefined
-        ? options.autoDateSubdir
-        : typeof localStorage !== "undefined"
-          ? localStorage.getItem("slipknot_export_date_subdir") !== "false"
-          : true;
-    const dateSubDir = autoDateSubdir
-      ? new Date().toISOString().slice(0, 10)
-      : undefined;
-
-    const directoryPlan = options?.directoryPlan;
-    const photoSubPathMap = new Map<string, string>();
-    if (directoryPlan && directoryPlan.folders) {
-      for (const folder of directoryPlan.folders) {
-        for (const pid of folder.photoIds) {
-          photoSubPathMap.set(pid, folder.subPath);
-        }
-      }
-    }
-
-    isExporting = true;
-    exportProgress = 5;
-    exportNotice = `準備匯出 ${listToExport.length} 張相片...`;
-
-    let lastSavedPath = "";
-
-    try {
-      for (let i = 0; i < listToExport.length; i++) {
-        const p = listToExport[i];
-        exportProgress = Math.round(((i + 0.5) / listToExport.length) * 100);
-        exportNotice = `正在處理第 ${i + 1}/${listToExport.length} 張：${p.filename}...`;
-
-        let blobToSave: Blob | null = null;
-        const baseName = p.filename.replace(/\.[^/.]+$/, "");
-        const filename = `${baseName}_graded.${ext}`;
-
-        // 計算該照片實際的目標子路徑 (結合日期子目錄與智慧規劃目錄)
-        const itemPlanSubPath = photoSubPathMap.get(p.id);
-        let actualSubDir: string | undefined = undefined;
-        if (dateSubDir && itemPlanSubPath) {
-          actualSubDir = `${dateSubDir}/${itemPlanSubPath}`;
-        } else if (itemPlanSubPath) {
-          actualSubDir = itemPlanSubPath;
-        } else if (dateSubDir) {
-          actualSubDir = dateSubDir;
-        }
-
-        // 渲染成片：依序以設定格式、畫質、尺寸與個別調色裁切算圖
-        blobToSave = await ExportService.renderPhotoToBlob({
-          photo: p,
-          format: exportFormat,
-          quality: exportQuality,
-          maxLongEdge,
-          profileDefaults: allProfiles,
-          customLuts: userCustomLuts,
-        });
-
-        if (blobToSave) {
-          const saveResult = await ExportService.saveExportedPhoto({
-            targetDir,
-            subDir: actualSubDir,
-            filename,
-            blob: blobToSave,
-          });
-          if (saveResult.savedPath) {
-            lastSavedPath = saveResult.savedPath;
-          }
-        }
-
-        // 原始 RAW 備份處理
-        if (options?.backupRawFiles && p.fileHandle) {
-          try {
-            const rawFile: File =
-              typeof (p.fileHandle as any).getFile === "function"
-                ? await (p.fileHandle as any).getFile()
-                : p.fileHandle;
-            const rawSubPath = directoryPlan?.rawBackupSubPath || "Raw_Backup";
-            const actualRawSubDir = dateSubDir
-              ? `${dateSubDir}/${rawSubPath}`
-              : rawSubPath;
-            await ExportService.saveExportedPhoto({
-              targetDir,
-              subDir: actualRawSubDir,
-              filename: rawFile.name || p.filename,
-              blob: rawFile,
-            });
-          } catch (rawErr) {
-            console.warn("備份原始 RAW 檔失敗:", rawErr);
-          }
-        }
-
-        await new Promise((r) => setTimeout(r, 60));
-      }
-
-      exportProgress = 100;
-      const planNotice = directoryPlan
-        ? `（已自動分類為 ${directoryPlan.folders.length} 個資料夾）`
-        : "";
-      exportNotice = `已完成匯出 ${listToExport.length} 張相片${planNotice} 至 ${lastSavedPath || targetDir}`;
-    } catch {
-      exportNotice = "匯出發生錯誤";
-    } finally {
-      isExporting = false;
-      setTimeout(() => {
-        exportNotice = "";
-      }, 4000);
-    }
+    await exportState.triggerExport(subset, options);
   }
 </script>
 
@@ -1443,7 +1182,8 @@
           {exportNotice}
           {aiVisionTags}
           {aiSceneTitle}
-          onSetExportMode={(m: "modeA" | "modeB") => (exportMode = m)}
+          onSetExportMode={(m: "modeA" | "modeB") =>
+            (exportState.exportMode = m)}
           onTriggerExport={(subset, options) =>
             triggerExport(subset as PhotoPlate[], options)}
           onGoToRetouch={goToRetouch}
