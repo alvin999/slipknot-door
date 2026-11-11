@@ -189,13 +189,14 @@
   });
 </script>
 
-<div class="histogram-card hairline-b font-mono">
+<div class="histogram-card hairline-b">
   <div class="hist-header">
     <div class="hist-title">
       <span class="material-symbols-outlined hist-icon">equalizer</span>
-      <span>HISTOGRAM // 光學波形</span>
+      <span class="hist-title-main">光學直方圖</span>
+      <span class="hist-title-sub font-mono">HISTOGRAM</span>
     </div>
-    <div class="hist-controls">
+    <div class="hist-controls font-mono">
       <button
         type="button"
         class="mode-chip"
@@ -203,21 +204,21 @@
         onclick={() => (displayMode = "rgb")}
         title="RGB 三原色分佈波形"
       >
-        RGB
+        RGB 色彩
       </button>
       <button
         type="button"
         class="mode-chip"
         class:active={displayMode === "luma"}
         onclick={() => (displayMode = "luma")}
-        title="Luma 單色亮度光階波形"
+        title="Luma 單色明度光階波形"
       >
-        LUMA
+        明度階調
       </button>
     </div>
   </div>
 
-  <div class="canvas-wrap hairline-all">
+  <div class="canvas-wrap hairline-all font-mono">
     <canvas
       bind:this={canvasEl}
       width="240"
@@ -225,16 +226,16 @@
       class="hist-canvas"
     ></canvas>
     <div class="scale-readout">
-      <span>0</span>
-      <span>128</span>
-      <span>255</span>
+      <span>暗部 0</span>
+      <span>中間調 128</span>
+      <span>高光 255</span>
     </div>
   </div>
 </div>
 
 <style>
   .histogram-card {
-    padding: 10px 16px 12px 16px;
+    padding: 9px 14px 10px 14px;
     background-color: var(--surface-panel);
   }
   .hist-header {
@@ -246,22 +247,30 @@
   .hist-title {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 9.5px;
-    letter-spacing: 0.08em;
+    gap: 5px;
+    color: var(--parchment-bright);
+  }
+  .hist-title-main {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .hist-title-sub {
+    font-size: 9px;
+    letter-spacing: 0.06em;
     color: var(--parchment-dim);
   }
   .hist-icon {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--amber-highlight);
   }
   .hist-controls {
     display: flex;
-    gap: 3px;
+    gap: 4px;
   }
   .mode-chip {
-    padding: 1px 6px;
-    font-size: 9px;
+    padding: 2px 7px;
+    font-size: 9.5px;
     background: transparent;
     border: 1px solid var(--hairline-slate);
     border-radius: var(--radius-xs);
@@ -277,6 +286,7 @@
     color: var(--amber-highlight);
     border-color: var(--amber-highlight);
     background-color: rgba(212, 163, 115, 0.15);
+    font-weight: 600;
   }
   .canvas-wrap {
     position: relative;
@@ -286,18 +296,18 @@
   }
   .hist-canvas {
     width: 100%;
-    height: 46px;
+    height: 44px;
     display: block;
   }
   .scale-readout {
     position: absolute;
     bottom: 2px;
-    left: 4px;
-    right: 4px;
+    left: 6px;
+    right: 6px;
     display: flex;
     justify-content: space-between;
-    font-size: 8px;
-    color: rgba(255, 255, 255, 0.28);
+    font-size: 8.5px;
+    color: rgba(255, 255, 255, 0.35);
     pointer-events: none;
   }
 </style>

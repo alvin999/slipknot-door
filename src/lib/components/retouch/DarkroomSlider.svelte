@@ -10,6 +10,7 @@
    */
   interface Props {
     label: string;
+    subLabel?: string;
     value: number;
     defaultValue?: number;
     min: number;
@@ -25,6 +26,7 @@
 
   let {
     label,
+    subLabel,
     value = $bindable(),
     defaultValue = 0,
     min,
@@ -153,7 +155,7 @@
   role="region"
   aria-label={label}
 >
-  <div class="control-header font-mono">
+  <div class="control-header">
     <!-- 標籤區：支援雙擊歸零，並顯示已修改指示燈 -->
     <div class="label-group">
       <span
@@ -165,6 +167,9 @@
       >
         {label}
       </span>
+      {#if subLabel}
+        <span class="sub-label-text font-mono">{subLabel}</span>
+      {/if}
       {#if isModified}
         <button
           type="button"
@@ -177,7 +182,7 @@
     </div>
 
     <!-- 數值區：支援單擊直接打字輸入、雙擊歸零 -->
-    <div class="val-group">
+    <div class="val-group font-mono">
       {#if isEditing}
         <input
           bind:this={inputEl}
@@ -242,17 +247,18 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 11px;
-    letter-spacing: 0.05em;
-    color: var(--parchment-dim);
-    margin-bottom: 6px;
+    font-size: 12px;
+    color: var(--parchment-muted);
+    margin-bottom: 5px;
+    gap: 6px;
   }
 
   .label-group {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: 5px;
     cursor: pointer;
+    min-width: 0;
   }
 
   .label-group:hover .label-text {
@@ -260,19 +266,34 @@
   }
 
   .label-text {
+    font-family: var(--font-body, sans-serif);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--parchment-bright);
+    letter-spacing: 0.01em;
     transition: color 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .sub-label-text {
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    color: var(--parchment-dim);
+    white-space: nowrap;
   }
 
   .modified-dot {
-    width: 5px;
-    height: 5px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background-color: var(--amber-highlight);
     border: none;
     padding: 0;
     cursor: pointer;
-    box-shadow: 0 0 4px var(--amber-highlight);
+    box-shadow: 0 0 5px var(--amber-highlight);
     transition: transform 0.15s ease;
+    align-self: center;
+    flex-shrink: 0;
   }
 
   .modified-dot:hover {

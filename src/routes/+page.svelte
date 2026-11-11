@@ -4723,6 +4723,7 @@
               previewHoverProfileId = profileId;
               retouchViewRef?.triggerRender();
             }}
+            onOpenQuickExport={() => (isQuickExportOpen = true)}
             onGoToExport={goToExport}
           />
         {:else if activeTab === "catalog"}
