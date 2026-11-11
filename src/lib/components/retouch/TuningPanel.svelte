@@ -2,9 +2,43 @@
   import { darkroomState, type CropRatioPreset } from "$lib/stores/darkroomState.svelte";
   import { photoLibrary, type PhotoPlateItem } from "$lib/stores/photoLibrary.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
+  import { HSL_BAND_KEYS, createDefaultHslAdjustments, type HslBandKey } from "$lib/types/photo";
   import DarkroomSlider from "./DarkroomSlider.svelte";
   import DarkroomHistogram from "./DarkroomHistogram.svelte";
   import { toastStore } from "$lib/stores/toastStore.svelte";
+
+  const HSL_BAND_META: {
+    key: HslBandKey;
+    label: string;
+    color: string;
+    hueGradient: string;
+  }[] = [
+    { key: "red", label: "紅", color: "#e05555", hueGradient: "linear-gradient(to right, #c74ca8 0%, #e05555 50%, #e68a3e 100%)" },
+    { key: "orange", label: "橙", color: "#e68a3e", hueGradient: "linear-gradient(to right, #e05555 0%, #e68a3e 50%, #d9bd45 100%)" },
+    { key: "yellow", label: "黃", color: "#d9bd45", hueGradient: "linear-gradient(to right, #e68a3e 0%, #d9bd45 50%, #52b365 100%)" },
+    { key: "green", label: "綠", color: "#52b365", hueGradient: "linear-gradient(to right, #d9bd45 0%, #52b365 50%, #46b8c4 100%)" },
+    { key: "cyan", label: "青", color: "#46b8c4", hueGradient: "linear-gradient(to right, #52b365 0%, #46b8c4 50%, #4e79d9 100%)" },
+    { key: "blue", label: "藍", color: "#4e79d9", hueGradient: "linear-gradient(to right, #46b8c4 0%, #4e79d9 50%, #b558d6 100%)" },
+  ];
+
+  let selectedHslBand = $state<HslBandKey>("red");
+  let hslExpanded = $state<boolean>(false);
+
+  const hasAnyHslAdjustment = $derived(
+    HSL_BAND_KEYS.some((k) => {
+      const b = darkroomState.hsl?.[k];
+      return b && (Math.abs(b.hue) > 0.001 || Math.abs(b.sat) > 0.001 || Math.abs(b.lum) > 0.001);
+    })
+  );
+
+  const selectedHslMeta = $derived(
+    HSL_BAND_META.find((m) => m.key === selectedHslBand) ?? HSL_BAND_META[0]
+  );
+
+  function isHslBandDirty(key: HslBandKey): boolean {
+    const b = darkroomState.hsl?.[key];
+    return Boolean(b && (Math.abs(b.hue) > 0.001 || Math.abs(b.sat) > 0.001 || Math.abs(b.lum) > 0.001));
+  }
 
   // 百分比參數解析函式 (支援 20 -> 0.2 或 0.2 -> 0.2)
   function parsePercentage(text: string): number | null {
@@ -67,11 +101,14 @@
   // 監聽各項參數變更以自動記錄快照歷史 (防抖 300ms)
   $effect(() => {
     const _exp = darkroomState.exposure;
+    const _hi = darkroomState.highlights;
     const _con = darkroomState.contrast;
     const _sha = darkroomState.shadows;
+    const _blk = darkroomState.blacks;
     const _lut = darkroomState.lutIntensity;
     const _tem = darkroomState.colorTemp;
     const _tin = darkroomState.tint;
+    const _vib = darkroomState.vibrance;
     const _cla = darkroomState.clarity;
     const _shp = darkroomState.sharpness;
     const _den = darkroomState.colorDensity;
@@ -81,6 +118,11 @@
     const _hiA = darkroomState.highlightTintAmount;
     const _hal = darkroomState.halation;
     const _grn = darkroomState.grainAmount;
+    const _vig = darkroomState.vignette;
+    const _hslSig = HSL_BAND_KEYS.map((k) => {
+      const b = darkroomState.hsl[k];
+      return `${b.hue},${b.sat},${b.lum}`;
+    }).join(";");
     const _rot = darkroomState.cropRotation;
     const _kv = darkroomState.keystoneV;
     const _cx = darkroomState.cropX;
@@ -300,6 +342,19 @@
     parseInput={parseCleanNumber}
   />
 
+  <!-- Slider 1.5: Highlights (Highlight Recovery / Boost) -->
+  <DarkroomSlider
+    label="HIGHLIGHTS (高光抑揚)"
+    bind:value={darkroomState.highlights}
+    defaultValue={0}
+    min={-1.0}
+    max={1.0}
+    step={0.02}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+    parseInput={parsePercentage}
+  />
+
   <!-- Slider 2: Contrast -->
   <DarkroomSlider
     label="CONTRAST (對比)"
@@ -317,6 +372,19 @@
   <DarkroomSlider
     label="SHADOW LIFT (暗部啞光抬升)"
     bind:value={darkroomState.shadows}
+    defaultValue={0}
+    min={-0.5}
+    max={0.5}
+    step={0.02}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+    parseInput={parsePercentage}
+  />
+
+  <!-- Slider 2.8: Blacks (Black Point Anchor) -->
+  <DarkroomSlider
+    label="BLACKS (黑階錨點)"
+    bind:value={darkroomState.blacks}
     defaultValue={0}
     min={-0.5}
     max={0.5}
@@ -371,6 +439,19 @@
     parseInput={parseCleanNumber}
   />
 
+  <!-- Slider 4.8: Vibrance (Skin-Aware Natural Saturation) -->
+  <DarkroomSlider
+    label="VIBRANCE (自然飽和度)"
+    bind:value={darkroomState.vibrance}
+    defaultValue={0}
+    min={-1.0}
+    max={1.0}
+    step={0.02}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+    parseInput={parsePercentage}
+  />
+
   <!-- Slider 5: Clarity -->
   <DarkroomSlider
     label="CLARITY (清晰度)"
@@ -413,6 +494,7 @@
         darkroomState.highlightTintAmount = 0.0;
         darkroomState.halation = 0.0;
         darkroomState.grainAmount = 0.15;
+        darkroomState.vignette = 0.0;
         darkroomState.recordSnapshot(true);
       }}
       title="重置分區調色與底片質感為預設基準"
@@ -505,6 +587,133 @@
     formatValue={(v) => `${Math.round(v * 100)}%`}
     parseInput={parsePercentage}
   />
+
+  <!-- Optical Vignette -->
+  <DarkroomSlider
+    label="VIGNETTE (光學暗角)"
+    bind:value={darkroomState.vignette}
+    defaultValue={0}
+    min={-1.0}
+    max={1.0}
+    step={0.02}
+    isBipolar={true}
+    formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+    parseInput={parsePercentage}
+  />
+</div>
+
+<!-- 1.8 HSL Color Mixer (6-Band Targeted Color Mixer) -->
+<div class="telemetry-box hairline-b">
+  <div class="tuning-box-header" style="margin-bottom: {hslExpanded ? '10px' : '0'};">
+    <button
+      type="button"
+      class="hsl-collapse-toggle font-mono"
+      onclick={() => (hslExpanded = !hslExpanded)}
+      title="展開或收合 6 段色彩微調 (HSL Color Mixer)"
+    >
+      <span class="material-symbols-outlined" style="font-size: 14px;">
+        {hslExpanded ? "expand_more" : "chevron_right"}
+      </span>
+      <span class="box-title font-mono" style="margin-bottom: 0;">HSL COLOR MIXER</span>
+      {#if hasAnyHslAdjustment}
+        <span class="hsl-active-badge" title="已有 HSL 色域調整"></span>
+      {/if}
+    </button>
+    {#if hasAnyHslAdjustment}
+      <button
+        type="button"
+        class="reset-tuning-btn font-mono"
+        onclick={() => {
+          darkroomState.hsl = createDefaultHslAdjustments();
+          darkroomState.recordSnapshot(true);
+        }}
+        title="歸零全部 6 段 HSL 調整"
+      >
+        <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
+        <span>全部歸零</span>
+      </button>
+    {/if}
+  </div>
+
+  {#if hslExpanded}
+    <div class="hsl-band-tabs">
+      {#each HSL_BAND_META as band}
+        <button
+          type="button"
+          class="hsl-band-tab font-mono"
+          class:active={selectedHslBand === band.key}
+          onclick={() => (selectedHslBand = band.key)}
+          title={`${band.label}色域調整`}
+        >
+          <span class="hsl-dot" style="background: {band.color};"></span>
+          <span>{band.label}</span>
+          {#if isHslBandDirty(band.key)}
+            <span class="hsl-band-dirty-dot"></span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+
+    <div class="hsl-band-subbar">
+      <span class="font-mono" style="font-size: 10px; color: var(--parchment-dim);">
+        ACTIVE BAND: <strong style="color: {selectedHslMeta.color};">{selectedHslMeta.label} ({selectedHslMeta.key.toUpperCase()})</strong>
+      </span>
+      {#if isHslBandDirty(selectedHslBand)}
+        <button
+          type="button"
+          class="hsl-band-reset font-mono"
+          onclick={() => {
+            darkroomState.hsl[selectedHslBand] = { hue: 0, sat: 0, lum: 0 };
+            darkroomState.recordSnapshot(true);
+          }}
+        >
+          歸零此色
+        </button>
+      {/if}
+    </div>
+
+    <DarkroomSlider
+      label="HUE (色相偏移)"
+      bind:value={darkroomState.hsl[selectedHslBand].hue}
+      defaultValue={0}
+      min={-1.0}
+      max={1.0}
+      step={0.02}
+      isBipolar={true}
+      customTrackGradient={selectedHslMeta.hueGradient}
+      formatValue={(v) => {
+        const deg = Math.round(v * 30);
+        return deg > 0 ? `+${deg}°` : `${deg}°`;
+      }}
+      parseInput={(text) => {
+        const num = parseCleanNumber(text);
+        if (num === null) return null;
+        return Math.abs(num) > 1.0 ? Math.max(-1, Math.min(1, num / 30)) : num;
+      }}
+    />
+    <DarkroomSlider
+      label="SATURATION (彩度)"
+      bind:value={darkroomState.hsl[selectedHslBand].sat}
+      defaultValue={0}
+      min={-1.0}
+      max={1.0}
+      step={0.02}
+      isBipolar={true}
+      formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+      parseInput={parsePercentage}
+    />
+    <DarkroomSlider
+      label="LUMINANCE (明度)"
+      bind:value={darkroomState.hsl[selectedHslBand].lum}
+      defaultValue={0}
+      min={-1.0}
+      max={1.0}
+      step={0.02}
+      isBipolar={true}
+      formatValue={(v) => (v > 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`)}
+      parseInput={parsePercentage}
+    />
+  {/if}
 </div>
 
 <!-- 2. CROP & GEOMETRY TELEMETRY BOX - 第二順位 -->
@@ -762,6 +971,91 @@
   .quick-ai-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  /* HSL COLOR MIXER */
+  .hsl-collapse-toggle {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--parchment-dim);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .hsl-collapse-toggle:hover {
+    color: var(--parchment-bright);
+  }
+  .hsl-active-badge {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--amber-highlight);
+    display: inline-block;
+    margin-left: 2px;
+  }
+  .hsl-band-tabs {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+  .hsl-band-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 5px 4px;
+    background: var(--surface-panel);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-dim);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .hsl-band-tab:hover {
+    color: var(--parchment-bright);
+    border-color: var(--hairline-slate);
+  }
+  .hsl-band-tab.active {
+    background: rgba(212, 163, 115, 0.14);
+    border-color: var(--amber-highlight);
+    color: var(--parchment-bright);
+  }
+  .hsl-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .hsl-band-dirty-dot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--amber-highlight);
+  }
+  .hsl-band-subbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .hsl-band-reset {
+    background: transparent;
+    border: none;
+    color: var(--amber-highlight);
+    font-size: 10px;
+    cursor: pointer;
+    padding: 0 2px;
+  }
+  .hsl-band-reset:hover {
+    text-decoration: underline;
   }
 
 </style>

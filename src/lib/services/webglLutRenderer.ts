@@ -5,14 +5,18 @@
  */
 
 import type { CustomLutRecord } from './customLutService';
+import { HSL_BAND_KEYS, type HslAdjustments } from '../types/photo';
 
 export interface TuningParameters {
   exposure: number;     // -2.0 ~ +2.0 EV
+  highlights?: number;  // -1.0 ~ +1.0 Highlight recovery / boost
   contrast: number;     // -1.0 ~ +1.0
+  blacks?: number;      // -0.5 ~ +0.5 Black point anchor / matte fade
   colorTemp: number;    // 2800 ~ 8500 Kelvin
   tint?: number;        // -100 ~ +100 Green <-> Magenta
   lutIntensity: number; // 0.0 ~ 1.0
   shadowLift?: number;  // -0.5 ~ +0.5 Non-linear shadow lift (Toe lift)
+  vibrance?: number;    // -1.0 ~ +1.0 Skin-aware natural saturation
   bypassLut: boolean;   // true for pure natural straight-out-of-camera
   clarity?: number;     // -1.0 ~ +1.0, mid-tone local contrast (large radius)
   sharpness?: number;   // -1.0 ~ +1.0, fine detail unsharp mask (negative softens, positive sharpens)
@@ -23,6 +27,8 @@ export interface TuningParameters {
   highlightTintAmount?: number; // 0.0 ~ 1.0, split-tone highlight intensity
   halation?: number;            // 0.0 ~ 1.0, red-orange emulsion highlight scatter
   grainAmount?: number;         // 0.0 ~ 1.0, organic silver-halide grain (0.15 = 0.012 baseline)
+  vignette?: number;            // -1.0 ~ +1.0, optical peripheral falloff
+  hsl?: HslAdjustments;         // 6-band targeted hue/saturation/luminance mixer
 }
 
 const VS_SOURCE = `#version 300 es
@@ -47,11 +53,14 @@ uniform sampler2D u_image;
 uniform sampler3D u_lut;
 
 uniform float u_exposure;
+uniform float u_highlights;
 uniform float u_contrast;
+uniform float u_blacks;
 uniform float u_colorTemp;
 uniform float u_tint;
 uniform float u_intensity;
 uniform float u_shadowLift;
+uniform float u_vibrance;
 uniform bool u_bypassLut;
 uniform float u_lutSize;   // Per-LUT size so .cube files of 17/33/65 sample correctly
 uniform float u_clarity;
@@ -63,6 +72,9 @@ uniform float u_highlightHue;
 uniform float u_highlightTintAmount;
 uniform float u_halation;
 uniform float u_grainAmount;
+uniform float u_vignette;
+uniform vec3 u_hsl[6];
+uniform int u_hasHsl;
 
 // Non-linear shadow lift (Toe lift, predominantly affects lower 40% luminance)
 vec3 applyShadowLift(vec3 color, float lift) {
@@ -237,6 +249,135 @@ vec3 applyOrganicFilmGrain(vec3 c, vec2 uv, vec2 texSize, float grainAmount) {
     return clamp(c + vec3(noise * amplitude * weight), 0.0, 1.0);
 }
 
+// Highlight recovery / boost (predominantly affects top luminance range)
+vec3 applyHighlights(vec3 c, float hi) {
+    if (abs(hi) < 0.001) return c;
+    float l = lumaOf(c);
+    float mask = smoothstep(0.42, 0.98, l);
+    if (hi < 0.0) {
+        return clamp(c * (1.0 + hi * 0.38 * mask), 0.0, 1.0);
+    }
+    return clamp(c + (1.0 - c) * (hi * 0.40 * mask), 0.0, 1.0);
+}
+
+// Black point anchor (negative crushes deep blacks, positive fades blacks)
+vec3 applyBlacks(vec3 c, float blk) {
+    if (abs(blk) < 0.001) return c;
+    float l = lumaOf(c);
+    float mask = pow(1.0 - smoothstep(0.0, 0.28, l), 1.5);
+    if (blk < 0.0) {
+        return clamp(c * (1.0 + blk * 0.65 * mask), 0.0, 1.0);
+    }
+    return clamp(c + (1.0 - c) * (blk * 0.18 * mask), 0.0, 1.0);
+}
+
+// Skin-aware natural vibrance (protects warm skin tones & already saturated colors)
+vec3 applyVibrance(vec3 c, float vib) {
+    if (abs(vib) < 0.001) return c;
+    float l = lumaOf(c);
+    float maxC = max(c.r, max(c.g, c.b));
+    float minC = min(c.r, min(c.g, c.b));
+    float sat = maxC - minC;
+    float skinMask = smoothstep(0.0, 0.5, max(0.0, c.r - c.g))
+                   * smoothstep(0.0, 0.5, max(0.0, c.g - c.b));
+    float skinProtect = 1.0 - 0.45 * skinMask;
+    if (vib >= 0.0) {
+        return clamp(mix(vec3(l), c, 1.0 + vib * (1.0 - sat) * skinProtect * 0.85), 0.0, 1.0);
+    }
+    return clamp(mix(vec3(l), c, 1.0 + vib * 0.65), 0.0, 1.0);
+}
+
+vec3 rgbToHsl(vec3 c) {
+    float maxC = max(c.r, max(c.g, c.b));
+    float minC = min(c.r, min(c.g, c.b));
+    float l = 0.5 * (maxC + minC);
+    float d = maxC - minC;
+    if (d < 0.0001) {
+        return vec3(0.0, 0.0, l);
+    }
+    float s = l > 0.5
+        ? d / max(0.0001, 2.0 - maxC - minC)
+        : d / max(0.0001, maxC + minC);
+    float h = 0.0;
+    if (maxC == c.r) {
+        h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+    } else if (maxC == c.g) {
+        h = (c.b - c.r) / d + 2.0;
+    } else {
+        h = (c.r - c.g) / d + 4.0;
+    }
+    return vec3(h / 6.0, clamp(s, 0.0, 1.0), clamp(l, 0.0, 1.0));
+}
+
+float hueToRgb(float p, float q, float t) {
+    if (t < 0.0) t += 1.0;
+    if (t > 1.0) t -= 1.0;
+    if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
+    if (t < 0.5) return q;
+    if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+    return p;
+}
+
+vec3 hslToRgb(vec3 hsl) {
+    if (hsl.y < 0.0001) return vec3(hsl.z);
+    float q = hsl.z < 0.5 ? hsl.z * (1.0 + hsl.y) : hsl.z + hsl.y - hsl.z * hsl.y;
+    float p = 2.0 * hsl.z - q;
+    return vec3(
+        hueToRgb(p, q, hsl.x + 1.0 / 3.0),
+        hueToRgb(p, q, hsl.x),
+        hueToRgb(p, q, hsl.x - 1.0 / 3.0)
+    );
+}
+
+// 6-Band targeted HSL Mixer: red(0), orange(30), yellow(60), green(120), cyan(185), blue(240)
+vec3 applyHslMixer(vec3 c) {
+    if (u_hasHsl == 0) return c;
+    vec3 hsl = rgbToHsl(clamp(c, 0.0, 1.0));
+    float chromaGate = smoothstep(0.01, 0.12, hsl.y);
+    if (chromaGate < 0.0001) return c;
+
+    float deg = hsl.x * 360.0;
+    vec3 adj;
+    if (deg < 30.0) {
+        adj = mix(u_hsl[0], u_hsl[1], smoothstep(0.0, 30.0, deg));
+    } else if (deg < 60.0) {
+        adj = mix(u_hsl[1], u_hsl[2], smoothstep(30.0, 60.0, deg));
+    } else if (deg < 120.0) {
+        adj = mix(u_hsl[2], u_hsl[3], smoothstep(60.0, 120.0, deg));
+    } else if (deg < 185.0) {
+        adj = mix(u_hsl[3], u_hsl[4], smoothstep(120.0, 185.0, deg));
+    } else if (deg < 240.0) {
+        adj = mix(u_hsl[4], u_hsl[5], smoothstep(185.0, 240.0, deg));
+    } else {
+        adj = mix(u_hsl[5], u_hsl[0], smoothstep(240.0, 360.0, deg));
+    }
+
+    if (abs(adj.x) < 0.0005 && abs(adj.y) < 0.0005 && abs(adj.z) < 0.0005) {
+        return c;
+    }
+
+    float h = fract(hsl.x + (adj.x * 30.0 / 360.0) * chromaGate);
+    float s = clamp(hsl.y * (1.0 + adj.y * chromaGate), 0.0, 1.0);
+    float lWeight = clamp(min(hsl.z, 1.0 - hsl.z) * 2.5, 0.0, 1.0);
+    float l = clamp(hsl.z + adj.z * 0.25 * chromaGate * lWeight, 0.0, 1.0);
+    return clamp(hslToRgb(vec3(h, s, l)), 0.0, 1.0);
+}
+
+// Optical radial vignette with aspect-ratio correction
+vec3 applyOpticalVignette(vec3 c, vec2 uv, vec2 texSize, float vig) {
+    if (abs(vig) < 0.001) return c;
+    float aspect = texSize.x / max(1.0, texSize.y);
+    vec2 centered = uv - vec2(0.5);
+    centered.x *= aspect;
+    float normScale = max(1.0, aspect);
+    float dist = length(centered) * 2.0 / normScale;
+    float falloff = smoothstep(0.38, 1.15, dist);
+    if (vig < 0.0) {
+        return clamp(c * (1.0 + vig * 0.65 * falloff), 0.0, 1.0);
+    }
+    return clamp(mix(c, vec3(1.0), vig * 0.35 * falloff), 0.0, 1.0);
+}
+
 void main() {
     vec4 src = texture(u_image, v_uv);
     if (src.a < 0.001) {
@@ -274,11 +415,15 @@ void main() {
     // 3.5 Subtractive Color Density (高彩度區域同步加深吸光密度)
     color = applySubtractiveColorDensity(color, u_colorDensity);
 
-    // 4. User Optional Contrast Tuning
+    // 4. User Optional Contrast, Highlights, Blacks, Vibrance & 6-Band HSL
     if (abs(u_contrast) > 0.001) {
         float factor = 1.0 + u_contrast * 0.5;
         color = clamp((color - 0.4) * factor + 0.4, 0.0, 1.0);
     }
+    color = applyHighlights(color, u_highlights);
+    color = applyBlacks(color, u_blacks);
+    color = applyVibrance(color, u_vibrance);
+    color = applyHslMixer(color);
 
     // 4.5 Split Toning (分區色調分離：不干擾 Pre-LUT 白平衡與 3D LUT 灰軸校準)
     color = applySplitToning(
@@ -314,8 +459,9 @@ void main() {
     vec2 renderTexSize = vec2(textureSize(u_image, 0));
     color = applyFilmHalation(color, v_uv, renderTexSize, u_halation);
 
-    // 6. Filmic Soft Highlight Shoulder Roll-off & Organic Grain
+    // 6. Filmic Soft Highlight Shoulder Roll-off, Optical Vignette & Organic Grain
     color = applyFilmicRollOff(color);
+    color = applyOpticalVignette(color, v_uv, renderTexSize, u_vignette);
     color = applyOrganicFilmGrain(color, v_uv, renderTexSize, u_grainAmount);
 
     fragColor = vec4(clamp(color, 0.0, 1.0), src.a);
@@ -368,6 +514,12 @@ export class WebglLutRenderer {
   private uHighlightTintAmountLoc: WebGLUniformLocation | null = null;
   private uHalationLoc: WebGLUniformLocation | null = null;
   private uGrainAmountLoc: WebGLUniformLocation | null = null;
+  private uHighlightsLoc: WebGLUniformLocation | null = null;
+  private uBlacksLoc: WebGLUniformLocation | null = null;
+  private uVibranceLoc: WebGLUniformLocation | null = null;
+  private uVignetteLoc: WebGLUniformLocation | null = null;
+  private uHslLoc: WebGLUniformLocation | null = null;
+  private uHasHslLoc: WebGLUniformLocation | null = null;
 
   public initialize(canvas: HTMLCanvasElement): boolean {
     const gl = canvas.getContext('webgl2', {
@@ -407,6 +559,12 @@ export class WebglLutRenderer {
     this.uHighlightTintAmountLoc = gl.getUniformLocation(program, 'u_highlightTintAmount');
     this.uHalationLoc = gl.getUniformLocation(program, 'u_halation');
     this.uGrainAmountLoc = gl.getUniformLocation(program, 'u_grainAmount');
+    this.uHighlightsLoc = gl.getUniformLocation(program, 'u_highlights');
+    this.uBlacksLoc = gl.getUniformLocation(program, 'u_blacks');
+    this.uVibranceLoc = gl.getUniformLocation(program, 'u_vibrance');
+    this.uVignetteLoc = gl.getUniformLocation(program, 'u_vignette');
+    this.uHslLoc = gl.getUniformLocation(program, 'u_hsl');
+    this.uHasHslLoc = gl.getUniformLocation(program, 'u_hasHsl');
 
     gl.useProgram(program);
     gl.uniform1i(this.uImageLoc, 0); // Texture unit 0
@@ -501,6 +659,35 @@ export class WebglLutRenderer {
     gl.uniform1f(this.uHighlightTintAmountLoc, params.highlightTintAmount ?? 0);
     gl.uniform1f(this.uHalationLoc, params.halation ?? 0);
     gl.uniform1f(this.uGrainAmountLoc, params.grainAmount ?? 0.15);
+    gl.uniform1f(this.uHighlightsLoc, params.highlights ?? 0);
+    gl.uniform1f(this.uBlacksLoc, params.blacks ?? 0);
+    gl.uniform1f(this.uVibranceLoc, params.vibrance ?? 0);
+    gl.uniform1f(this.uVignetteLoc, params.vignette ?? 0);
+
+    const hslData = new Float32Array(HSL_BAND_KEYS.length * 3);
+    let hasHsl = false;
+    if (params.hsl) {
+      for (let i = 0; i < HSL_BAND_KEYS.length; i++) {
+        const band = params.hsl[HSL_BAND_KEYS[i]];
+        if (band) {
+          hslData[i * 3] = band.hue ?? 0;
+          hslData[i * 3 + 1] = band.sat ?? 0;
+          hslData[i * 3 + 2] = band.lum ?? 0;
+          if (
+            Math.abs(hslData[i * 3]) > 0.0005
+            || Math.abs(hslData[i * 3 + 1]) > 0.0005
+            || Math.abs(hslData[i * 3 + 2]) > 0.0005
+          ) {
+            hasHsl = true;
+          }
+        }
+      }
+    }
+    gl.uniform1i(this.uHasHslLoc, hasHsl ? 1 : 0);
+    if (this.uHslLoc) {
+      gl.uniform3fv(this.uHslLoc, hslData);
+    }
+
     gl.uniform1f(this.uExposureLoc, params.exposure);
     gl.uniform1f(this.uContrastLoc, params.contrast);
     gl.uniform1f(this.uColorTempLoc, params.colorTemp);

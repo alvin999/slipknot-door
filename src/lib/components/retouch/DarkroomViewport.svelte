@@ -4,6 +4,7 @@
   import { photoLibrary, type PhotoPlateItem } from "$lib/stores/photoLibrary.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
   import { WebglLutRenderer } from "$lib/services/webglLutRenderer";
+  import { HSL_BAND_KEYS, createDefaultHslAdjustments, type HslAdjustments } from "$lib/types/photo";
 
   interface Props {
     activePhoto?: PhotoPlateItem | null;
@@ -11,10 +12,13 @@
     activeQueue?: PhotoPlateItem[];
     exportNotice?: string;
     exposure?: number;
+    highlights?: number;
     contrast?: number;
     shadows?: number;
+    blacks?: number;
     colorTemp?: number;
     tint?: number;
+    vibrance?: number;
     lutIntensity?: number;
     clarity?: number;
     sharpness?: number;
@@ -25,6 +29,8 @@
     highlightTintAmount?: number;
     halation?: number;
     grainAmount?: number;
+    vignette?: number;
+    hsl?: HslAdjustments;
     cropX?: number;
     cropY?: number;
     cropWidth?: number;
@@ -58,10 +64,13 @@
     activeQueue: propsActiveQueue = [],
     exportNotice = "",
     exposure: propsExposure,
+    highlights: propsHighlights,
     contrast: propsContrast,
     shadows: propsShadows,
+    blacks: propsBlacks,
     colorTemp: propsColorTemp,
     tint: propsTint,
+    vibrance: propsVibrance,
     lutIntensity: propsLutIntensity,
     clarity: propsClarity,
     sharpness: propsSharpness,
@@ -72,6 +81,8 @@
     highlightTintAmount: propsHighlightTintAmount,
     halation: propsHalation,
     grainAmount: propsGrainAmount,
+    vignette: propsVignette,
+    hsl: propsHsl,
     cropX: propsCropX,
     cropY: propsCropY,
     cropWidth: propsCropWidth,
@@ -117,10 +128,13 @@
 
   // 參數解析：優先使用傳入的 prop，若未傳入則使用 darkroomState
   const currentExposure = $derived(propsExposure ?? darkroomState.exposure);
+  const currentHighlights = $derived(propsHighlights ?? darkroomState.highlights);
   const currentContrast = $derived(propsContrast ?? darkroomState.contrast);
   const currentShadows = $derived(propsShadows ?? darkroomState.shadows);
+  const currentBlacks = $derived(propsBlacks ?? darkroomState.blacks);
   const currentColorTemp = $derived(propsColorTemp ?? darkroomState.colorTemp);
   const currentTint = $derived(propsTint ?? darkroomState.tint);
+  const currentVibrance = $derived(propsVibrance ?? darkroomState.vibrance);
   const currentLutIntensity = $derived(propsLutIntensity ?? darkroomState.lutIntensity);
   const currentClarity = $derived(propsClarity ?? darkroomState.clarity);
   const currentSharpness = $derived(propsSharpness ?? darkroomState.sharpness);
@@ -131,6 +145,8 @@
   const currentHighlightTintAmount = $derived(propsHighlightTintAmount ?? darkroomState.highlightTintAmount);
   const currentHalation = $derived(propsHalation ?? darkroomState.halation);
   const currentGrainAmount = $derived(propsGrainAmount ?? darkroomState.grainAmount);
+  const currentVignette = $derived(propsVignette ?? darkroomState.vignette);
+  const currentHsl = $derived(propsHsl ?? darkroomState.hsl);
 
   const currentCropX = $derived(propsCropX ?? darkroomState.cropX);
   const currentCropY = $derived(propsCropY ?? darkroomState.cropY);
@@ -432,9 +448,12 @@
       webglRenderer.render(
         {
           exposure: 0.0,
+          highlights: 0.0,
           contrast: 0.0,
+          blacks: 0.0,
           colorTemp: 5500,
           tint: 0.0,
+          vibrance: 0.0,
           lutIntensity: 0.0,
           shadowLift: 0.0,
           bypassLut: true,
@@ -447,6 +466,8 @@
           highlightTintAmount: 0.0,
           halation: 0.0,
           grainAmount: 0.0,
+          vignette: 0.0,
+          hsl: createDefaultHslAdjustments(),
         },
         imgWidth,
         imgHeight
@@ -465,9 +486,12 @@
     webglRenderer.render(
       {
         exposure: currentExposure,
+        highlights: currentHighlights,
         contrast: currentContrast,
+        blacks: currentBlacks,
         colorTemp: currentColorTemp,
         tint: currentTint,
+        vibrance: currentVibrance,
         shadowLift: currentShadows,
         lutIntensity: currentLutIntensity,
         bypassLut: isBypass,
@@ -480,6 +504,8 @@
         highlightTintAmount: currentHighlightTintAmount,
         halation: currentHalation,
         grainAmount: currentGrainAmount,
+        vignette: currentVignette,
+        hsl: currentHsl,
       },
       imgWidth,
       imgHeight
@@ -506,10 +532,13 @@
     const _thumb = activePhoto?.thumbnail;
     const _profile = activePhoto?.appliedProfile;
     const _exp = currentExposure;
+    const _highlights = currentHighlights;
     const _contrast = currentContrast;
     const _shadows = currentShadows;
+    const _blacks = currentBlacks;
     const _temp = currentColorTemp;
     const _tint = currentTint;
+    const _vibrance = currentVibrance;
     const _lut = currentLutIntensity;
     const _clarity = currentClarity;
     const _sharpness = currentSharpness;
@@ -520,6 +549,10 @@
     const _highlightTint = currentHighlightTintAmount;
     const _halation = currentHalation;
     const _grain = currentGrainAmount;
+    const _vignette = currentVignette;
+    const _hslSig = currentHsl
+      ? HSL_BAND_KEYS.map((k) => `${currentHsl[k].hue},${currentHsl[k].sat},${currentHsl[k].lum}`).join(';')
+      : '';
     const _ab = currentShowABComparison;
     const _diff = currentDiffMode;
     const _hover = currentHoverProfile;

@@ -47,6 +47,11 @@ export interface RenderPhotoOptions {
       highlightTintAmount?: number;
       halation?: number;
       grainAmount?: number;
+      highlights?: number;
+      blacks?: number;
+      vibrance?: number;
+      vignette?: number;
+      hsl?: import('../types/photo').HslAdjustments;
     };
     crop?: {
       x: number;
@@ -64,6 +69,7 @@ export interface RenderPhotoOptions {
   profileDefaults?: {
     id: string;
     evDefault: number;
+    highlightsDefault?: number;
     contrastDefault?: number;
     shadowsDefault?: number;
     lutIntensityDefault: number;
@@ -203,6 +209,11 @@ export class ExportService {
       const highlightTintAmount = tuning?.highlightTintAmount ?? 0.0;
       const halation = tuning?.halation ?? 0.0;
       const grainAmount = tuning?.grainAmount ?? 0.15;
+      const highlights = tuning?.highlights ?? (profileDefault?.highlightsDefault ?? 0.0);
+      const blacks = tuning?.blacks ?? 0.0;
+      const vibrance = tuning?.vibrance ?? 0.0;
+      const vignette = tuning?.vignette ?? 0.0;
+      const hsl = tuning?.hsl;
 
       if (!this.exportRenderer) {
         this.exportCanvas = document.createElement('canvas');
@@ -234,6 +245,11 @@ export class ExportService {
           highlightTintAmount,
           halation,
           grainAmount,
+          highlights,
+          blacks,
+          vibrance,
+          vignette,
+          hsl,
         },
         w,
         h

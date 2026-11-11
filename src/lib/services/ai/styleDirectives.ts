@@ -15,7 +15,13 @@
  */
 
 import type { StylePresetKey, StyleKeywordId, VisionInferenceOptions } from './types';
-import type { ExifOpticalData, AiScopePreferences } from '../../types/photo';
+import {
+  HSL_BAND_KEYS,
+  type ExifOpticalData,
+  type AiScopePreferences,
+  type HslBandKey,
+  type HslBandAdjustment,
+} from '../../types/photo';
 import type { AiSceneDecision } from '../aiSceneService';
 import type { CustomLutRecord } from '../customLutService';
 
@@ -278,7 +284,12 @@ ${manifest}`;
 9. color_density [-1.0 to 1.0, Baseline: 0.0]: Subtractive emulsion dye density applied post-LUT. Positive values increase chroma while proportionally deepening high-chroma luminance (emulating light absorption of analog dyes); negative values attenuate chroma density toward pastel tonality.
 10. Split Toning (shadow_hue, shadow_tint_amount, highlight_hue, highlight_tint_amount): Post-LUT zone-separated chromatic bias preserving pure black and pure white anchors. Hue angles (0 to 360 deg): 0=Red, 45=Amber, 120=Green, 180=Cyan, 210=Teal-Blue, 240=Blue, 300=Magenta. Amounts range 0.0 to 1.0 (0.0 disables tint).
 11. halation [0.0 to 1.0, Baseline: 0.0]: Red-orange specular scatter halo around high-luminance edges caused by emulsion base reflection before highlight shoulder roll-off.
-12. grain_amount [0.0 to 1.0, Baseline: 0.15]: Luminance-weighted dual-scale silver-halide emulsion grain intensity.`;
+12. grain_amount [0.0 to 1.0, Baseline: 0.15]: Luminance-weighted dual-scale silver-halide emulsion grain intensity.
+13. highlights [-1.0 to 1.0, Baseline: 0.0]: Upper-luminance roll-off / compression. Negative recovers specular highlight headroom without compressing midtones; positive boosts peak highlight energy.
+14. blacks [-0.5 to 0.5, Baseline: 0.0]: Lowest-luminance black-point anchor. Negative deepens true black floor density; positive creates a gentle matte fade in darkest shadows.
+15. vibrance [-1.0 to 1.0, Baseline: 0.0]: Skin-aware natural saturation scaling. Boosts muted hues proportionally while protecting warm skin tones and preventing over-saturated clipping.
+16. vignette [-1.0 to 1.0, Baseline: 0.0]: Optical peripheral radial falloff. Negative applies natural lens edge darkening; positive brightens outer corners.
+17. hsl (6-Band Targeted Color Mixer: "red" | "orange" | "yellow" | "green" | "cyan" | "blue"): Optional partial object where each specified band adjusts { hue: [-1.0, 1.0] (shifts ±30°), sat: [-1.0, 1.0], lum: [-1.0, 1.0] } centered at 0°, 30°, 60°, 120°, 185°, 240° with smooth inter-band blending and neutral-gray protection. Omit unadjusted bands or keep at 0.0.`;
 
   return {
     instructionBlock: baseBlock,
@@ -316,17 +327,29 @@ export function buildCriticInstructionBlock(
     const highlightTintAmount = firstPassInput.highlight_tint_amount ?? 0.0;
     const halation = firstPassInput.halation ?? 0.0;
     const grainAmount = firstPassInput.grain_amount ?? 0.15;
+    const highlights = firstPassInput.highlights ?? 0.0;
+    const blacks = firstPassInput.blacks ?? 0.0;
+    const vibrance = firstPassInput.vibrance ?? 0.0;
+    const vignette = firstPassInput.vignette ?? 0.0;
+    const activeHslEntries = firstPassInput.hsl
+      ? HSL_BAND_KEYS.filter((k) => {
+          const b = firstPassInput.hsl?.[k];
+          return b && (Math.abs(b.hue) > 0.01 || Math.abs(b.sat) > 0.01 || Math.abs(b.lum) > 0.01);
+        }).map((k) => {
+          const b = firstPassInput.hsl![k];
+          return `${k}(H:${b.hue.toFixed(2)},S:${b.sat.toFixed(2)},L:${b.lum.toFixed(2)})`;
+        })
+      : [];
 
     baselineParamsBlock = `Current Pass 1 Baseline Parameters Applied on Image 2:
 - 3D LUT Profile: "${firstPassProfile}" (Intensity: ${lutIntensity.toFixed(2)})
 - Exposure Compensation: ${exp >= 0 ? '+' : ''}${exp.toFixed(2)} EV
-- Lift Shadows: ${shadow >= 0 ? '+' : ''}${shadow.toFixed(2)}
-- Contrast: ${contrast >= 0 ? '+' : ''}${contrast.toFixed(2)}
+- Highlights: ${highlights >= 0 ? '+' : ''}${highlights.toFixed(2)}, Contrast: ${contrast >= 0 ? '+' : ''}${contrast.toFixed(2)}, Lift Shadows: ${shadow >= 0 ? '+' : ''}${shadow.toFixed(2)}, Blacks: ${blacks >= 0 ? '+' : ''}${blacks.toFixed(2)}
 - Color Temperature: ${temp}K (Tint: ${tint >= 0 ? '+' : ''}${tint.toFixed(1)})
 - Clarity: ${clarity >= 0 ? '+' : ''}${clarity.toFixed(2)}, Sharpness: ${sharpness >= 0 ? '+' : ''}${sharpness.toFixed(2)}
-- Subtractive Color Density: ${colorDensity >= 0 ? '+' : ''}${colorDensity.toFixed(2)}
+- Vibrance: ${vibrance >= 0 ? '+' : ''}${vibrance.toFixed(2)}, Subtractive Color Density: ${colorDensity >= 0 ? '+' : ''}${colorDensity.toFixed(2)}
 - Split Toning: Shadow ${Math.round(shadowHue)}° (Amt ${shadowTintAmount.toFixed(2)}) | Highlight ${Math.round(highlightHue)}° (Amt ${highlightTintAmount.toFixed(2)})
-- Film Halation: ${halation.toFixed(2)}, Silver-Halide Grain: ${grainAmount.toFixed(2)}\n\n`;
+- Film Halation: ${halation.toFixed(2)}, Silver-Halide Grain: ${grainAmount.toFixed(2)}, Optical Vignette: ${vignette >= 0 ? '+' : ''}${vignette.toFixed(2)}${activeHslEntries.length > 0 ? `\n- Active 6-Band HSL: ${activeHslEntries.join(', ')}` : ''}\n\n`;
   }
   const targetAesthetics: string[] = [];
   const trimmedCustom = customStylePrompt?.trim() || '';
@@ -377,22 +400,33 @@ ${aestheticLine}- Since you have Image 2 (rendered actual result) as concrete gr
   8. EMULSION HALATION & GRAIN DELTAS (optional):
      - halation_delta (-0.5 to 0.5): Adjust red-orange highlight edge scattering if bright sources appear overly clinical or excessively haloed.
      - grain_amount_delta (-0.5 to 0.5): Adjust silver-halide grain amplitude relative to target emulsion character.
+  9. HIGHLIGHTS, BLACKS, VIBRANCE, VIGNETTE & 6-BAND HSL DELTAS (optional):
+     - highlights_delta (-0.5 to 0.5): Negative compresses clipped bright skies/skin highlights; positive opens peak specular brightness.
+     - blacks_delta (-0.5 to 0.5): Negative anchors deeper blacks; positive softens black floor into matte tones.
+     - vibrance_delta (-0.5 to 0.5): Adjust natural skin-aware chromatic richness.
+     - vignette_delta (-0.5 to 0.5): Negative deepens peripheral lens falloff; positive lifts outer frame corners.
+     - hsl_deltas (optional partial object): Keys among "red" | "orange" | "yellow" | "green" | "cyan" | "blue", each { hue, sat, lum } in [-0.5, 0.5], to selectively correct individual color bands (e.g., taming orange skin saturation, shifting foliage green/yellow hue, deepening cyan/blue sky luminance). Omit bands needing no change.
 
 Respond ONLY with raw JSON matching this schema:
 {
   "exposure_delta": "number between -2.0 and 2.0 (EV adjustment, 0.0 if optimal)",
+  "highlights_delta": "number between -0.5 and 0.5 (optional highlight headroom adjustment, 0.0 if optimal)",
   "lift_shadows_delta": "number between -0.5 and 0.5 (toe lift adjustment, 0.0 if optimal)",
+  "blacks_delta": "number between -0.5 and 0.5 (optional black point anchor adjustment, 0.0 if optimal)",
   "color_temp_delta": "integer between -3000 and 3000 (Kelvin adjustment, 0 if accurate)",
   "tint_delta": "number between -100.0 and 100.0 (optional tint adjustment, 0.0 if balanced)",
   "contrast_delta": "number between -0.8 and 0.8 (contrast adjustment, 0.0 if balanced)",
   "lut_intensity_delta": "number between -1.0 and 1.0 (optional LUT intensity adjustment, 0.0 if optimal)",
   "clarity_delta": "number between -0.5 and 0.5 (optional clarity adjustment, 0.0 if optimal)",
   "sharpness_delta": "number between -0.5 and 0.5 (optional sharpness adjustment, 0.0 if optimal)",
+  "vibrance_delta": "number between -0.5 and 0.5 (optional skin-aware vibrance adjustment, 0.0 if optimal)",
   "color_density_delta": "number between -0.5 and 0.5 (optional subtractive density adjustment, 0.0 if optimal)",
   "shadow_tint_amount_delta": "number between -0.5 and 0.5 (optional shadow split-tone amount adjustment, 0.0 if optimal)",
   "highlight_tint_amount_delta": "number between -0.5 and 0.5 (optional highlight split-tone amount adjustment, 0.0 if optimal)",
   "halation_delta": "number between -0.5 and 0.5 (optional halation scattering adjustment, 0.0 if optimal)",
   "grain_amount_delta": "number between -0.5 and 0.5 (optional grain intensity adjustment, 0.0 if optimal)",
+  "vignette_delta": "number between -0.5 and 0.5 (optional optical vignette adjustment, 0.0 if optimal)",
+  "hsl_deltas": "optional object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-0.5, 0.5]",
   "refine_rationale": "string (1 concise sentence in Traditional Chinese summarizing the tonal/color refinements and aesthetic rationale)"
 }`;
 
@@ -418,6 +452,40 @@ export function parseAiJsonString<T = any>(raw: string): T {
   // 移除在冒號、逗號或中括號後面的非法正號 (例如 : +100 -> : 100, : +0.15 -> : 0.15)
   cleaned = cleaned.replace(/(:\s*|\[\s*|,\s*)\+(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, '$1$2');
   return JSON.parse(cleaned);
+}
+
+/**
+ * 清理並解析 AI 回傳的 6 區段局部 HSL 調整物件，確保僅保留有效區段並箝制在合法物理邊界內
+ */
+export function parsePartialHslFromAi(
+  raw: unknown,
+  maxAbs: number = 1.0
+): Partial<Record<HslBandKey, Partial<HslBandAdjustment>>> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const src = raw as Record<string, unknown>;
+  const out: Partial<Record<HslBandKey, Partial<HslBandAdjustment>>> = {};
+  let hasAny = false;
+  const clampVal = (v: unknown): number | undefined => {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+    return Math.max(-maxAbs, Math.min(maxAbs, v));
+  };
+  for (const band of HSL_BAND_KEYS) {
+    const entry = src[band];
+    if (!entry || typeof entry !== 'object') continue;
+    const obj = entry as Record<string, unknown>;
+    const hue = clampVal(obj.hue);
+    const sat = clampVal(obj.sat);
+    const lum = clampVal(obj.lum);
+    if (hue !== undefined || sat !== undefined || lum !== undefined) {
+      out[band] = {
+        ...(hue !== undefined ? { hue } : {}),
+        ...(sat !== undefined ? { sat } : {}),
+        ...(lum !== undefined ? { lum } : {}),
+      };
+      hasAny = true;
+    }
+  }
+  return hasAny ? out : undefined;
 }
 
 
@@ -481,22 +549,27 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
   const channels: string[] = [];
   if (enableTone) {
     channels.push('1. exposure_compensation: Global luminance scaling (-2.0 to +2.0 EV). Target linear mid-tone placement while protecting organic highlight headroom.');
-    channels.push('2. contrast: Global linear tonal slope (-0.8 to +0.8).');
-    channels.push('3. lift_shadows: Shadow toe adjustment (-0.5 to +0.5). Negative deepens blacks; positive lifts darkest 40% luminance.');
-    channels.push('4. clarity & sharpness [-1.0 to +1.0, baseline: 0.0]: Spatial frequency control. Baseline 0.0 preserves native lens MTF. Negative values (<= 0.0) attenuate edge contrast to model organic emulsion diffusion; positive values (> 0.0) apply algorithmic digital sharpening.');
+    channels.push('2. highlights [-1.0 to +1.0, baseline: 0.0]: Upper-luminance roll-off / recovery. Negative compresses bright highlight headroom; positive lifts peak highlights.');
+    channels.push('3. contrast: Global linear tonal slope (-0.8 to +0.8).');
+    channels.push('4. lift_shadows: Shadow toe adjustment (-0.5 to +0.5). Negative deepens blacks; positive lifts darkest 40% luminance.');
+    channels.push('5. blacks [-0.5 to +0.5, baseline: 0.0]: Lowest-luminance black-point anchor. Negative deepens true blacks; positive creates a gentle matte fade.');
+    channels.push('6. clarity & sharpness [-1.0 to +1.0, baseline: 0.0]: Spatial frequency control. Baseline 0.0 preserves native lens MTF. Negative values (<= 0.0) attenuate edge contrast to model organic emulsion diffusion; positive values (> 0.0) apply algorithmic digital sharpening.');
   }
   if (enableWb) {
-    channels.push('5. color_temp & tint: Pre-LUT white balance (color_temp: integer 2800 to 8500, 5500 baseline; tint: -100.0 to +100.0). Neutralize unintended environmental chromatic cast.');
+    channels.push('7. color_temp & tint: Pre-LUT white balance (color_temp: integer 2800 to 8500, 5500 baseline; tint: -100.0 to +100.0). Neutralize unintended environmental chromatic cast.');
   }
   if (enableLut) {
-    channels.push('6. recommended_profile & lut_intensity: 3D film volumetric emulation (lut_intensity: 0.0 to 1.0).');
+    channels.push('8. recommended_profile & lut_intensity: 3D film volumetric emulation (lut_intensity: 0.0 to 1.0).');
   }
   if (enableFilmPhysics) {
-    channels.push('7. color_density [-1.0 to +1.0, baseline: 0.0]: Post-LUT subtractive dye density. Positive values increase chroma while proportionally attenuating luminance of high-chroma regions (emulsion dye light absorption); negative values yield softer pastel tonality.');
-    channels.push('8. shadow_hue & shadow_tint_amount (shadow_hue: 0 to 360 deg, shadow_tint_amount: 0.0 to 1.0): Post-LUT chromatic bias in mid-shadows with black-point anchor. Hue reference: 0=Red, 45=Amber, 120=Green, 180=Cyan, 210=Teal-Blue, 240=Blue, 300=Magenta.');
-    channels.push('9. highlight_hue & highlight_tint_amount (highlight_hue: 0 to 360 deg, highlight_tint_amount: 0.0 to 1.0): Post-LUT chromatic bias in upper midtone highlights with white-point anchor. Uses the same 0-360 hue reference.');
-    channels.push('10. halation [0.0 to 1.0, baseline: 0.0]: Red-orange specular light scattering halo around high-luminance edges caused by emulsion base reflection.');
-    channels.push('11. grain_amount [0.0 to 1.0, baseline: 0.15]: Luminance-weighted dual-scale organic silver-halide emulsion grain intensity.');
+    channels.push('9. vibrance [-1.0 to +1.0, baseline: 0.0]: Post-LUT skin-aware natural saturation scaling. Modulates muted chromatic regions proportionally while protecting skin tones.');
+    channels.push('10. color_density [-1.0 to +1.0, baseline: 0.0]: Post-LUT subtractive dye density. Positive values increase chroma while proportionally attenuating luminance of high-chroma regions (emulsion dye light absorption); negative values yield softer pastel tonality.');
+    channels.push('11. shadow_hue & shadow_tint_amount (shadow_hue: 0 to 360 deg, shadow_tint_amount: 0.0 to 1.0): Post-LUT chromatic bias in mid-shadows with black-point anchor. Hue reference: 0=Red, 45=Amber, 120=Green, 180=Cyan, 210=Teal-Blue, 240=Blue, 300=Magenta.');
+    channels.push('12. highlight_hue & highlight_tint_amount (highlight_hue: 0 to 360 deg, highlight_tint_amount: 0.0 to 1.0): Post-LUT chromatic bias in upper midtone highlights with white-point anchor. Uses the same 0-360 hue reference.');
+    channels.push('13. halation [0.0 to 1.0, baseline: 0.0]: Red-orange specular light scattering halo around high-luminance edges caused by emulsion base reflection.');
+    channels.push('14. grain_amount [0.0 to 1.0, baseline: 0.15]: Luminance-weighted dual-scale organic silver-halide emulsion grain intensity.');
+    channels.push('15. vignette [-1.0 to +1.0, baseline: 0.0]: Optical radial peripheral falloff. Negative darkens outer corners; positive brightens outer corners.');
+    channels.push('16. hsl (optional partial 6-band color mixer): Adjust targeted hue (±30° normalized to -1.0..1.0), saturation (-1.0..1.0), and luminance (-1.0..1.0) per band ("red" | "orange" | "yellow" | "green" | "cyan" | "blue"). Omit bands that remain 0.0.');
   }
 
   return `You are a radiometric calibration and volumetric color grading specialist.
@@ -516,6 +589,6 @@ Respond ONLY with raw JSON matching this schema:
   "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
   "style_insight": "string (1-2 sentences in Traditional Chinese)",
   "recommended_mood": "string (short mood label in Traditional Chinese)",
-  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${enableLut ? `,\n  "recommended_profile": "${recommendedProfileSchemaHint}",\n  "lut_intensity": "number between 0.0 and 1.0"` : ''}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}${enableFilmPhysics ? `,\n  "color_density": "number between -1.0 and +1.0",\n  "shadow_hue": "number between 0 and 360",\n  "shadow_tint_amount": "number between 0.0 and 1.0",\n  "highlight_hue": "number between 0 and 360",\n  "highlight_tint_amount": "number between 0.0 and 1.0",\n  "halation": "number between 0.0 and 1.0",\n  "grain_amount": "number between 0.0 and 1.0"` : ''}
+  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${enableLut ? `,\n  "recommended_profile": "${recommendedProfileSchemaHint}",\n  "lut_intensity": "number between 0.0 and 1.0"` : ''}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "highlights": "number between -1.0 and +1.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "blacks": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}${enableFilmPhysics ? `,\n  "vibrance": "number between -1.0 and +1.0",\n  "color_density": "number between -1.0 and +1.0",\n  "shadow_hue": "number between 0 and 360",\n  "shadow_tint_amount": "number between 0.0 and 1.0",\n  "highlight_hue": "number between 0 and 360",\n  "highlight_tint_amount": "number between 0.0 and 1.0",\n  "halation": "number between 0.0 and 1.0",\n  "grain_amount": "number between 0.0 and 1.0",\n  "vignette": "number between -1.0 and +1.0",\n  "hsl": "optional partial object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-1.0, +1.0]"` : ''}
 }`;
 }

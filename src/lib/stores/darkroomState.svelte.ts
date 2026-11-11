@@ -4,7 +4,14 @@
  * 遵循 Svelte 5 Runes ($state, $derived) 響應式規範。
  */
 
-import type { CropGeometry, TuningParameters } from "$lib/types/photo";
+import {
+  HSL_BAND_KEYS,
+  cloneHslAdjustments,
+  createDefaultHslAdjustments,
+  type CropGeometry,
+  type TuningParameters,
+  type HslAdjustments,
+} from "$lib/types/photo";
 import type { PhotoPlateItem } from "./photoLibrary.svelte";
 import type { StyleKeywordId } from "$lib/services/ai/types";
 import { composeStyleKeywordPrompt, STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
@@ -14,11 +21,14 @@ export type CropRatioPreset = "original" | "1:1" | "4:5" | "16:9" | "9:16" | "fr
 
 export interface DarkroomHistorySnapshot {
   exposure: number;
+  highlights: number;
   contrast: number;
   shadows: number;
+  blacks: number;
   lutIntensity: number;
   colorTemp: number;
   tint: number;
+  vibrance: number;
   clarity: number;
   sharpness: number;
   colorDensity: number;
@@ -28,6 +38,8 @@ export interface DarkroomHistorySnapshot {
   highlightTintAmount: number;
   halation: number;
   grainAmount: number;
+  vignette: number;
+  hsl: HslAdjustments;
   cropX: number;
   cropY: number;
   cropWidth: number;
@@ -89,6 +101,7 @@ export class DarkroomStateStore {
   contrast = $state<number>(0.0);
   highlights = $state<number>(0.0);
   shadows = $state<number>(0.0);
+  blacks = $state<number>(0.0);
   fade = $state<number>(0.0);
 
   // 白平衡與飽和度 (Color & White Balance)
@@ -112,6 +125,8 @@ export class DarkroomStateStore {
   highlightTintAmount = $state<number>(0.0);
   halation = $state<number>(0.0);
   grainAmount = $state<number>(0.15);
+  vignette = $state<number>(0.0);
+  hsl = $state<HslAdjustments>(createDefaultHslAdjustments());
 
   // A/B 原始與比對狀態 (Curatorial Diff Engine)
   showABComparison = $state<boolean>(false);
@@ -286,6 +301,7 @@ export class DarkroomStateStore {
     this.contrast = 0.0;
     this.highlights = 0.0;
     this.shadows = 0.0;
+    this.blacks = 0.0;
     this.fade = 0.0;
     this.colorTemp = 5500;
     this.tint = 0.0;
@@ -303,6 +319,8 @@ export class DarkroomStateStore {
     this.highlightTintAmount = 0.0;
     this.halation = 0.0;
     this.grainAmount = 0.15;
+    this.vignette = 0.0;
+    this.hsl = createDefaultHslAdjustments();
   }
 
   /**
@@ -314,6 +332,7 @@ export class DarkroomStateStore {
     this.contrast = 0.0;
     this.highlights = 0.0;
     this.shadows = 0.0;
+    this.blacks = 0.0;
     this.fade = 0.0;
     this.colorTemp = photo.asShotTemp ?? 5500;
     this.tint = photo.asShotTint ?? 0.0;
@@ -331,6 +350,8 @@ export class DarkroomStateStore {
     this.highlightTintAmount = 0.0;
     this.halation = 0.0;
     this.grainAmount = 0.15;
+    this.vignette = 0.0;
+    this.hsl = createDefaultHslAdjustments();
   }
 
   /**
@@ -342,11 +363,14 @@ export class DarkroomStateStore {
   captureSnapshot(): DarkroomHistorySnapshot {
     return {
       exposure: this.exposure,
+      highlights: this.highlights,
       contrast: this.contrast,
       shadows: this.shadows,
+      blacks: this.blacks,
       lutIntensity: this.lutIntensity,
       colorTemp: this.colorTemp,
       tint: this.tint,
+      vibrance: this.vibrance,
       clarity: this.clarity,
       sharpness: this.sharpness,
       colorDensity: this.colorDensity,
@@ -356,6 +380,8 @@ export class DarkroomStateStore {
       highlightTintAmount: this.highlightTintAmount,
       halation: this.halation,
       grainAmount: this.grainAmount,
+      vignette: this.vignette,
+      hsl: cloneHslAdjustments(this.hsl),
       cropX: this.cropX,
       cropY: this.cropY,
       cropWidth: this.cropWidth,
@@ -375,11 +401,14 @@ export class DarkroomStateStore {
   applySnapshot(snap: DarkroomHistorySnapshot): void {
     this.isTraversingHistory = true;
     this.exposure = snap.exposure;
+    this.highlights = snap.highlights;
     this.contrast = snap.contrast;
     this.shadows = snap.shadows;
+    this.blacks = snap.blacks;
     this.lutIntensity = snap.lutIntensity;
     this.colorTemp = snap.colorTemp;
     this.tint = snap.tint;
+    this.vibrance = snap.vibrance;
     this.clarity = snap.clarity;
     this.sharpness = snap.sharpness;
     this.colorDensity = snap.colorDensity;
@@ -389,6 +418,8 @@ export class DarkroomStateStore {
     this.highlightTintAmount = snap.highlightTintAmount;
     this.halation = snap.halation;
     this.grainAmount = snap.grainAmount;
+    this.vignette = snap.vignette;
+    this.hsl = cloneHslAdjustments(snap.hsl);
     this.cropX = snap.cropX;
     this.cropY = snap.cropY;
     this.cropWidth = snap.cropWidth;
@@ -460,13 +491,22 @@ export class DarkroomStateStore {
   }
 
   private isSnapshotEqual(a: DarkroomHistorySnapshot, b: DarkroomHistorySnapshot): boolean {
+    const hslEqual = HSL_BAND_KEYS.every((k) =>
+      Math.abs(a.hsl[k].hue - b.hsl[k].hue) < 0.001 &&
+      Math.abs(a.hsl[k].sat - b.hsl[k].sat) < 0.001 &&
+      Math.abs(a.hsl[k].lum - b.hsl[k].lum) < 0.001
+    );
     return (
+      hslEqual &&
       Math.abs(a.exposure - b.exposure) < 0.001 &&
+      Math.abs(a.highlights - b.highlights) < 0.001 &&
       Math.abs(a.contrast - b.contrast) < 0.001 &&
       Math.abs(a.shadows - b.shadows) < 0.001 &&
+      Math.abs(a.blacks - b.blacks) < 0.001 &&
       Math.abs(a.lutIntensity - b.lutIntensity) < 0.001 &&
       Math.abs(a.colorTemp - b.colorTemp) < 1 &&
       Math.abs(a.tint - b.tint) < 0.001 &&
+      Math.abs(a.vibrance - b.vibrance) < 0.001 &&
       Math.abs(a.clarity - b.clarity) < 0.001 &&
       Math.abs(a.sharpness - b.sharpness) < 0.001 &&
       Math.abs(a.colorDensity - b.colorDensity) < 0.001 &&
@@ -476,6 +516,7 @@ export class DarkroomStateStore {
       Math.abs(a.highlightTintAmount - b.highlightTintAmount) < 0.001 &&
       Math.abs(a.halation - b.halation) < 0.001 &&
       Math.abs(a.grainAmount - b.grainAmount) < 0.001 &&
+      Math.abs(a.vignette - b.vignette) < 0.001 &&
       Math.abs(a.cropX - b.cropX) < 0.001 &&
       Math.abs(a.cropY - b.cropY) < 0.001 &&
       Math.abs(a.cropWidth - b.cropWidth) < 0.001 &&
@@ -526,11 +567,14 @@ export class DarkroomStateStore {
   loadFromPhoto(photo: PhotoPlateItem): void {
     if (photo.tuning) {
       this.exposure = photo.tuning.exposure;
+      this.highlights = photo.tuning.highlights ?? 0;
       this.contrast = photo.tuning.contrast;
       this.shadows = photo.tuning.shadows ?? 0;
+      this.blacks = photo.tuning.blacks ?? 0;
       this.lutIntensity = photo.tuning.lutIntensity;
       this.colorTemp = photo.tuning.colorTemp;
       this.tint = photo.tuning.tint ?? 0;
+      this.vibrance = photo.tuning.vibrance ?? 0;
       this.clarity = photo.tuning.clarity ?? 0;
       this.sharpness = photo.tuning.sharpness ?? 0;
       this.colorDensity = photo.tuning.colorDensity ?? 0;
@@ -540,13 +584,18 @@ export class DarkroomStateStore {
       this.highlightTintAmount = photo.tuning.highlightTintAmount ?? 0;
       this.halation = photo.tuning.halation ?? 0;
       this.grainAmount = photo.tuning.grainAmount ?? 0.15;
+      this.vignette = photo.tuning.vignette ?? 0;
+      this.hsl = cloneHslAdjustments(photo.tuning.hsl);
     } else {
       this.exposure = photo.asShotExposure ?? 0.0;
+      this.highlights = 0.0;
       this.contrast = 0.0;
       this.shadows = 0.0;
+      this.blacks = 0.0;
       this.lutIntensity = 1.0;
       this.colorTemp = photo.asShotTemp ?? 5500;
       this.tint = photo.asShotTint ?? 0.0;
+      this.vibrance = 0.0;
       this.clarity = 0.0;
       this.sharpness = 0.0;
       this.colorDensity = 0.0;
@@ -556,6 +605,8 @@ export class DarkroomStateStore {
       this.highlightTintAmount = 0.0;
       this.halation = 0.0;
       this.grainAmount = 0.15;
+      this.vignette = 0.0;
+      this.hsl = createDefaultHslAdjustments();
     }
 
     if (photo.crop) {
@@ -584,12 +635,22 @@ export class DarkroomStateStore {
     const asShotExp = photo?.asShotExposure ?? 0.0;
     const asShotTint = photo?.asShotTint ?? 0.0;
 
+    const isDefaultHsl = HSL_BAND_KEYS.every((k) =>
+      Math.abs(this.hsl[k].hue) < 0.001 &&
+      Math.abs(this.hsl[k].sat) < 0.001 &&
+      Math.abs(this.hsl[k].lum) < 0.001
+    );
+
     return (
+      isDefaultHsl &&
       Math.abs(this.exposure - asShotExp) < 0.001 &&
+      Math.abs(this.highlights - 0.0) < 0.001 &&
       Math.abs(this.contrast - 0.0) < 0.001 &&
       Math.abs(this.shadows - 0.0) < 0.001 &&
+      Math.abs(this.blacks - 0.0) < 0.001 &&
       Math.abs(this.colorTemp - asShotTemp) < 1 &&
       Math.abs(this.tint - asShotTint) < 0.001 &&
+      Math.abs(this.vibrance - 0.0) < 0.001 &&
       Math.abs(this.lutIntensity - 1.0) < 0.001 &&
       Math.abs(this.clarity - 0.0) < 0.001 &&
       Math.abs(this.sharpness - 0.0) < 0.001 &&
@@ -597,7 +658,8 @@ export class DarkroomStateStore {
       Math.abs(this.shadowTintAmount - 0.0) < 0.001 &&
       Math.abs(this.highlightTintAmount - 0.0) < 0.001 &&
       Math.abs(this.halation - 0.0) < 0.001 &&
-      Math.abs(this.grainAmount - 0.15) < 0.001
+      Math.abs(this.grainAmount - 0.15) < 0.001 &&
+      Math.abs(this.vignette - 0.0) < 0.001
     );
   }
 
@@ -610,11 +672,14 @@ export class DarkroomStateStore {
     }
     return {
       exposure: this.exposure,
+      highlights: this.highlights,
       contrast: this.contrast,
       shadows: this.shadows,
+      blacks: this.blacks,
       lutIntensity: this.lutIntensity,
       colorTemp: this.colorTemp,
       tint: this.tint,
+      vibrance: this.vibrance,
       clarity: this.clarity,
       sharpness: this.sharpness,
       colorDensity: this.colorDensity,
@@ -624,6 +689,8 @@ export class DarkroomStateStore {
       highlightTintAmount: this.highlightTintAmount,
       halation: this.halation,
       grainAmount: this.grainAmount,
+      vignette: this.vignette,
+      hsl: cloneHslAdjustments(this.hsl),
     };
   }
 
@@ -726,11 +793,14 @@ export class DarkroomStateStore {
       appliedProfile,
       tuning: {
         exposure: this.exposure,
+        highlights: this.highlights,
         contrast: this.contrast,
         shadows: this.shadows,
+        blacks: this.blacks,
         lutIntensity: this.lutIntensity,
         colorTemp: this.colorTemp,
         tint: this.tint,
+        vibrance: this.vibrance,
         clarity: this.clarity,
         sharpness: this.sharpness,
         colorDensity: this.colorDensity,
@@ -740,6 +810,8 @@ export class DarkroomStateStore {
         highlightTintAmount: this.highlightTintAmount,
         halation: this.halation,
         grainAmount: this.grainAmount,
+        vignette: this.vignette,
+        hsl: cloneHslAdjustments(this.hsl),
       },
     };
   }
@@ -751,11 +823,14 @@ export class DarkroomStateStore {
     if (!this.copiedTuning) return null;
     const { appliedProfile, tuning } = this.copiedTuning;
     this.exposure = tuning.exposure;
+    this.highlights = tuning.highlights ?? 0.0;
     this.contrast = tuning.contrast;
     this.shadows = tuning.shadows ?? 0.0;
+    this.blacks = tuning.blacks ?? 0.0;
     this.lutIntensity = tuning.lutIntensity;
     this.colorTemp = tuning.colorTemp;
     this.tint = tuning.tint;
+    this.vibrance = tuning.vibrance ?? 0.0;
     this.clarity = tuning.clarity ?? 0.0;
     this.sharpness = tuning.sharpness ?? 0.0;
     this.colorDensity = tuning.colorDensity ?? 0.0;
@@ -765,6 +840,8 @@ export class DarkroomStateStore {
     this.highlightTintAmount = tuning.highlightTintAmount ?? 0.0;
     this.halation = tuning.halation ?? 0.0;
     this.grainAmount = tuning.grainAmount ?? 0.15;
+    this.vignette = tuning.vignette ?? 0.0;
+    this.hsl = cloneHslAdjustments(tuning.hsl);
     return this.copiedTuning;
   }
 }

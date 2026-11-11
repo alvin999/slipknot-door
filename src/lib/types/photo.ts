@@ -88,14 +88,56 @@ export interface AiScopePreferences {
   filmPhysics?: boolean;   // 底片物理通道 (減色密度/分區色偏/Halation/微粒)
 }
 
+export type HslBandKey = 'red' | 'orange' | 'yellow' | 'green' | 'cyan' | 'blue';
+
+export interface HslBandAdjustment {
+  hue: number; // -1.0 ~ +1.0 (maps to -30° ~ +30°)
+  sat: number; // -1.0 ~ +1.0
+  lum: number; // -1.0 ~ +1.0
+}
+
+export type HslAdjustments = Record<HslBandKey, HslBandAdjustment>;
+
+export const HSL_BAND_KEYS: HslBandKey[] = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue'];
+
+export function createDefaultHslAdjustments(): HslAdjustments {
+  return {
+    red: { hue: 0, sat: 0, lum: 0 },
+    orange: { hue: 0, sat: 0, lum: 0 },
+    yellow: { hue: 0, sat: 0, lum: 0 },
+    green: { hue: 0, sat: 0, lum: 0 },
+    cyan: { hue: 0, sat: 0, lum: 0 },
+    blue: { hue: 0, sat: 0, lum: 0 },
+  };
+}
+
+export function cloneHslAdjustments(src?: Partial<Record<HslBandKey, Partial<HslBandAdjustment>>>): HslAdjustments {
+  const base = createDefaultHslAdjustments();
+  if (!src) return base;
+  for (const key of HSL_BAND_KEYS) {
+    const band = src[key];
+    if (band) {
+      base[key] = {
+        hue: typeof band.hue === 'number' && !Number.isNaN(band.hue) ? band.hue : 0,
+        sat: typeof band.sat === 'number' && !Number.isNaN(band.sat) ? band.sat : 0,
+        lum: typeof band.lum === 'number' && !Number.isNaN(band.lum) ? band.lum : 0,
+      };
+    }
+  }
+  return base;
+}
+
 export interface TuningParameters {
   exposure: number;       // EV (-2.00 ~ +2.00)
   contrast: number;       // (-0.8 ~ +0.8)
+  highlights?: number;    // (-1.0 ~ +1.0) 高光壓回/提亮
   shadows?: number;       // 暗部抬升 (Matte Toe / Shadows)
+  blacks?: number;        // (-0.5 ~ +0.5) 純黑錨點/褪色基底
   shadowLift?: number;    // 0.00 ~ 1.00 (相容別名)
   lutIntensity: number;   // 0.00 ~ 1.00
   colorTemp: number;      // Kelvin (2800 ~ 8500)
   tint: number;           // Tint (-100 ~ +100, Green <-> Magenta)
+  vibrance?: number;      // (-1.0 ~ +1.0) 自然飽和度
   clarity?: number;       // (-1.0 ~ +1.0)
   sharpness?: number;     // (-1.0 ~ +1.0)
   colorDensity?: number;        // (-1.0 ~ +1.0) 減色法色彩密度
@@ -104,5 +146,7 @@ export interface TuningParameters {
   highlightHue?: number;        // (0 ~ 360°) 亮部分離色相
   highlightTintAmount?: number; // (0.0 ~ 1.0) 亮部分離著色強度
   halation?: number;            // (0.0 ~ 1.0) 底片片基高光暈染
+  vignette?: number;            // (-1.0 ~ +1.0) 光學暗角 (負值壓暗邊緣)
   grainAmount?: number;         // (0.0 ~ 1.0) 有機銀鹽微粒強度 (預設 0.15)
+  hsl?: HslAdjustments;         // 6 區 HSL 分色微調
 }

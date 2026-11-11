@@ -55,6 +55,11 @@ export interface PhotoPlateItem {
     highlightTintAmount?: number;
     halation?: number;
     grainAmount?: number;
+    highlights?: number;
+    blacks?: number;
+    vibrance?: number;
+    vignette?: number;
+    hsl?: import("$lib/types/photo").HslAdjustments;
   };
 }
 

@@ -4,7 +4,7 @@
  * Zero hardcoded model names.
  */
 
-import type { ExifOpticalData, AiScopePreferences } from '../../types/photo';
+import type { ExifOpticalData, AiScopePreferences, HslAdjustments, HslBandKey, HslBandAdjustment } from '../../types/photo';
 import type { AiSceneDecision, CopywritingPayload, CopywritingResult } from '../aiSceneService';
 import type { CustomLutRecord } from '../customLutService';
 
@@ -73,10 +73,13 @@ export interface ColorGradeDecision {
   recommended_profile?: string;
   exposure_compensation?: number;
   contrast?: number;
+  highlights?: number;
   color_temp?: number;
   tint?: number;
   lift_shadows?: number;
+  blacks?: number;
   lut_intensity?: number;
+  vibrance?: number;
   clarity?: number;
   sharpness?: number;
   color_density?: number;
@@ -85,7 +88,9 @@ export interface ColorGradeDecision {
   highlight_hue?: number;
   highlight_tint_amount?: number;
   halation?: number;
+  vignette?: number;
   grain_amount?: number;
+  hsl?: Partial<Record<HslBandKey, Partial<HslBandAdjustment>>>;
   tags?: string[];
 }
 
@@ -161,18 +166,23 @@ export interface RefinementInferenceOptions {
 
 export interface RefinementDecision {
   exposure_delta: number;
+  highlights_delta?: number;
   lift_shadows_delta: number;
+  blacks_delta?: number;
   color_temp_delta: number;
   tint_delta?: number;
   contrast_delta: number;
   lut_intensity_delta?: number;
+  vibrance_delta?: number;
   clarity_delta?: number;
   sharpness_delta?: number;
   color_density_delta?: number;
   shadow_tint_amount_delta?: number;
   highlight_tint_amount_delta?: number;
   halation_delta?: number;
+  vignette_delta?: number;
   grain_amount_delta?: number;
+  hsl_deltas?: Partial<Record<HslBandKey, Partial<HslBandAdjustment>>>;
   refine_rationale: string;
 }
 

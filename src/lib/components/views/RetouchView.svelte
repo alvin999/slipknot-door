@@ -6,6 +6,7 @@
    */
   import DarkroomViewport from "$lib/components/retouch/DarkroomViewport.svelte";
   import type { PhotoPlateItem } from "$lib/stores/photoLibrary.svelte";
+  import type { HslAdjustments } from "$lib/types/photo";
 
   interface Props {
     activePhoto?: any;
@@ -13,10 +14,13 @@
     activeQueue?: any[];
     exportNotice?: string;
     exposure?: number;
+    highlights?: number;
     contrast?: number;
     shadows?: number;
+    blacks?: number;
     colorTemp?: number;
     tint?: number;
+    vibrance?: number;
     lutIntensity?: number;
     clarity?: number;
     sharpness?: number;
@@ -27,6 +31,8 @@
     highlightTintAmount?: number;
     halation?: number;
     grainAmount?: number;
+    vignette?: number;
+    hsl?: HslAdjustments;
     cropX?: number;
     cropY?: number;
     cropWidth?: number;
@@ -60,10 +66,13 @@
     activeQueue = [],
     exportNotice = "",
     exposure,
+    highlights,
     contrast,
     shadows,
+    blacks,
     colorTemp,
     tint,
+    vibrance,
     lutIntensity,
     clarity,
     sharpness,
@@ -74,6 +83,8 @@
     highlightTintAmount,
     halation,
     grainAmount,
+    vignette,
+    hsl,
     cropX,
     cropY,
     cropWidth,
@@ -120,10 +131,13 @@
   {activeQueue}
   {exportNotice}
   {exposure}
+  {highlights}
   {contrast}
   {shadows}
+  {blacks}
   {colorTemp}
   {tint}
+  {vibrance}
   {lutIntensity}
   {clarity}
   {sharpness}
@@ -134,6 +148,8 @@
   {highlightTintAmount}
   {halation}
   {grainAmount}
+  {vignette}
+  {hsl}
   {cropX}
   {cropY}
   {cropWidth}

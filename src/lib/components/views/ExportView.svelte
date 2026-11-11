@@ -81,7 +81,12 @@
       (p.tuning.shadowTintAmount && p.tuning.shadowTintAmount !== 0) ||
       (p.tuning.highlightTintAmount && p.tuning.highlightTintAmount !== 0) ||
       (p.tuning.halation && p.tuning.halation !== 0) ||
-      (typeof p.tuning.grainAmount === 'number' && Math.abs(p.tuning.grainAmount - 0.15) > 0.001)
+      (typeof p.tuning.grainAmount === 'number' && Math.abs(p.tuning.grainAmount - 0.15) > 0.001) ||
+      (p.tuning.highlights && p.tuning.highlights !== 0) ||
+      (p.tuning.blacks && p.tuning.blacks !== 0) ||
+      (p.tuning.vibrance && p.tuning.vibrance !== 0) ||
+      (p.tuning.vignette && p.tuning.vignette !== 0) ||
+      (p.tuning.hsl && Object.values(p.tuning.hsl).some((b: any) => b && (b.hue !== 0 || b.sat !== 0 || b.lum !== 0)))
     );
     const hasCrop = p.crop && (p.crop.width < 1 || p.crop.height < 1 || p.crop.rotation !== 0);
     return Boolean(hasCustomProfile || hasTuning || hasCrop);

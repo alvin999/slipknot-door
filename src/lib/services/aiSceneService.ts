@@ -4,7 +4,13 @@
  * Zero hardcoded dummy returns.
  */
 
-import type { ExifOpticalData, AiScopePreferences } from '../types/photo';
+import {
+  HSL_BAND_KEYS,
+  cloneHslAdjustments,
+  type ExifOpticalData,
+  type AiScopePreferences,
+  type HslAdjustments,
+} from '../types/photo';
 import { AiEngineFactory } from './ai/engineFactory';
 
 export interface AiSceneDecision {
@@ -14,10 +20,13 @@ export interface AiSceneDecision {
   recommended_mood?: string;
   recommended_profile: string;
   exposure_compensation: number;
+  highlights?: number;
   contrast?: number;
   color_temp?: number;
   tint?: number;
   lift_shadows: number;
+  blacks?: number;
+  vibrance?: number;
   lut_intensity: number;
   clarity?: number;
   sharpness?: number;
@@ -28,6 +37,8 @@ export interface AiSceneDecision {
   highlight_tint_amount?: number;
   halation?: number;
   grain_amount?: number;
+  vignette?: number;
+  hsl?: HslAdjustments;
   tags?: string[];
   isFallback: boolean;
   fallbackReason?: string; // 記錄跌入本地兜底的真實原因 (透明化 Log 呈現)
@@ -333,10 +344,13 @@ export class AiSceneService {
             recommended_mood: colorDecision.recommended_mood || '底片氛圍調性',
             recommended_profile: colorDecision.recommended_profile || 'Profile_00_StandardNatural',
             exposure_compensation: typeof colorDecision.exposure_compensation === 'number' ? colorDecision.exposure_compensation : 0.0,
+            highlights: typeof colorDecision.highlights === 'number' ? colorDecision.highlights : 0.0,
             contrast: typeof colorDecision.contrast === 'number' ? colorDecision.contrast : 0.0,
             color_temp: typeof colorDecision.color_temp === 'number' ? colorDecision.color_temp : 5500,
             tint: typeof colorDecision.tint === 'number' ? colorDecision.tint : 0.0,
             lift_shadows: typeof colorDecision.lift_shadows === 'number' ? colorDecision.lift_shadows : 0.0,
+            blacks: typeof colorDecision.blacks === 'number' ? colorDecision.blacks : 0.0,
+            vibrance: typeof colorDecision.vibrance === 'number' ? colorDecision.vibrance : 0.0,
             lut_intensity: typeof colorDecision.lut_intensity === 'number' ? colorDecision.lut_intensity : 0.85,
             clarity: typeof colorDecision.clarity === 'number' ? colorDecision.clarity : 0.0,
             sharpness: typeof colorDecision.sharpness === 'number' ? colorDecision.sharpness : 0.0,
@@ -347,6 +361,8 @@ export class AiSceneService {
             highlight_tint_amount: typeof colorDecision.highlight_tint_amount === 'number' ? colorDecision.highlight_tint_amount : 0.0,
             halation: typeof colorDecision.halation === 'number' ? colorDecision.halation : 0.0,
             grain_amount: typeof colorDecision.grain_amount === 'number' ? colorDecision.grain_amount : 0.15,
+            vignette: typeof colorDecision.vignette === 'number' ? colorDecision.vignette : 0.0,
+            hsl: colorDecision.hsl ? cloneHslAdjustments(colorDecision.hsl) : undefined,
             tags: colorDecision.tags || ['光影顯影', '底片氛圍'],
             isFallback: false,
             providerUsed: strategy.providerId as any,
@@ -413,10 +429,13 @@ export class AiSceneService {
             recommended_mood: colorDecision.recommended_mood || '底片氛圍調性',
             recommended_profile: colorDecision.recommended_profile || 'Profile_00_StandardNatural',
             exposure_compensation: typeof colorDecision.exposure_compensation === 'number' ? colorDecision.exposure_compensation : 0.0,
+            highlights: typeof colorDecision.highlights === 'number' ? colorDecision.highlights : 0.0,
             contrast: typeof colorDecision.contrast === 'number' ? colorDecision.contrast : 0.0,
             color_temp: typeof colorDecision.color_temp === 'number' ? colorDecision.color_temp : 5500,
             tint: typeof colorDecision.tint === 'number' ? colorDecision.tint : 0.0,
             lift_shadows: typeof colorDecision.lift_shadows === 'number' ? colorDecision.lift_shadows : 0.0,
+            blacks: typeof colorDecision.blacks === 'number' ? colorDecision.blacks : 0.0,
+            vibrance: typeof colorDecision.vibrance === 'number' ? colorDecision.vibrance : 0.0,
             lut_intensity: typeof colorDecision.lut_intensity === 'number' ? colorDecision.lut_intensity : 0.85,
             clarity: typeof colorDecision.clarity === 'number' ? colorDecision.clarity : 0.0,
             sharpness: typeof colorDecision.sharpness === 'number' ? colorDecision.sharpness : 0.0,
@@ -427,6 +446,8 @@ export class AiSceneService {
             highlight_tint_amount: typeof colorDecision.highlight_tint_amount === 'number' ? colorDecision.highlight_tint_amount : 0.0,
             halation: typeof colorDecision.halation === 'number' ? colorDecision.halation : 0.0,
             grain_amount: typeof colorDecision.grain_amount === 'number' ? colorDecision.grain_amount : 0.15,
+            vignette: typeof colorDecision.vignette === 'number' ? colorDecision.vignette : 0.0,
+            hsl: colorDecision.hsl ? cloneHslAdjustments(colorDecision.hsl) : undefined,
             tags: colorDecision.tags || ['光影顯影', '底片氛圍'],
             isFallback: false,
             providerUsed: strategy.providerId as any,
@@ -516,11 +537,21 @@ export class AiSceneService {
               const prevHighlightTintAmount = decision.highlight_tint_amount ?? 0.0;
               const prevHalation = decision.halation ?? 0.0;
               const prevGrainAmount = decision.grain_amount ?? 0.15;
+              const prevHighlights = decision.highlights ?? 0.0;
+              const prevBlacks = decision.blacks ?? 0.0;
+              const prevVibrance = decision.vibrance ?? 0.0;
+              const prevVignette = decision.vignette ?? 0.0;
 
               // 數值安全融合：Delta 本身不設微小限幅，僅約束總體結果於 UI 滑桿與著色器物理有效範圍內
               const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
               decision.exposure_compensation = parseFloat(clamp(prevExposure + refinement.exposure_delta, -2.0, 2.0).toFixed(2));
+              if (typeof refinement.highlights_delta === 'number') {
+                decision.highlights = parseFloat(clamp(prevHighlights + refinement.highlights_delta, -1.0, 1.0).toFixed(2));
+              }
               decision.lift_shadows = parseFloat(clamp(prevShadow + refinement.lift_shadows_delta, -0.5, 0.5).toFixed(2));
+              if (typeof refinement.blacks_delta === 'number') {
+                decision.blacks = parseFloat(clamp(prevBlacks + refinement.blacks_delta, -0.5, 0.5).toFixed(2));
+              }
               decision.color_temp = Math.round(clamp(prevTemp + refinement.color_temp_delta, 2800, 8500));
               decision.contrast = parseFloat(clamp(prevContrast + refinement.contrast_delta, -0.8, 0.8).toFixed(2));
               if (typeof refinement.tint_delta === 'number') {
@@ -534,6 +565,9 @@ export class AiSceneService {
               }
               if (typeof refinement.sharpness_delta === 'number') {
                 decision.sharpness = parseFloat(clamp(prevSharpness + refinement.sharpness_delta, -1.0, 1.0).toFixed(2));
+              }
+              if (typeof refinement.vibrance_delta === 'number') {
+                decision.vibrance = parseFloat(clamp(prevVibrance + refinement.vibrance_delta, -1.0, 1.0).toFixed(2));
               }
               if (typeof refinement.color_density_delta === 'number') {
                 decision.color_density = parseFloat(clamp(prevColorDensity + refinement.color_density_delta, -1.0, 1.0).toFixed(2));
@@ -549,6 +583,34 @@ export class AiSceneService {
               }
               if (typeof refinement.grain_amount_delta === 'number') {
                 decision.grain_amount = parseFloat(clamp(prevGrainAmount + refinement.grain_amount_delta, 0.0, 1.0).toFixed(2));
+              }
+              if (typeof refinement.vignette_delta === 'number') {
+                decision.vignette = parseFloat(clamp(prevVignette + refinement.vignette_delta, -1.0, 1.0).toFixed(2));
+              }
+              const hslChangeLogs: string[] = [];
+              if (refinement.hsl_deltas) {
+                const nextHsl = cloneHslAdjustments(decision.hsl);
+                for (const band of HSL_BAND_KEYS) {
+                  const deltaBand = refinement.hsl_deltas[band];
+                  if (!deltaBand) continue;
+                  if (typeof deltaBand.hue === 'number') {
+                    nextHsl[band].hue = parseFloat(clamp(nextHsl[band].hue + deltaBand.hue, -1.0, 1.0).toFixed(2));
+                  }
+                  if (typeof deltaBand.sat === 'number') {
+                    nextHsl[band].sat = parseFloat(clamp(nextHsl[band].sat + deltaBand.sat, -1.0, 1.0).toFixed(2));
+                  }
+                  if (typeof deltaBand.lum === 'number') {
+                    nextHsl[band].lum = parseFloat(clamp(nextHsl[band].lum + deltaBand.lum, -1.0, 1.0).toFixed(2));
+                  }
+                  if (
+                    Math.abs(deltaBand.hue ?? 0) >= 0.02
+                    || Math.abs(deltaBand.sat ?? 0) >= 0.02
+                    || Math.abs(deltaBand.lum ?? 0) >= 0.02
+                  ) {
+                    hslChangeLogs.push(`${band}(H:${nextHsl[band].hue.toFixed(2)},S:${nextHsl[band].sat.toFixed(2)},L:${nextHsl[band].lum.toFixed(2)})`);
+                  }
+                }
+                decision.hsl = nextHsl;
               }
 
               if (options.onLog) {
@@ -608,6 +670,25 @@ export class AiSceneService {
                 if (typeof refinement.grain_amount_delta === 'number' && Math.abs(refinement.grain_amount_delta) >= 0.01) {
                   const newGr = decision.grain_amount ?? 0.15;
                   diffLogs.push(`  • 銀鹽微粒: ${formatDelta(refinement.grain_amount_delta)} (${prevGrainAmount.toFixed(2)} → ${newGr.toFixed(2)})`);
+                }
+                if (typeof refinement.highlights_delta === 'number' && Math.abs(refinement.highlights_delta) >= 0.02) {
+                  const newHi = decision.highlights ?? 0.0;
+                  diffLogs.push(`  • 高光抑揚: ${formatDelta(refinement.highlights_delta)} (${prevHighlights.toFixed(2)} → ${newHi.toFixed(2)})`);
+                }
+                if (typeof refinement.blacks_delta === 'number' && Math.abs(refinement.blacks_delta) >= 0.02) {
+                  const newBlk = decision.blacks ?? 0.0;
+                  diffLogs.push(`  • 黑階錨點: ${formatDelta(refinement.blacks_delta)} (${prevBlacks.toFixed(2)} → ${newBlk.toFixed(2)})`);
+                }
+                if (typeof refinement.vibrance_delta === 'number' && Math.abs(refinement.vibrance_delta) >= 0.02) {
+                  const newVib = decision.vibrance ?? 0.0;
+                  diffLogs.push(`  • 自然飽和度: ${formatDelta(refinement.vibrance_delta)} (${prevVibrance.toFixed(2)} → ${newVib.toFixed(2)})`);
+                }
+                if (typeof refinement.vignette_delta === 'number' && Math.abs(refinement.vignette_delta) >= 0.02) {
+                  const newVig = decision.vignette ?? 0.0;
+                  diffLogs.push(`  • 光學暗角: ${formatDelta(refinement.vignette_delta)} (${prevVignette.toFixed(2)} → ${newVig.toFixed(2)})`);
+                }
+                if (hslChangeLogs.length > 0) {
+                  diffLogs.push(`  • 6段 HSL: ${hslChangeLogs.join(', ')}`);
                 }
 
                 if (diffLogs.length > 0) {
