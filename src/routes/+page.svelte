@@ -4294,7 +4294,10 @@
   onblur={handleWindowBlur}
 />
 
-<div class="workspace-container">
+<div
+  class="workspace-container"
+  class:mobile-retouch-split={activeTab === "retouch" && activeMobileDrawer !== "none"}
+>
   <!-- 去識別化 3D 膠卷風格濾鏡著色矩陣定義 (De-identified Film Emulation Matrices) -->
   <svg
     style="position: absolute; width: 0; height: 0; pointer-events: none; opacity: 0;"
@@ -4407,15 +4410,34 @@
         class:drawer-open={activeMobileDrawer === "ai"}
       >
         <!-- 行動端抽屜收合把手 (Mobile Drawer Handle) -->
-        <div class="mobile-drawer-handle-bar">
-          <div class="drawer-drag-pill"></div>
+        <div class="mobile-drawer-handle-bar split-header">
+          <div class="mobile-drawer-switch-group font-mono">
+            <button
+              type="button"
+              class="drawer-switch-pill"
+              class:active={activeMobileDrawer === "ai"}
+              onclick={() => (activeMobileDrawer = "ai")}
+            >
+              <span class="material-symbols-outlined" style="font-size: 13px;">palette</span>
+              <span>風格</span>
+            </button>
+            <button
+              type="button"
+              class="drawer-switch-pill"
+              class:active={activeMobileDrawer === "tuning"}
+              onclick={() => (activeMobileDrawer = "tuning")}
+            >
+              <span class="material-symbols-outlined" style="font-size: 13px;">tune</span>
+              <span>微調</span>
+            </button>
+          </div>
           <button
             type="button"
             class="drawer-close-btn font-mono"
             onclick={() => (activeMobileDrawer = "none")}
           >
-            <span>收合面板</span>
-            <span class="material-symbols-outlined" style="font-size: 14px;"
+            <span>收合</span>
+            <span class="material-symbols-outlined" style="font-size: 15px;"
               >keyboard_arrow_down</span
             >
           </button>
@@ -4507,6 +4529,7 @@
           {aiTerminalLogs}
           {hasAiBaseline}
           {isModifiedFromAi}
+          isMobileDrawerOpen={activeMobileDrawer !== "none"}
           onRestoreAiTuning={restoreAiTuning}
           onOpenAiDrawer={() => (activeMobileDrawer = "ai")}
           onOpenVault={() => (isVaultOpen = true)}
@@ -4574,19 +4597,54 @@
         class:drawer-open={activeMobileDrawer === "tuning"}
       >
         <!-- 行動端抽屜收合把手 (Mobile Drawer Handle) -->
-        <div class="mobile-drawer-handle-bar">
-          <div class="drawer-drag-pill"></div>
-          <button
-            type="button"
-            class="drawer-close-btn font-mono"
-            onclick={() => (activeMobileDrawer = "none")}
-          >
-            <span>收合面板</span>
-            <span class="material-symbols-outlined" style="font-size: 14px;"
-              >keyboard_arrow_down</span
+        {#if activeTab === "retouch"}
+          <div class="mobile-drawer-handle-bar split-header">
+            <div class="mobile-drawer-switch-group font-mono">
+              <button
+                type="button"
+                class="drawer-switch-pill"
+                class:active={activeMobileDrawer === "ai"}
+                onclick={() => (activeMobileDrawer = "ai")}
+              >
+                <span class="material-symbols-outlined" style="font-size: 13px;">palette</span>
+                <span>風格</span>
+              </button>
+              <button
+                type="button"
+                class="drawer-switch-pill"
+                class:active={activeMobileDrawer === "tuning"}
+                onclick={() => (activeMobileDrawer = "tuning")}
+              >
+                <span class="material-symbols-outlined" style="font-size: 13px;">tune</span>
+                <span>微調</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              class="drawer-close-btn font-mono"
+              onclick={() => (activeMobileDrawer = "none")}
             >
-          </button>
-        </div>
+              <span>收合</span>
+              <span class="material-symbols-outlined" style="font-size: 15px;"
+                >keyboard_arrow_down</span
+              >
+            </button>
+          </div>
+        {:else}
+          <div class="mobile-drawer-handle-bar">
+            <div class="drawer-drag-pill"></div>
+            <button
+              type="button"
+              class="drawer-close-btn font-mono"
+              onclick={() => (activeMobileDrawer = "none")}
+            >
+              <span>收合面板</span>
+              <span class="material-symbols-outlined" style="font-size: 14px;"
+                >keyboard_arrow_down</span
+              >
+            </button>
+          </div>
+        {/if}
         {#if activeTab === "retouch"}
           <TuningPanel
             profiles={allProfiles}
@@ -4627,7 +4685,7 @@
     {/if}
   </main>
 
-  {#if activeMobileDrawer !== "none"}
+  {#if activeMobileDrawer !== "none" && activeTab !== "retouch"}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -4961,6 +5019,79 @@
 
     .drawer-close-btn:hover {
       color: var(--amber-highlight);
+    }
+
+    /* 手機版精修分割視窗（上圖下控）：展開風格／微調時不遮蓋照片，並暫時隱藏底部工具列 */
+    .mobile-drawer-handle-bar.split-header {
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0 6px;
+      margin-bottom: 6px;
+    }
+
+    .mobile-drawer-switch-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .drawer-switch-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 14px;
+      border: 1px solid var(--hairline-slate);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--parchment-dim);
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .drawer-switch-pill.active {
+      background: rgba(212, 163, 115, 0.16);
+      border-color: var(--amber-highlight);
+      color: var(--amber-highlight);
+      font-weight: 600;
+    }
+
+    .workspace-container.mobile-retouch-split .main-body {
+      flex-direction: column;
+    }
+
+    .workspace-container.mobile-retouch-split .center-stage {
+      order: 1;
+      flex: 1 1 0%;
+      min-height: 0;
+    }
+
+    .workspace-container.mobile-retouch-split .left-sidebar:not(.drawer-open),
+    .workspace-container.mobile-retouch-split .right-telemetry:not(.drawer-open) {
+      display: none;
+    }
+
+    .workspace-container.mobile-retouch-split .left-sidebar.drawer-open,
+    .workspace-container.mobile-retouch-split .right-telemetry.drawer-open {
+      order: 2;
+      position: static;
+      transform: none;
+      bottom: auto;
+      flex: 0 0 46dvh;
+      height: 46dvh;
+      max-height: 46dvh;
+      min-height: 0;
+      width: 100% !important;
+      border-radius: 14px 14px 0 0;
+      padding: 0 12px calc(12px + env(safe-area-inset-bottom, 0px));
+      box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.75);
+      z-index: 20;
+    }
+
+    .workspace-container.mobile-retouch-split .mobile-retouch-action-bar,
+    .workspace-container.mobile-retouch-split .mobile-bottom-nav {
+      display: none;
     }
 
     /* 抽屜全螢幕暗色遮罩 */

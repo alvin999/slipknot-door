@@ -56,6 +56,7 @@
     aiTerminalLogs?: string[];
     hasAiBaseline?: boolean;
     isModifiedFromAi?: boolean;
+    isMobileDrawerOpen?: boolean;
     onRestoreAiTuning?: () => void;
     onOpenAiDrawer?: () => void;
     onOpenVault?: () => void;
@@ -118,6 +119,7 @@
     aiTerminalLogs: propsAiTerminalLogs,
     hasAiBaseline = false,
     isModifiedFromAi = false,
+    isMobileDrawerOpen = false,
     onRestoreAiTuning,
     onOpenAiDrawer,
     onOpenVault,
@@ -679,7 +681,7 @@
   });
 </script>
 
-<div class="photo-stage-viewport">
+<div class="photo-stage-viewport" class:mobile-drawer-split={isMobileDrawerOpen}>
   {#if exportNotice}
     <div class="export-notice-banner hairline-all font-mono">
       <span
@@ -1227,7 +1229,7 @@
 </div>
 
 <!-- PERSISTENT BOTTOM CONTACT SHEET LIGHT-TABLE STRIP (FILTERED BY SELECTION) -->
-<footer class="contact-sheet-strip hairline-t">
+<footer class="contact-sheet-strip hairline-t" class:mobile-drawer-split={isMobileDrawerOpen}>
   <div class="strip-header font-mono">
     <div class="strip-info-left">
       <span class="strip-label">CONTACT SHEET // EXPOSURE RACK</span>
@@ -2468,6 +2470,27 @@
     .film-frame-card {
       width: 58px;
       height: 52px;
+    }
+
+    /* 手機版展開微調／風格抽屜時，隱藏非必要底欄以最大化上方照片預覽區 */
+    .photo-stage-viewport.mobile-drawer-split {
+      padding: 4px;
+    }
+
+    .photo-stage-viewport.mobile-drawer-split .plate-render-canvas,
+    .photo-stage-viewport.mobile-drawer-split .plate-render-img {
+      max-width: 98%;
+      max-height: 94%;
+    }
+
+    .photo-stage-viewport.mobile-drawer-split .plate-rebate-bar,
+    .photo-stage-viewport.mobile-drawer-split .mobile-ai-status-pill,
+    .contact-sheet-strip.mobile-drawer-split {
+      display: none;
+    }
+
+    .photo-stage-viewport.mobile-drawer-split .ab-toggle-btn {
+      bottom: 10px;
     }
   }
 </style>

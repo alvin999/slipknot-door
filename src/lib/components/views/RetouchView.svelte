@@ -57,6 +57,7 @@
     aiTerminalLogs?: string[];
     hasAiBaseline?: boolean;
     isModifiedFromAi?: boolean;
+    isMobileDrawerOpen?: boolean;
     onRestoreAiTuning?: () => void;
     onOpenAiDrawer?: () => void;
     onOpenVault?: () => void;
@@ -118,6 +119,7 @@
     aiTerminalLogs,
     hasAiBaseline = false,
     isModifiedFromAi = false,
+    isMobileDrawerOpen = false,
     onRestoreAiTuning,
     onOpenAiDrawer,
     onOpenVault,
@@ -192,6 +194,7 @@
   {aiTerminalLogs}
   {hasAiBaseline}
   {isModifiedFromAi}
+  {isMobileDrawerOpen}
   {onRestoreAiTuning}
   {onOpenAiDrawer}
   {onOpenVault}
