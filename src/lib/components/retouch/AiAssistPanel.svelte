@@ -3,6 +3,12 @@
   import { darkroomState } from "$lib/stores/darkroomState.svelte";
   import { photoLibrary } from "$lib/stores/photoLibrary.svelte";
   import { STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
+  import {
+    AI_PANEL_UI_STORAGE_KEY,
+    DEFAULT_AI_PANEL_UI_STATE,
+    readLocalJson,
+    updateLocalJson,
+  } from "$lib/utils/panelStorage";
 
   interface Props {
     styleGradingPresets: any[];
@@ -71,7 +77,9 @@
   }: Props = $props();
 
   let terminalBodyElement = $state<HTMLDivElement | null>(null);
-  let isExpandedStyles = $state<boolean>(false);
+  let isExpandedStyles = $state<boolean>(
+    Boolean(readLocalJson(AI_PANEL_UI_STORAGE_KEY, DEFAULT_AI_PANEL_UI_STATE).isExpandedStyles)
+  );
 
   const activePhoto = $derived(propsActivePhoto ?? photoLibrary.activePhoto);
   const photoPlates = $derived(propsPhotos?.length ? propsPhotos : photoLibrary.photoPlates);
@@ -99,6 +107,34 @@
       terminalBodyElement.scrollTop = terminalBodyElement.scrollHeight;
     }
   });
+
+  // 純視覺呈現之去識別化風格範例輪播
+  const VIBE_PROMPT_SAMPLES = [
+    "清透冷青調、低反差柔和感、微抬暗部...",
+    "溫潤暖金膠片色調、高光柔順、膚色通透...",
+    "高對比冷暖分離、深青暗部配暖橘高光...",
+    "懷舊泛黃復古相紙、啞光抬黑與細緻顆粒...",
+    "極簡低飽和灰階調性、平緩高光壓縮...",
+    "濃郁沉穩暗調氛圍、深邃黑階、邊緣微暗角...",
+  ];
+  let sampleIndex = $state(0);
+  let isCustomInputFocused = $state(false);
+  const activeCustomSample = $derived(VIBE_PROMPT_SAMPLES[sampleIndex]);
+  const hasCustomPrompt = $derived(Boolean(darkroomState.customStylePrompt.trim()));
+
+  $effect(() => {
+    if (hasCustomPrompt || isCustomInputFocused) return;
+    const timer = setInterval(() => {
+      sampleIndex = (sampleIndex + 1) % VIBE_PROMPT_SAMPLES.length;
+    }, 3500);
+    return () => clearInterval(timer);
+  });
+
+  function applyRandomVibeSample() {
+    const nextIdx = (sampleIndex + 1) % VIBE_PROMPT_SAMPLES.length;
+    sampleIndex = nextIdx;
+    darkroomState.customStylePrompt = VIBE_PROMPT_SAMPLES[nextIdx].replace(/\.\.\.$/, "");
+  }
 </script>
 
 <div class="ai-assistant-dock">
@@ -226,7 +262,7 @@
     <button
       type="button"
       class="ai-scope-toggle-btn font-mono"
-      onclick={() => onToggleIsAiScopeOpen ? onToggleIsAiScopeOpen() : (aiPipeline.isAiScopeOpen = !aiPipeline.isAiScopeOpen)}
+      onclick={() => (onToggleIsAiScopeOpen ? onToggleIsAiScopeOpen() : aiPipeline.toggleAiScopeOpen())}
       title="展開或收合 AI 負責的調色與裁切範圍"
     >
       <div class="scope-header-left">
@@ -331,7 +367,12 @@
           <button
             type="button"
             class="expand-toggle-btn font-mono"
-            onclick={() => (isExpandedStyles = !isExpandedStyles)}
+            onclick={() => {
+              isExpandedStyles = !isExpandedStyles;
+              updateLocalJson(AI_PANEL_UI_STORAGE_KEY, DEFAULT_AI_PANEL_UI_STATE, {
+                isExpandedStyles,
+              });
+            }}
             title={isExpandedStyles ? "切換為捲軸檢視" : "展開全部 12 款風格"}
           >
             <span>{isExpandedStyles ? "收合" : "展開全部"}</span>
@@ -503,26 +544,60 @@
           </div>
         {/if}
 
-        <textarea
-          class="vibe-custom-input font-mono"
-          rows="2"
-          placeholder="+ 自訂關鍵字..."
-          bind:value={darkroomState.customStylePrompt}
-        ></textarea>
+        <div
+          class="vibe-command-box"
+          class:has-prompt={hasCustomPrompt}
+          class:is-focused={isCustomInputFocused}
+        >
+          <span class="material-symbols-outlined vibe-command-icon">auto_awesome</span>
+          <div class="vibe-command-body">
+            <textarea
+              class="vibe-custom-input font-mono"
+              rows="2"
+              placeholder={activeCustomSample}
+              bind:value={darkroomState.customStylePrompt}
+              onfocus={() => (isCustomInputFocused = true)}
+              onblur={() => (isCustomInputFocused = false)}
+            ></textarea>
+            <div class="vibe-command-footer font-mono">
+              <span class="vibe-intent-status" class:active={hasCustomPrompt}>
+                {#if hasCustomPrompt}
+                  ✦ 自訂意境
+                {/if}
+              </span>
+              <button
+                type="button"
+                class="vibe-sample-btn font-mono"
+                onclick={applyRandomVibeSample}
+                title="填入視覺風格範例"
+              >
+                <span class="material-symbols-outlined" style="font-size: 11px;">casino</span>
+                <span>試試範例</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {#if onRunAiAnalysis}
         <button
           type="button"
           class="archival-btn-primary w-full ai-main-btn"
+          class:custom-driven={hasCustomPrompt}
           onclick={onRunAiAnalysis}
           disabled={currentIsAiAnalyzing || !activePhoto}
           title="以選定風格與調色關鍵字執行 AI 調色（AI 自動配對 = 由 AI 自行判斷；依職責勾選套用裁切與校正）"
         >
           <span class="material-symbols-outlined" style="font-size: 16px;">
-            {currentIsAiAnalyzing ? "progress_activity" : "psychology"}
+            {currentIsAiAnalyzing ? "progress_activity" : hasCustomPrompt ? "auto_awesome" : "psychology"}
           </span>
-          <span>{currentIsAiAnalyzing ? "正在顯影調校..." : "AI 顯影調色"}</span>
+          <span>
+            {currentIsAiAnalyzing
+              ? "正在顯影調校..."
+              : hasCustomPrompt
+                ? "依自訂意境顯影"
+                : "AI 顯影調色"}
+          </span>
         </button>
       {/if}
 
@@ -1134,28 +1209,96 @@
     outline: none;
     resize: vertical;
   }
+  .vibe-command-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 7px 5px;
+    background: rgba(0, 0, 0, 0.36);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  }
+  .vibe-command-box.is-focused,
+  .vibe-command-box.has-prompt {
+    border-color: rgba(226, 157, 82, 0.65);
+    background: rgba(0, 0, 0, 0.52);
+    box-shadow: 0 0 0 1px rgba(226, 157, 82, 0.18), 0 0 12px rgba(226, 157, 82, 0.08);
+  }
+  .vibe-command-icon {
+    font-size: 14px;
+    margin-top: 2px;
+    color: var(--parchment-dim);
+    opacity: 0.7;
+    transition: color 0.18s ease, opacity 0.18s ease, filter 0.18s ease;
+    flex-shrink: 0;
+  }
+  .vibe-command-box.is-focused .vibe-command-icon,
+  .vibe-command-box.has-prompt .vibe-command-icon {
+    color: var(--amber-highlight);
+    opacity: 1;
+    filter: drop-shadow(0 0 4px rgba(226, 157, 82, 0.55));
+  }
+  .vibe-command-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
   .vibe-custom-input {
     width: 100%;
     box-sizing: border-box;
-    background: rgba(0, 0, 0, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 3px;
-    padding: 5px 7px;
-    font-size: 9.5px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 10px;
     line-height: 1.45;
     color: var(--parchment-bright);
     outline: none;
     resize: vertical;
-    min-height: 38px;
-    transition: border-color 0.15s ease;
+    min-height: 34px;
   }
   .vibe-custom-input::placeholder {
     color: var(--parchment-dim);
-    opacity: 0.7;
+    opacity: 0.72;
   }
-  .vibe-custom-input:focus {
+  .vibe-command-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding-top: 4px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.07);
+  }
+  .vibe-intent-status {
+    font-size: 8.5px;
+    color: var(--amber-highlight);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vibe-sample-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 5px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 3px;
+    color: var(--parchment-muted);
+    font-size: 8.5px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.14s ease;
+  }
+  .vibe-sample-btn:hover {
     border-color: var(--amber-highlight);
-    background: rgba(0, 0, 0, 0.5);
+    color: var(--amber-highlight);
+    background: rgba(226, 157, 82, 0.12);
+  }
+  .ai-main-btn.custom-driven {
+    box-shadow: 0 0 14px rgba(226, 157, 82, 0.28);
   }
   .batch-actions-grid {
     display: grid;
