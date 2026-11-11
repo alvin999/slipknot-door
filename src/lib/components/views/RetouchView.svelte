@@ -50,6 +50,15 @@
     showABComparison?: boolean;
     previewHoverProfileId?: string | null;
     hasApiKey?: boolean;
+    isAiAnalyzing?: boolean;
+    isBatchAiRunning?: boolean;
+    batchProgress?: { current: number; total: number; countdown: number } | null;
+    aiSceneTitle?: string;
+    aiTerminalLogs?: string[];
+    hasAiBaseline?: boolean;
+    isModifiedFromAi?: boolean;
+    onRestoreAiTuning?: () => void;
+    onOpenAiDrawer?: () => void;
     onOpenVault?: () => void;
     onSelectPhoto: (p: any) => void;
     onOpenQuickExport?: () => void;
@@ -102,6 +111,15 @@
     showABComparison,
     previewHoverProfileId,
     hasApiKey = false,
+    isAiAnalyzing,
+    isBatchAiRunning,
+    batchProgress,
+    aiSceneTitle,
+    aiTerminalLogs,
+    hasAiBaseline = false,
+    isModifiedFromAi = false,
+    onRestoreAiTuning,
+    onOpenAiDrawer,
     onOpenVault,
     onSelectPhoto,
     onOpenQuickExport,
@@ -167,6 +185,15 @@
   {showABComparison}
   {previewHoverProfileId}
   {hasApiKey}
+  {isAiAnalyzing}
+  {isBatchAiRunning}
+  {batchProgress}
+  {aiSceneTitle}
+  {aiTerminalLogs}
+  {hasAiBaseline}
+  {isModifiedFromAi}
+  {onRestoreAiTuning}
+  {onOpenAiDrawer}
   {onOpenVault}
   {onSelectPhoto}
   {onOpenQuickExport}

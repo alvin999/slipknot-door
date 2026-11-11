@@ -49,6 +49,15 @@
     showABComparison?: boolean;
     previewHoverProfileId?: string | null;
     hasApiKey?: boolean;
+    isAiAnalyzing?: boolean;
+    isBatchAiRunning?: boolean;
+    batchProgress?: { current: number; total: number; countdown: number } | null;
+    aiSceneTitle?: string;
+    aiTerminalLogs?: string[];
+    hasAiBaseline?: boolean;
+    isModifiedFromAi?: boolean;
+    onRestoreAiTuning?: () => void;
+    onOpenAiDrawer?: () => void;
     onOpenVault?: () => void;
     onSelectPhoto: (p: PhotoPlateItem) => void;
     onOpenQuickExport?: () => void;
@@ -102,6 +111,15 @@
     showABComparison: propsShowABComparison,
     previewHoverProfileId: propsPreviewHoverProfileId,
     hasApiKey = false,
+    isAiAnalyzing: propsIsAiAnalyzing,
+    isBatchAiRunning: propsIsBatchAiRunning,
+    batchProgress: propsBatchProgress,
+    aiSceneTitle: propsAiSceneTitle,
+    aiTerminalLogs: propsAiTerminalLogs,
+    hasAiBaseline = false,
+    isModifiedFromAi = false,
+    onRestoreAiTuning,
+    onOpenAiDrawer,
     onOpenVault,
     onSelectPhoto,
     onOpenQuickExport,
@@ -127,6 +145,83 @@
   );
   const isLoadingPhotos = $derived(photoLibrary.isLoadingPhotos);
   const isScanningMounts = $derived(photoLibrary.isScanningMounts);
+
+  // AI 執行狀態與即時進度膠囊資料解析
+  const currentIsAiAnalyzing = $derived(propsIsAiAnalyzing ?? aiPipeline.isAiAnalyzing);
+  const currentIsBatchAiRunning = $derived(propsIsBatchAiRunning ?? aiPipeline.isBatchAiRunning);
+  const currentBatchProgress = $derived(propsBatchProgress ?? aiPipeline.batchProgress);
+  const currentAiSceneTitle = $derived(propsAiSceneTitle ?? aiPipeline.aiSceneTitle);
+  const currentAiLogs = $derived(propsAiTerminalLogs ?? aiPipeline.aiTerminalLogs);
+
+  function formatProfileShortName(profileId?: string): string {
+    if (!profileId) return "原色自然";
+    if (profileId === "Profile_00_StandardNatural") return "Standard 原色";
+    const match = profileId.match(/^Profile_\d+_(.+)$/);
+    return match ? match[1] : profileId;
+  }
+
+  function extractLatestLogSnippet(logs: string[]): string {
+    if (!logs || logs.length === 0) return "";
+    const last = logs[logs.length - 1] || "";
+    const firstLine = last.split("\n")[0].trim();
+    if (!firstLine || /^-+$/.test(firstLine)) return "";
+    return firstLine.replace(/^>\s*(\[[^\]]+\]\s*)?/, "").trim();
+  }
+
+  const mobileAiPill = $derived.by(() => {
+    const snippet = extractLatestLogSnippet(currentAiLogs);
+    if (currentIsBatchAiRunning) {
+      const cur = currentBatchProgress?.current || 1;
+      const tot = currentBatchProgress?.total || 1;
+      const pct = Math.min(100, Math.round((cur / Math.max(1, tot)) * 100));
+      if (currentBatchProgress?.countdown && currentBatchProgress.countdown > 0) {
+        return {
+          status: "batch" as const,
+          icon: "hourglass_top",
+          text: `批次 ${cur}/${tot} · 速率冷卻 ${currentBatchProgress.countdown}s`,
+          progressPct: pct,
+        };
+      }
+      return {
+        status: "batch" as const,
+        icon: "auto_mode",
+        text: `批次顯影 ${cur}/${tot}${snippet ? ` · ${snippet}` : " · AI 分析中..."}`,
+        progressPct: pct,
+      };
+    }
+
+    if (currentIsAiAnalyzing) {
+      return {
+        status: "running" as const,
+        icon: "progress_activity",
+        text: snippet || "AI 正在掃描光影與智慧調色...",
+        progressPct: null,
+      };
+    }
+
+    const sceneLabel =
+      activePhoto?.aiDecision?.scene_title ||
+      activePhoto?.aiDecision?.scene_type ||
+      currentAiSceneTitle ||
+      (activePhoto?.sceneTag && activePhoto.sceneTag !== "本機相簿幀" ? activePhoto.sceneTag : "");
+
+    if (sceneLabel || activePhoto?.aiTuningSnapshot) {
+      const profLabel = formatProfileShortName(activePhoto?.appliedProfile);
+      return {
+        status: "done" as const,
+        icon: "auto_awesome",
+        text: `${sceneLabel || "AI 已顯影"} · ${profLabel}`,
+        progressPct: null,
+      };
+    }
+
+    return {
+      status: "idle" as const,
+      icon: "auto_awesome",
+      text: "待機中 · 點擊下方「一鍵 AI」自動顯影",
+      progressPct: null,
+    };
+  });
 
   // 參數解析：優先使用傳入的 prop，若未傳入則使用 darkroomState
   const currentMonochrome = $derived(propsMonochrome ?? darkroomState.monochrome);
@@ -1017,6 +1112,49 @@
           </div>
         {/if}
       </div>
+    </div>
+
+    <!-- 行動端畫布下方單行即時 AI 進度／判讀結果小膠囊 -->
+    <div
+      class="mobile-ai-status-pill font-mono hairline-all"
+      class:is-running={mobileAiPill.status === "running" || mobileAiPill.status === "batch"}
+      class:is-done={mobileAiPill.status === "done"}
+    >
+      <button
+        type="button"
+        class="ai-pill-main"
+        onclick={() => onOpenAiDrawer?.()}
+        title="點擊展開 AI 風格與後製理念面板"
+      >
+        <span
+          class="material-symbols-outlined ai-pill-icon"
+          class:spin={mobileAiPill.status === "running" || mobileAiPill.status === "batch"}
+        >
+          {mobileAiPill.icon}
+        </span>
+        <span class="ai-pill-text">{mobileAiPill.text}</span>
+      </button>
+
+      {#if hasAiBaseline && isModifiedFromAi && onRestoreAiTuning && mobileAiPill.status === "done"}
+        <button
+          type="button"
+          class="ai-pill-restore-btn font-mono"
+          onclick={onRestoreAiTuning}
+          title="還原為 AI 顯影基準"
+        >
+          <span class="material-symbols-outlined" style="font-size: 12px;">settings_backup_restore</span>
+          <span>還原 AI</span>
+        </button>
+      {:else if mobileAiPill.status === "done"}
+        <span class="ai-pill-chevron material-symbols-outlined" aria-hidden="true">chevron_right</span>
+      {/if}
+
+      {#if mobileAiPill.progressPct !== null}
+        <div
+          class="ai-pill-progress-bar"
+          style:width={`${mobileAiPill.progressPct}%`}
+        ></div>
+      {/if}
     </div>
   {:else}
     <!-- Empty State -->
@@ -2082,6 +2220,9 @@
     white-space: nowrap;
     border: 1px solid var(--hairline-slate);
   }
+  .mobile-ai-status-pill {
+    display: none;
+  }
   /* ── 行動端暗房觸控與排版優化 (Mobile Darkroom Responsive Layout) ── */
   @media (max-width: 768px) {
     .key-vault-empty-banner {
@@ -2098,14 +2239,106 @@
     }
     .photo-stage-viewport {
       padding: 6px;
+      gap: 6px;
       overflow: hidden;
     }
 
     .plate-canvas-wrapper {
+      flex: 1;
+      min-height: 0;
+      height: auto;
       -webkit-touch-callout: none;
       -webkit-user-select: none;
       user-select: none;
       touch-action: manipulation;
+    }
+
+    /* 行動端畫布下方單行 AI 進度／判讀結果小膠囊 */
+    .mobile-ai-status-pill {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      width: 100%;
+      height: 30px;
+      padding: 0 10px;
+      background-color: rgba(16, 17, 21, 0.92);
+      border: 1px solid var(--hairline-slate);
+      border-radius: 999px;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .mobile-ai-status-pill.is-running {
+      border-color: rgba(226, 157, 82, 0.55);
+      background-color: rgba(226, 157, 82, 0.08);
+    }
+    .mobile-ai-status-pill.is-done {
+      border-color: rgba(212, 163, 115, 0.35);
+    }
+    .ai-pill-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: transparent;
+      border: none;
+      padding: 0;
+      color: var(--parchment-muted);
+      font-family: inherit;
+      font-size: 10.5px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .mobile-ai-status-pill.is-running .ai-pill-main,
+    .mobile-ai-status-pill.is-done .ai-pill-main {
+      color: var(--parchment-bright);
+    }
+    .ai-pill-icon {
+      font-size: 14px;
+      color: var(--amber-highlight);
+      flex-shrink: 0;
+    }
+    .ai-pill-icon.spin {
+      animation: ai-pill-spin 1.1s linear infinite;
+    }
+    @keyframes ai-pill-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .ai-pill-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ai-pill-chevron {
+      font-size: 14px;
+      color: var(--parchment-dim);
+      flex-shrink: 0;
+      pointer-events: none;
+    }
+    .ai-pill-restore-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid rgba(226, 157, 82, 0.45);
+      background: rgba(226, 157, 82, 0.14);
+      color: var(--amber-highlight);
+      font-size: 10px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .ai-pill-progress-bar {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--amber-highlight), #f5c37e);
+      transition: width 0.25s ease;
+      pointer-events: none;
     }
 
     .plate-tag-bar {
