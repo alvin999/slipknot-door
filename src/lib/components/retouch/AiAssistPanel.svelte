@@ -79,25 +79,51 @@
   let terminalBodyElement = $state<HTMLDivElement | null>(null);
   let isProcessLogOpen = $state<boolean>(false);
   let isExpandedStyles = $state<boolean>(
-    Boolean(readLocalJson(AI_PANEL_UI_STORAGE_KEY, DEFAULT_AI_PANEL_UI_STATE).isExpandedStyles)
+    Boolean(
+      readLocalJson(AI_PANEL_UI_STORAGE_KEY, DEFAULT_AI_PANEL_UI_STATE)
+        .isExpandedStyles,
+    ),
   );
 
   const activePhoto = $derived(propsActivePhoto ?? photoLibrary.activePhoto);
-  const photoPlates = $derived(propsPhotos?.length ? propsPhotos : photoLibrary.photoPlates);
+  const photoPlates = $derived(
+    propsPhotos?.length ? propsPhotos : photoLibrary.photoPlates,
+  );
   const flaggedCount = $derived(
-    photoPlates.filter((p: any) => p.flagged).length || photoLibrary.flaggedCount
+    photoPlates.filter((p: any) => p.flagged).length ||
+      photoLibrary.flaggedCount,
   );
 
-  const currentIsAiAnalyzing = $derived(propsIsAiAnalyzing ?? aiPipeline.isAiAnalyzing);
-  const currentIsBatchRunning = $derived(propsIsBatchAiRunning ?? aiPipeline.isBatchAiRunning);
-  const currentBatchProgress = $derived(propsBatchProgress ?? aiPipeline.batchProgress);
-  const currentLogs = $derived(propsAiTerminalLogs ?? aiPipeline.aiTerminalLogs);
-  const currentSceneTitle = $derived(propsAiSceneTitle ?? aiPipeline.aiSceneTitle);
-  const currentSuggestedScene = $derived(propsAiSuggestedScene ?? aiPipeline.aiSuggestedScene);
-  const currentRecommendedMood = $derived(propsAiRecommendedMood ?? aiPipeline.aiRecommendedMood);
-  const currentStyleInsight = $derived(propsAiStyleInsight ?? aiPipeline.aiStyleInsight);
-  const currentCropRationale = $derived(propsAiCropRationale ?? darkroomState.aiCropRationale);
-  const currentVisionTags = $derived(propsAiVisionTags ?? aiPipeline.aiVisionTags);
+  const currentIsAiAnalyzing = $derived(
+    propsIsAiAnalyzing ?? aiPipeline.isAiAnalyzing,
+  );
+  const currentIsBatchRunning = $derived(
+    propsIsBatchAiRunning ?? aiPipeline.isBatchAiRunning,
+  );
+  const currentBatchProgress = $derived(
+    propsBatchProgress ?? aiPipeline.batchProgress,
+  );
+  const currentLogs = $derived(
+    propsAiTerminalLogs ?? aiPipeline.aiTerminalLogs,
+  );
+  const currentSceneTitle = $derived(
+    propsAiSceneTitle ?? aiPipeline.aiSceneTitle,
+  );
+  const currentSuggestedScene = $derived(
+    propsAiSuggestedScene ?? aiPipeline.aiSuggestedScene,
+  );
+  const currentRecommendedMood = $derived(
+    propsAiRecommendedMood ?? aiPipeline.aiRecommendedMood,
+  );
+  const currentStyleInsight = $derived(
+    propsAiStyleInsight ?? aiPipeline.aiStyleInsight,
+  );
+  const currentCropRationale = $derived(
+    propsAiCropRationale ?? darkroomState.aiCropRationale,
+  );
+  const currentVisionTags = $derived(
+    propsAiVisionTags ?? aiPipeline.aiVisionTags,
+  );
   const currentAiScope = $derived(propsAiScope ?? aiPipeline.aiScope);
   const aiScopeActiveCount = $derived(
     [
@@ -109,8 +135,12 @@
       currentAiScope?.filmPhysics !== false,
     ].filter(Boolean).length,
   );
-  const currentIsScopeOpen = $derived(propsIsAiScopeOpen ?? aiPipeline.isAiScopeOpen);
-  const currentCopiedNotice = $derived(propsCopiedLogNotice ?? aiPipeline.copiedLogNotice);
+  const currentIsScopeOpen = $derived(
+    propsIsAiScopeOpen ?? aiPipeline.isAiScopeOpen,
+  );
+  const currentCopiedNotice = $derived(
+    propsCopiedLogNotice ?? aiPipeline.copiedLogNotice,
+  );
   const latestLogSummary = $derived.by(() => {
     if (!currentLogs.length) return "";
     const last = currentLogs[currentLogs.length - 1] || "";
@@ -138,7 +168,9 @@
   let sampleIndex = $state(0);
   let isCustomInputFocused = $state(false);
   const activeCustomSample = $derived(VIBE_PROMPT_SAMPLES[sampleIndex]);
-  const hasCustomPrompt = $derived(Boolean(darkroomState.customStylePrompt.trim()));
+  const hasCustomPrompt = $derived(
+    Boolean(darkroomState.customStylePrompt.trim()),
+  );
 
   $effect(() => {
     if (hasCustomPrompt || isCustomInputFocused) return;
@@ -151,7 +183,10 @@
   function applyRandomVibeSample() {
     const nextIdx = (sampleIndex + 1) % VIBE_PROMPT_SAMPLES.length;
     sampleIndex = nextIdx;
-    darkroomState.customStylePrompt = VIBE_PROMPT_SAMPLES[nextIdx].replace(/\.\.\.$/, "");
+    darkroomState.customStylePrompt = VIBE_PROMPT_SAMPLES[nextIdx].replace(
+      /\.\.\.$/,
+      "",
+    );
   }
 </script>
 
@@ -165,69 +200,92 @@
   </div>
   <p class="ai-desc">Gemini 視覺多模態 · 智慧光學顯影</p>
 
-  {#if currentLogs.length > 0}
-    <!-- 暗房風格可收合 AI 顯影過程紀錄匣 -->
-    <div class="ai-terminal-box hairline-all font-mono">
-      <div class="terminal-bar" class:hairline-b={isProcessLogOpen}>
-        <button
-          type="button"
-          class="term-toggle-btn font-mono"
-          onclick={() => (isProcessLogOpen = !isProcessLogOpen)}
-          title={isProcessLogOpen ? "收合 AI 顯影過程紀錄" : "展開完整 AI 顯影過程紀錄"}
-          aria-expanded={isProcessLogOpen}
-        >
-          <span
-            class="term-status-dot"
-            class:is-active={currentIsAiAnalyzing || currentIsBatchRunning}
-          ></span>
-          <span class="term-title">
-            {isProcessLogOpen ? `AI 顯影紀錄 (${currentLogs.length})` : latestLogSummary || "AI 顯影紀錄"}
-          </span>
-        </button>
-
-        <div class="term-bar-actions">
-          {#if currentIsBatchRunning && onCancelBatchAi}
-            <button
-              type="button"
-              class="term-stop-btn font-mono"
-              title="立即手動中止 AI 批次顯影"
-              onclick={onCancelBatchAi}
-            >
-              <span class="material-symbols-outlined" style="font-size: 11px;">stop_circle</span>
-              <span>停止</span>
-            </button>
+  <!-- 暗房風格可收合 AI 顯影過程紀錄匣（常駐保留一列供隨時展開檢視） -->
+  <div class="ai-terminal-box hairline-all font-mono">
+    <div class="terminal-bar" class:hairline-b={isProcessLogOpen}>
+      <button
+        type="button"
+        class="term-toggle-btn font-mono"
+        onclick={() => (isProcessLogOpen = !isProcessLogOpen)}
+        title={isProcessLogOpen
+          ? "收合 AI 顯影過程紀錄"
+          : "展開完整 AI 顯影過程紀錄"}
+        aria-expanded={isProcessLogOpen}
+      >
+        <span
+          class="term-status-dot"
+          class:is-idle={currentLogs.length === 0 &&
+            !currentIsAiAnalyzing &&
+            !currentIsBatchRunning}
+          class:is-active={currentIsAiAnalyzing || currentIsBatchRunning}
+        ></span>
+        <span class="term-title">
+          {#if currentLogs.length === 0 && !currentIsAiAnalyzing && !currentIsBatchRunning}
+            AI 顯影紀錄 · 待機中（尚無紀錄）
+          {:else if isProcessLogOpen}
+            AI 顯影紀錄 ({currentLogs.length})
+          {:else}
+            {latestLogSummary || "AI 顯影紀錄"}
           {/if}
+        </span>
+      </button>
+
+      <div class="term-bar-actions">
+        {#if currentIsBatchRunning && onCancelBatchAi}
+          <button
+            type="button"
+            class="term-stop-btn font-mono"
+            title="立即手動中止 AI 批次顯影"
+            onclick={onCancelBatchAi}
+          >
+            <span class="material-symbols-outlined" style="font-size: 11px;"
+              >stop_circle</span
+            >
+            <span>停止</span>
+          </button>
+        {/if}
+        {#if currentLogs.length > 0}
           <button
             type="button"
             class="term-copy-btn font-mono"
             title="複製所有顯影紀錄"
-            onclick={() => onCopyTerminalLogs ? onCopyTerminalLogs() : aiPipeline.copyTerminalLogs()}
+            onclick={() =>
+              onCopyTerminalLogs
+                ? onCopyTerminalLogs()
+                : aiPipeline.copyTerminalLogs()}
           >
             <span class="material-symbols-outlined" style="font-size: 11px;">
               {currentCopiedNotice ? "check" : "content_copy"}
             </span>
             <span>{currentCopiedNotice ? "已複製" : "複製"}</span>
           </button>
-          <button
-            type="button"
-            class="term-expand-btn"
-            onclick={() => (isProcessLogOpen = !isProcessLogOpen)}
-            title={isProcessLogOpen ? "收合紀錄" : "展開紀錄"}
-            aria-label={isProcessLogOpen ? "收合紀錄" : "展開紀錄"}
+        {/if}
+        <button
+          type="button"
+          class="term-expand-btn"
+          onclick={() => (isProcessLogOpen = !isProcessLogOpen)}
+          title={isProcessLogOpen ? "收合紀錄" : "展開紀錄"}
+          aria-label={isProcessLogOpen ? "收合紀錄" : "展開紀錄"}
+        >
+          <span
+            class="material-symbols-outlined"
+            style="font-size: 14px;"
+            style:transform={isProcessLogOpen ? "rotate(180deg)" : "none"}
           >
-            <span
-              class="material-symbols-outlined"
-              style="font-size: 14px;"
-              style:transform={isProcessLogOpen ? "rotate(180deg)" : "none"}
-            >
-              expand_more
-            </span>
-          </button>
-        </div>
+            expand_more
+          </span>
+        </button>
       </div>
+    </div>
 
-      {#if isProcessLogOpen}
-        <div class="terminal-body custom-scroll" bind:this={terminalBodyElement}>
+    {#if isProcessLogOpen}
+      <div class="terminal-body custom-scroll" bind:this={terminalBodyElement}>
+        {#if currentLogs.length === 0 && !currentIsAiAnalyzing && !currentIsBatchRunning}
+          <div class="term-line empty">
+            尚未執行本次 AI 顯影，點擊「一鍵 AI」或「AI
+            顯影調色」後將在此紀錄場景判讀與參數套用明細。
+          </div>
+        {:else}
           {#each currentLogs as line}
             <div class="term-line">{line}</div>
           {/each}
@@ -242,16 +300,18 @@
               {/if}
             </div>
           {/if}
-        </div>
-      {/if}
-    </div>
-  {/if}
+        {/if}
+      </div>
+    {/if}
+  </div>
 
   <!-- STATUS & INSIGHT SUMMARY CARD (始終常駐保留清晰資訊標籤) -->
   <div class="ai-status-card hairline-all">
     <div class="ai-row">
       <span class="ai-label font-mono">場景</span>
-      <span class="ai-val font-mono">{currentSceneTitle || currentSuggestedScene}</span>
+      <span class="ai-val font-mono"
+        >{currentSceneTitle || currentSuggestedScene}</span
+      >
     </div>
     {#if currentRecommendedMood}
       <div class="ai-row">
@@ -272,7 +332,9 @@
     <div class="ai-insight-quote hairline-all font-body">
       <span class="material-symbols-outlined insight-icon">lightbulb</span>
       <div class="insight-text">
-        <strong class="insight-tag font-mono">後製理念 // </strong>{currentStyleInsight}
+        <strong class="insight-tag font-mono"
+          >後製理念 //
+        </strong>{currentStyleInsight}
       </div>
     </div>
   {/if}
@@ -282,7 +344,9 @@
     <div class="ai-crop-quote hairline-all font-body">
       <span class="material-symbols-outlined crop-icon">crop</span>
       <div class="crop-text">
-        <strong class="crop-tag font-mono">AI 裁切構圖理念 // </strong>{currentCropRationale}
+        <strong class="crop-tag font-mono"
+          >AI 裁切構圖理念 //
+        </strong>{currentCropRationale}
       </div>
     </div>
   {/if}
@@ -312,7 +376,10 @@
     <button
       type="button"
       class="ai-scope-toggle-btn font-mono"
-      onclick={() => (onToggleIsAiScopeOpen ? onToggleIsAiScopeOpen() : aiPipeline.toggleAiScopeOpen())}
+      onclick={() =>
+        onToggleIsAiScopeOpen
+          ? onToggleIsAiScopeOpen()
+          : aiPipeline.toggleAiScopeOpen()}
       title="展開或收合 AI 負責的調色與裁切範圍"
     >
       <div class="scope-header-left">
@@ -340,7 +407,10 @@
           <input
             type="checkbox"
             checked={currentAiScope.lutProfile}
-            onchange={() => onToggleAiScope ? onToggleAiScope("lutProfile") : aiPipeline.toggleAiScope("lutProfile")}
+            onchange={() =>
+              onToggleAiScope
+                ? onToggleAiScope("lutProfile")
+                : aiPipeline.toggleAiScope("lutProfile")}
           />
           <span>3D LUT 風格推薦</span>
         </label>
@@ -348,7 +418,10 @@
           <input
             type="checkbox"
             checked={currentAiScope.crop}
-            onchange={() => onToggleAiScope ? onToggleAiScope("crop") : aiPipeline.toggleAiScope("crop")}
+            onchange={() =>
+              onToggleAiScope
+                ? onToggleAiScope("crop")
+                : aiPipeline.toggleAiScope("crop")}
           />
           <span>智慧構圖與裁切</span>
         </label>
@@ -356,7 +429,10 @@
           <input
             type="checkbox"
             checked={currentAiScope.keystone}
-            onchange={() => onToggleAiScope ? onToggleAiScope("keystone") : aiPipeline.toggleAiScope("keystone")}
+            onchange={() =>
+              onToggleAiScope
+                ? onToggleAiScope("keystone")
+                : aiPipeline.toggleAiScope("keystone")}
           />
           <span>梯形與水平校正</span>
         </label>
@@ -364,7 +440,10 @@
           <input
             type="checkbox"
             checked={currentAiScope.tone}
-            onchange={() => onToggleAiScope ? onToggleAiScope("tone") : aiPipeline.toggleAiScope("tone")}
+            onchange={() =>
+              onToggleAiScope
+                ? onToggleAiScope("tone")
+                : aiPipeline.toggleAiScope("tone")}
           />
           <span>基礎光影與動態</span>
         </label>
@@ -372,7 +451,10 @@
           <input
             type="checkbox"
             checked={currentAiScope.whiteBalance}
-            onchange={() => onToggleAiScope ? onToggleAiScope("whiteBalance") : aiPipeline.toggleAiScope("whiteBalance")}
+            onchange={() =>
+              onToggleAiScope
+                ? onToggleAiScope("whiteBalance")
+                : aiPipeline.toggleAiScope("whiteBalance")}
           />
           <span>自動色溫與色偏</span>
         </label>
@@ -380,7 +462,10 @@
           <input
             type="checkbox"
             checked={currentAiScope.filmPhysics !== false}
-            onchange={() => onToggleAiScope ? onToggleAiScope("filmPhysics") : aiPipeline.toggleAiScope("filmPhysics")}
+            onchange={() =>
+              onToggleAiScope
+                ? onToggleAiScope("filmPhysics")
+                : aiPipeline.toggleAiScope("filmPhysics")}
           />
           <span>分區調色與底片質感</span>
         </label>
@@ -395,9 +480,12 @@
         class="archival-btn-secondary danger w-full"
         onclick={onCancelBatchAi}
       >
-        <span class="material-symbols-outlined" style="font-size: 16px;">cancel</span>
+        <span class="material-symbols-outlined" style="font-size: 16px;"
+          >cancel</span
+        >
         <span>
-          中止 AI 批次顯影 ({currentBatchProgress?.current || 1}/{currentBatchProgress?.total || 1})
+          中止 AI 批次顯影 ({currentBatchProgress?.current ||
+            1}/{currentBatchProgress?.total || 1})
         </span>
       </button>
     {:else}
@@ -412,16 +500,22 @@
               palette
             </span>
             <span>選擇風格（Hover 預覽）</span>
-            <span class="picker-count font-mono">{styleGradingPresets.length}</span>
+            <span class="picker-count font-mono"
+              >{styleGradingPresets.length}</span
+            >
           </div>
           <button
             type="button"
             class="expand-toggle-btn font-mono"
             onclick={() => {
               isExpandedStyles = !isExpandedStyles;
-              updateLocalJson(AI_PANEL_UI_STORAGE_KEY, DEFAULT_AI_PANEL_UI_STATE, {
-                isExpandedStyles,
-              });
+              updateLocalJson(
+                AI_PANEL_UI_STORAGE_KEY,
+                DEFAULT_AI_PANEL_UI_STATE,
+                {
+                  isExpandedStyles,
+                },
+              );
             }}
             title={isExpandedStyles ? "切換為捲軸檢視" : "展開全部 12 款風格"}
           >
@@ -433,7 +527,11 @@
         </div>
         <div class="style-output-sync-bar font-mono">
           <span class="style-output-sync-label">顯影輸出</span>
-          <div class="style-output-sync-switch" role="group" aria-label="顯影輸出色彩模式">
+          <div
+            class="style-output-sync-switch"
+            role="group"
+            aria-label="顯影輸出色彩模式"
+          >
             <button
               type="button"
               class="style-output-sync-btn"
@@ -466,7 +564,10 @@
             </button>
           </div>
         </div>
-        <div class="style-card-row custom-scroll" class:is-expanded={isExpandedStyles}>
+        <div
+          class="style-card-row custom-scroll"
+          class:is-expanded={isExpandedStyles}
+        >
           {#each styleGradingPresets as preset}
             <button
               type="button"
@@ -491,7 +592,8 @@
             >
               <span
                 class="style-card-swatch"
-                class:is-mono={darkroomState.monochrome && preset.key !== "auto"}
+                class:is-mono={darkroomState.monochrome &&
+                  preset.key !== "auto"}
                 style:background={stylePreviewThumbs[preset.key]
                   ? `center / cover no-repeat url(${stylePreviewThumbs[preset.key]})`
                   : preset.key === "auto"
@@ -499,7 +601,10 @@
                     : preset.accent}
               >
                 {#if preset.key === "auto"}
-                  <span class="material-symbols-outlined" style="font-size: 28px; color: #fff;">
+                  <span
+                    class="material-symbols-outlined"
+                    style="font-size: 28px; color: #fff;"
+                  >
                     auto_awesome
                   </span>
                 {/if}
@@ -558,7 +663,8 @@
             {#each darkroomState.selectedStyleKeywords as kwId}
               {@const entry = STYLE_KEYWORD_ENTRIES.find((k) => k.id === kwId)}
               {@const isEditing = darkroomState.editingKeywordId === kwId}
-              {@const isOverridden = darkroomState.keywordOverrides[kwId] !== undefined}
+              {@const isOverridden =
+                darkroomState.keywordOverrides[kwId] !== undefined}
               {#if entry}
                 <div class="style-label-card" class:is-editing={isEditing}>
                   <div class="label-card-head font-mono">
@@ -580,7 +686,8 @@
                         <button
                           type="button"
                           class="label-action-btn font-mono"
-                          onclick={() => darkroomState.resetKeywordOverride(kwId)}
+                          onclick={() =>
+                            darkroomState.resetKeywordOverride(kwId)}
                         >
                           還原
                         </button>
@@ -588,7 +695,8 @@
                         <button
                           type="button"
                           class="label-action-btn font-mono"
-                          onclick={() => darkroomState.startEditingKeyword(kwId)}
+                          onclick={() =>
+                            darkroomState.startEditingKeyword(kwId)}
                         >
                           編輯
                         </button>
@@ -596,7 +704,8 @@
                           <button
                             type="button"
                             class="label-action-btn font-mono"
-                            onclick={() => darkroomState.resetKeywordOverride(kwId)}
+                            onclick={() =>
+                              darkroomState.resetKeywordOverride(kwId)}
                           >
                             還原
                           </button>
@@ -617,8 +726,11 @@
                       class="label-edit-textarea font-mono"
                       rows="3"
                       value={darkroomState.getKeywordDirective(kwId)}
-                      oninput={(e) => darkroomState.updateKeywordOverride(kwId, (e.target as HTMLTextAreaElement).value)}
-                    ></textarea>
+                      oninput={(e) =>
+                        darkroomState.updateKeywordOverride(
+                          kwId,
+                          (e.target as HTMLTextAreaElement).value,
+                        )}></textarea>
                   {:else}
                     <div class="label-directive-display font-mono">
                       {darkroomState.getKeywordDirective(kwId)}
@@ -635,7 +747,9 @@
           class:has-prompt={hasCustomPrompt}
           class:is-focused={isCustomInputFocused}
         >
-          <span class="material-symbols-outlined vibe-command-icon">auto_awesome</span>
+          <span class="material-symbols-outlined vibe-command-icon"
+            >auto_awesome</span
+          >
           <div class="vibe-command-body">
             <textarea
               class="vibe-custom-input font-mono"
@@ -643,8 +757,7 @@
               placeholder={activeCustomSample}
               bind:value={darkroomState.customStylePrompt}
               onfocus={() => (isCustomInputFocused = true)}
-              onblur={() => (isCustomInputFocused = false)}
-            ></textarea>
+              onblur={() => (isCustomInputFocused = false)}></textarea>
             <div class="vibe-command-footer font-mono">
               <span class="vibe-intent-status" class:active={hasCustomPrompt}>
                 {#if hasCustomPrompt}
@@ -657,7 +770,9 @@
                 onclick={applyRandomVibeSample}
                 title="填入視覺風格範例"
               >
-                <span class="material-symbols-outlined" style="font-size: 11px;">casino</span>
+                <span class="material-symbols-outlined" style="font-size: 11px;"
+                  >casino</span
+                >
                 <span>試試範例</span>
               </button>
             </div>
@@ -675,7 +790,11 @@
           title="以選定風格與調色關鍵字執行 AI 調色（AI 自動配對 = 由 AI 自行判斷；依職責勾選套用裁切與校正）"
         >
           <span class="material-symbols-outlined" style="font-size: 16px;">
-            {currentIsAiAnalyzing ? "progress_activity" : hasCustomPrompt ? "auto_awesome" : "psychology"}
+            {currentIsAiAnalyzing
+              ? "progress_activity"
+              : hasCustomPrompt
+                ? "auto_awesome"
+                : "psychology"}
           </span>
           <span>
             {currentIsAiAnalyzing
@@ -692,11 +811,15 @@
           <div class="revert-info">
             <span
               class="material-symbols-outlined"
-              style="font-size: 14px; color: {isModifiedFromAi ? 'var(--amber-highlight)' : 'var(--sage-soft)'};"
+              style="font-size: 14px; color: {isModifiedFromAi
+                ? 'var(--amber-highlight)'
+                : 'var(--sage-soft)'};"
             >
               {isModifiedFromAi ? "tune" : "check_circle"}
             </span>
-            <span>{isModifiedFromAi ? "已手動微調參數" : "維持 AI 顯影設定"}</span>
+            <span
+              >{isModifiedFromAi ? "已手動微調參數" : "維持 AI 顯影設定"}</span
+            >
           </div>
           {#if isModifiedFromAi}
             <button
@@ -705,7 +828,9 @@
               onclick={onRestoreAiTuning}
               title="捨棄手動微調，復原為 AI 顯影調色基準"
             >
-              <span class="material-symbols-outlined" style="font-size: 12px;">settings_backup_restore</span>
+              <span class="material-symbols-outlined" style="font-size: 12px;"
+                >settings_backup_restore</span
+              >
               <span>還原 AI</span>
             </button>
           {/if}
@@ -721,9 +846,13 @@
             disabled={currentIsAiAnalyzing}
             title="以目前選定的風格，對所有已標記（或全部）相片循序進行 AI 批次調色"
           >
-            <span class="material-symbols-outlined" style="font-size: 14px;">auto_mode</span>
+            <span class="material-symbols-outlined" style="font-size: 14px;"
+              >auto_mode</span
+            >
             <span>
-              AI 批次調色 ({flaggedCount > 0 ? `${flaggedCount} 張` : `全簿 ${photoPlates.length} 張`})
+              AI 批次調色 ({flaggedCount > 0
+                ? `${flaggedCount} 張`
+                : `全簿 ${photoPlates.length} 張`})
             </span>
           </button>
         </div>
@@ -753,10 +882,7 @@
   </div>
 </div>
 
-
 <style>
-
-
   .ai-assistant-dock {
     display: flex;
     flex-direction: column;
@@ -854,6 +980,10 @@
     opacity: 0.7;
     flex-shrink: 0;
   }
+  .term-status-dot.is-idle {
+    background-color: var(--parchment-dim);
+    opacity: 0.5;
+  }
   .term-status-dot.is-active {
     opacity: 1;
     box-shadow: 0 0 6px var(--amber-highlight);
@@ -943,6 +1073,10 @@
     word-break: break-word;
     user-select: text;
     -webkit-user-select: text;
+  }
+  .term-line.empty {
+    color: var(--parchment-dim);
+    line-height: 1.45;
   }
   .term-line.active {
     color: var(--amber-highlight);
@@ -1199,7 +1333,9 @@
   .style-card.active {
     background: rgba(212, 140, 52, 0.16);
     border-color: var(--amber-highlight);
-    box-shadow: 0 0 0 1px var(--amber-highlight), 0 4px 12px rgba(0, 0, 0, 0.4);
+    box-shadow:
+      0 0 0 1px var(--amber-highlight),
+      0 4px 12px rgba(0, 0, 0, 0.4);
   }
   .style-card-swatch {
     display: block;
@@ -1402,20 +1538,28 @@
     background: rgba(0, 0, 0, 0.36);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 4px;
-    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    transition:
+      border-color 0.18s ease,
+      box-shadow 0.18s ease,
+      background 0.18s ease;
   }
   .vibe-command-box.is-focused,
   .vibe-command-box.has-prompt {
     border-color: rgba(226, 157, 82, 0.65);
     background: rgba(0, 0, 0, 0.52);
-    box-shadow: 0 0 0 1px rgba(226, 157, 82, 0.18), 0 0 12px rgba(226, 157, 82, 0.08);
+    box-shadow:
+      0 0 0 1px rgba(226, 157, 82, 0.18),
+      0 0 12px rgba(226, 157, 82, 0.08);
   }
   .vibe-command-icon {
     font-size: 14px;
     margin-top: 2px;
     color: var(--parchment-dim);
     opacity: 0.7;
-    transition: color 0.18s ease, opacity 0.18s ease, filter 0.18s ease;
+    transition:
+      color 0.18s ease,
+      opacity 0.18s ease,
+      filter 0.18s ease;
     flex-shrink: 0;
   }
   .vibe-command-box.is-focused .vibe-command-icon,
