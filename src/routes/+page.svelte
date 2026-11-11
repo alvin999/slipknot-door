@@ -4344,7 +4344,8 @@
 
 <div
   class="workspace-container"
-  class:mobile-retouch-split={activeTab === "retouch" && activeMobileDrawer !== "none"}
+  class:mobile-retouch-split={activeTab === "retouch" &&
+    activeMobileDrawer !== "none"}
 >
   <!-- 去識別化 3D 膠卷風格濾鏡著色矩陣定義 (De-identified Film Emulation Matrices) -->
   <svg
@@ -4466,7 +4467,9 @@
               class:active={activeMobileDrawer === "ai"}
               onclick={() => (activeMobileDrawer = "ai")}
             >
-              <span class="material-symbols-outlined" style="font-size: 13px;">palette</span>
+              <span class="material-symbols-outlined" style="font-size: 13px;"
+                >palette</span
+              >
               <span>風格</span>
             </button>
             <button
@@ -4475,7 +4478,9 @@
               class:active={activeMobileDrawer === "tuning"}
               onclick={() => (activeMobileDrawer = "tuning")}
             >
-              <span class="material-symbols-outlined" style="font-size: 13px;">tune</span>
+              <span class="material-symbols-outlined" style="font-size: 13px;"
+                >tune</span
+              >
               <span>微調</span>
             </button>
           </div>
@@ -4654,7 +4659,9 @@
                 class:active={activeMobileDrawer === "ai"}
                 onclick={() => (activeMobileDrawer = "ai")}
               >
-                <span class="material-symbols-outlined" style="font-size: 13px;">palette</span>
+                <span class="material-symbols-outlined" style="font-size: 13px;"
+                  >palette</span
+                >
                 <span>風格</span>
               </button>
               <button
@@ -4663,7 +4670,9 @@
                 class:active={activeMobileDrawer === "tuning"}
                 onclick={() => (activeMobileDrawer = "tuning")}
               >
-                <span class="material-symbols-outlined" style="font-size: 13px;">tune</span>
+                <span class="material-symbols-outlined" style="font-size: 13px;"
+                  >tune</span
+                >
                 <span>微調</span>
               </button>
             </div>
@@ -4955,11 +4964,11 @@
     background-color: var(--surface-panel);
     display: flex;
     flex-direction: column;
-    padding: 14px 10px;
+    padding: 0;
     flex-shrink: 0;
-    /* 內容（AI 面板展開後）超出視窗高度時可捲動，避免底部按鈕被裁掉 */
+    /* 讓內部 AiAssistPanel 自行管理彈性捲動區與底部常駐執行列 */
     min-height: 0;
-    overflow-y: auto;
+    overflow: hidden;
   }
 
   /* CENTER STAGE */
@@ -5116,7 +5125,8 @@
     }
 
     .workspace-container.mobile-retouch-split .left-sidebar:not(.drawer-open),
-    .workspace-container.mobile-retouch-split .right-telemetry:not(.drawer-open) {
+    .workspace-container.mobile-retouch-split
+      .right-telemetry:not(.drawer-open) {
       display: none;
     }
 
