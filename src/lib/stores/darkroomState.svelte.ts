@@ -14,7 +14,7 @@ import {
 } from "$lib/types/photo";
 import type { PhotoPlateItem } from "./photoLibrary.svelte";
 import { lutCatalog } from "./lutCatalog.svelte";
-import type { StyleKeywordId } from "$lib/services/ai/types";
+import type { StyleKeywordId, StylePresetKey } from "$lib/services/ai/types";
 import { composeStyleKeywordPrompt, STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
 
 export type DiffMode = "off" | "split" | "sideBySide";
@@ -177,7 +177,7 @@ export class DarkroomStateStore {
   isDraggingCrop = $state<string | null>(null);
 
   // 風格預設與關鍵字 (Style Grading & Vibe Keywords)
-  activeStylePreset = $state<string>("auto");
+  activeStylePreset = $state<StylePresetKey>("auto");
   previewHoverProfileId = $state<string | null>(null);
   selectedStyleKeywords = $state<StyleKeywordId[]>([]);
   keywordOverrides = $state<Record<string, string>>({});
