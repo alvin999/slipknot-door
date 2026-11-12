@@ -1,8 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { KeyVaultService, type KeyEncryptionMode } from '$lib/services/keyVaultService';
-  import { ModelDiscoveryService, type DiscoveredModel } from '$lib/services/modelDiscoveryService';
+  import {
+    ModelDiscoveryService,
+    PROVIDER_DEFAULT_MODELS,
+    type DiscoveredModel,
+  } from '$lib/services/modelDiscoveryService';
   import { AiEngineFactory } from '$lib/services/ai/engineFactory';
+  import type { AiProviderId } from '$lib/services/ai/types';
   import { aiPipeline } from '$lib/stores/aiPipeline.svelte';
   import { toastStore } from '$lib/stores/toastStore.svelte';
 
@@ -14,90 +19,120 @@
   let { isOpen = $bindable(false), onClose }: Props = $props();
 
   export interface ProviderMeta {
-    id: 'gemini' | 'groq';
+    id: AiProviderId;
     name: string;
-    tabLabel: string;
+    shortName: string;
+    badge: string;
     keyPlaceholder: string;
-    category: 'vision' | 'text';
-    categoryLabel: string;
+    isLocal?: boolean;
+    docHint?: string;
   }
 
   export const PROVIDER_REGISTRY: ProviderMeta[] = [
     {
       id: 'gemini',
       name: 'Google Gemini',
-      tabLabel: 'Google Gemini (多模態視覺)',
-      keyPlaceholder: 'AIza...',
-      category: 'vision',
-      categoryLabel: '自動適配視覺模型 (DYNAMIC VISION DISCOVERY)'
+      shortName: 'Gemini',
+      badge: '多模態首選',
+      keyPlaceholder: 'AIzaSy...',
+      docHint: '支援 Gemini 2.5 Flash / Pro 高速視覺與色彩分析',
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      shortName: 'OpenAI',
+      badge: 'GPT-4o / 4.1',
+      keyPlaceholder: 'sk-proj-...',
+      docHint: '支援 GPT-4o、GPT-4.1、o3 等主流視覺與推理模型',
+    },
+    {
+      id: 'anthropic',
+      name: 'Anthropic Claude',
+      shortName: 'Claude',
+      badge: 'Sonnet 4 / 3.7',
+      keyPlaceholder: 'sk-ant-...',
+      docHint: '支援 Claude Sonnet / Haiku 細膩美學判讀與雙圖覆審',
     },
     {
       id: 'groq',
-      name: 'Groq',
-      tabLabel: 'Groq (極速社群文案與標籤)',
+      name: 'Groq Cloud',
+      shortName: 'Groq',
+      badge: 'LPU 極速',
       keyPlaceholder: 'gsk_...',
-      category: 'text',
-      categoryLabel: '自動適配文字模型 (DYNAMIC TEXT MODELS)'
-    }
+      docHint: '支援 Llama 4 Vision 視覺與極速 LPU 社群文案生成',
+    },
+    {
+      id: 'openrouter',
+      name: 'OpenRouter',
+      shortName: 'OpenRouter',
+      badge: '百模聚合',
+      keyPlaceholder: 'sk-or-v1-...',
+      docHint: '單一金鑰暢通 Qwen-VL、Mistral Pixtral、DeepSeek 等全系列模型',
+    },
+    {
+      id: 'ollama',
+      name: 'Ollama (本地端)',
+      shortName: 'Ollama',
+      badge: '免金鑰離線',
+      keyPlaceholder: 'http://localhost:11434',
+      isLocal: true,
+      docHint: '100% 本機端私密推論，支援 Qwen2.5-VL、Gemma 3、Llama 3.2 Vision 等',
+    },
   ];
 
-  function getProviderMeta(id: 'gemini' | 'groq' | null | undefined): ProviderMeta {
-    return PROVIDER_REGISTRY.find(p => p.id === id) || PROVIDER_REGISTRY[0];
+  function getProviderMeta(id: AiProviderId | string | null | undefined): ProviderMeta {
+    return PROVIDER_REGISTRY.find((p) => p.id === id) || PROVIDER_REGISTRY[0];
   }
 
-  function getProviderName(id: 'gemini' | 'groq' | null | undefined): string {
-    return getProviderMeta(id).name;
-  }
+  // ── 區塊 1：同頁直覺模型與任務指派狀態 (Single-Page Unified Role & Model Selection) ──
+  let roleVisionProvider = $state<AiProviderId>('gemini');
+  let roleVisionModelId = $state<string>('gemini-2.5-flash');
 
-  let selectedProvider = $state<'gemini' | 'groq'>('gemini');
+  let roleCopywritingProvider = $state<AiProviderId>('groq');
+  let roleCopywritingModelId = $state<string>('llama-3.3-70b-versatile');
+
+  let roleCriticUseCustom = $state<boolean>(false);
+  let roleCriticProvider = $state<AiProviderId>('gemini');
+  let roleCriticModelId = $state<string>('gemini-2.5-flash');
+
+  // ── 區塊 2：供應商連線與金鑰管理狀態 ──
+  let selectedProvider = $state<AiProviderId>('gemini');
   let currentProviderMeta = $derived(getProviderMeta(selectedProvider));
   let currentMode = $state<KeyEncryptionMode>('transparent');
   let apiKeyInput = $state<string>('');
+  let ollamaUrlInput = $state<string>('http://localhost:11434');
   let masterPassword = $state<string>('');
   let showKey = $state<boolean>(false);
+  let showOllamaCorsHelp = $state<boolean>(false);
   let statusMessage = $state<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   let isSaving = $state<boolean>(false);
+  let isDiscoveringProvider = $state<Record<string, boolean>>({});
 
-  // Dynamic Model Discovery States
-  let discoveredModels = $state<DiscoveredModel[]>([]);
-  let selectedModelId = $state<string | null>(null);
-  let isDiscoveringModels = $state<boolean>(false);
-  let discoveryTimer: any = null;
-  let showUnsavedPrompt = $state<boolean>(false);
-  let unsavedActionType = $state<'close' | 'switch'>('close');
-  let pendingProviderTarget = $state<'gemini' | 'groq' | null>(null);
+  // 各供應商目前已探測/快取之模型清單 Map（響應式更新，讓上方三個任務卡片即時連動）
+  let providerModelsMap = $state<Record<AiProviderId, DiscoveredModel[]>>({
+    gemini: [],
+    openai: [],
+    anthropic: [],
+    groq: [],
+    openrouter: [],
+    ollama: [],
+  });
 
-  // 當前選取 Provider 之完整模型清單（100% 端點動態探測與本機快取，零 Hardcode）
-  let currentModelList = $derived(
-    discoveredModels.length > 0
-      ? discoveredModels
-      : ModelDiscoveryService.getCachedModels(selectedProvider)
-  );
-
-  function getDynamicModelsForProvider(prov: string): DiscoveredModel[] {
-    const p = (prov === 'groq' ? 'groq' : 'gemini') as 'gemini' | 'groq';
-    if (selectedProvider === p && discoveredModels.length > 0) {
-      return discoveredModels;
-    }
-    return ModelDiscoveryService.getCachedModels(p);
-  }
-
-  // 任務職責指派狀態 (Task Roles: 只需指定負責服務，模型採用該服務已選定之模型)
-  let roleVisionProvider = $state<string>('gemini');
-  let roleVisionTemp = $state<number>(0.4);
-  let roleTuningStrength = $state<number>(1.0);
-  let roleCopywritingProvider = $state<string>('groq');
-  let roleCopywritingTemp = $state<number>(0.7);
-  let roleCriticEnabled = $state<boolean>(false);
-  let roleCriticUseCustom = $state<boolean>(false);
-  let roleCriticProvider = $state<string>('gemini');
-  let roleCriticModelId = $state<string>('');
-  let roleCriticTemp = $state<number>(0.2);
-
-  // 各家金鑰即時就緒狀態（供分頁燈號與儲存邏輯判定）
-  let providerReadyMap = $state<{ gemini: boolean; groq: boolean }>({
+  // 各家金鑰或端點就緒狀態（Ollama 須實際探測端點連通才亮綠燈）
+  let ollamaReachable = $state<boolean>(false);
+  let providerReadyMap = $state<Record<AiProviderId, boolean>>({
     gemini: false,
+    openai: false,
+    anthropic: false,
     groq: false,
+    openrouter: false,
+    ollama: false,
+  });
+
+  let vaultStatus = $state<{ exists: boolean; mode: KeyEncryptionMode | null; updatedAt: string | null }>({
+    exists: false,
+    mode: null,
+    updatedAt: null,
   });
 
   const ENCRYPTION_TIER_META: {
@@ -127,400 +162,410 @@
     ENCRYPTION_TIER_META.find((t) => t.id === currentMode)?.desc || ''
   );
 
-  function onCriticProviderChange(newProv: string) {
-    roleCriticProvider = newProv;
-    const models = getDynamicModelsForProvider(newProv);
-    roleCriticModelId = models[0]?.id || getAssignedModelDisplay(newProv);
-  }
-
-  /**
-   * 取得指定 Provider 當前已選取或預設推薦之模型名稱
-   */
-  function getAssignedModelDisplay(prov: string): string {
-    const p = prov as 'gemini' | 'groq';
-    let modelId = '';
-    if (selectedProvider === p && selectedModelId) {
-      modelId = selectedModelId;
-    } else if (typeof localStorage !== 'undefined') {
-      modelId = localStorage.getItem(`slipknot_model_${p}`) || '';
-    }
-    if (!modelId) {
-      const cached = ModelDiscoveryService.getCachedModels(p);
-      modelId = cached[0]?.id || (p === 'gemini' ? 'gemini-flash-lite-latest' : 'llama-3.3-70b-versatile');
-    }
-    return modelId;
-  }
-
-  // Stored key status
-  let vaultStatus = $state<{ exists: boolean; mode: KeyEncryptionMode | null; updatedAt: string | null }>({
-    exists: false,
-    mode: null,
-    updatedAt: null
-  });
-
   onMount(async () => {
+    reloadAllProviderCache();
     refreshStatus();
-    loadStoredModelSelection();
     loadTaskRoles();
-    await autoLoadModelsForSavedKey();
+    ollamaUrlInput = KeyVaultService.getOllamaEndpoint();
+    await Promise.all([
+      checkOllamaHealth(ollamaUrlInput),
+      autoProbeReadyProviders(),
+    ]);
   });
+
+  async function checkOllamaHealth(url?: string): Promise<boolean> {
+    const baseUrl = (url || KeyVaultService.getOllamaEndpoint()).trim().replace(/\/+$/, '');
+    if (!baseUrl) {
+      ollamaReachable = false;
+      refreshStatus();
+      return false;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1500);
+    try {
+      const res = await fetch(`${baseUrl}/api/tags`, { signal: controller.signal });
+      ollamaReachable = res.ok;
+    } catch {
+      ollamaReachable = false;
+    } finally {
+      clearTimeout(timer);
+      refreshStatus();
+    }
+    return ollamaReachable;
+  }
+
+  function reloadAllProviderCache() {
+    const nextMap: Record<AiProviderId, DiscoveredModel[]> = {
+      gemini: ModelDiscoveryService.getCachedModels('gemini'),
+      openai: ModelDiscoveryService.getCachedModels('openai'),
+      anthropic: ModelDiscoveryService.getCachedModels('anthropic'),
+      groq: ModelDiscoveryService.getCachedModels('groq'),
+      openrouter: ModelDiscoveryService.getCachedModels('openrouter'),
+      ollama: ModelDiscoveryService.getCachedModels('ollama'),
+    };
+    providerModelsMap = nextMap;
+  }
 
   function refreshStatus() {
     vaultStatus = KeyVaultService.getKeyStatus(selectedProvider);
     providerReadyMap = {
       gemini: KeyVaultService.getKeyStatus('gemini').exists,
+      openai: KeyVaultService.getKeyStatus('openai').exists,
+      anthropic: KeyVaultService.getKeyStatus('anthropic').exists,
       groq: KeyVaultService.getKeyStatus('groq').exists,
+      openrouter: KeyVaultService.getKeyStatus('openrouter').exists,
+      ollama: ollamaReachable,
     };
+  }
+
+  function getModelsForRole(prov: AiProviderId, visionOnly: boolean, currentModelId: string): DiscoveredModel[] {
+    const rawList = providerModelsMap[prov] || [];
+    const filtered = visionOnly ? rawList.filter((m) => m.isVisionCapable) : rawList;
+    const baseList = filtered.length > 0 ? filtered : rawList;
+
+    if (baseList.length === 0) {
+      const defId = visionOnly
+        ? PROVIDER_DEFAULT_MODELS[prov]?.vision
+        : PROVIDER_DEFAULT_MODELS[prov]?.text;
+      const items: DiscoveredModel[] = [];
+      if (currentModelId) {
+        items.push({
+          id: currentModelId,
+          displayName: currentModelId,
+          provider: prov,
+          isVisionCapable: true,
+          score: 100,
+        });
+      }
+      if (defId && defId !== currentModelId) {
+        items.push({
+          id: defId,
+          displayName: `${defId} (預設推薦)`,
+          provider: prov,
+          isVisionCapable: true,
+          score: 90,
+        });
+      }
+      return items;
+    }
+
+    if (currentModelId && !baseList.some((m) => m.id === currentModelId)) {
+      return [
+        {
+          id: currentModelId,
+          displayName: currentModelId,
+          provider: prov,
+          isVisionCapable: true,
+          score: 99,
+        },
+        ...baseList,
+      ];
+    }
+
+    return baseList;
   }
 
   function loadTaskRoles() {
     const roles = AiEngineFactory.getTaskRoles();
-    roleVisionProvider = roles.vision.provider || 'gemini';
-    roleVisionTemp = roles.vision.temperature ?? 0.4;
-    roleTuningStrength = roles.tuningStrength ?? 1.0;
-    roleCopywritingProvider = roles.copywriting.provider || 'groq';
-    roleCopywritingTemp = roles.copywriting.temperature ?? 0.7;
-    roleCriticEnabled = roles.critic?.enabled ?? false;
+    roleVisionProvider = (roles.vision.provider as AiProviderId) || 'gemini';
+    roleVisionModelId =
+      roles.vision.modelId ||
+      getDefaultOrFirstModel(roleVisionProvider, true);
+
+    roleCopywritingProvider = (roles.copywriting.provider as AiProviderId) || 'groq';
+    roleCopywritingModelId =
+      roles.copywriting.modelId ||
+      getDefaultOrFirstModel(roleCopywritingProvider, false);
+
     roleCriticUseCustom = roles.critic?.useCustomModel ?? false;
-    roleCriticProvider = roles.critic?.provider || 'gemini';
-    roleCriticModelId = roles.critic?.modelId || '';
-    roleCriticTemp = roles.critic?.temperature ?? 0.2;
-    if (!roleCriticModelId) {
-      const models = getDynamicModelsForProvider(roleCriticProvider);
-      roleCriticModelId = models[0]?.id || getAssignedModelDisplay(roleCriticProvider);
+    roleCriticProvider = (roles.critic?.provider as AiProviderId) || 'gemini';
+    roleCriticModelId =
+      roles.critic?.modelId ||
+      getDefaultOrFirstModel(roleCriticProvider, true);
+
+    // 預設選中目前視覺主引擎作為下方金鑰管理焦點
+    selectedProvider = roleVisionProvider;
+    refreshStatus();
+  }
+
+  function getDefaultOrFirstModel(prov: AiProviderId, visionOnly: boolean): string {
+    const list = providerModelsMap[prov] || [];
+    const candidates = visionOnly ? list.filter((m) => m.isVisionCapable) : list;
+    if (candidates.length > 0) return candidates[0].id;
+    if (list.length > 0) return list[0].id;
+    return visionOnly
+      ? PROVIDER_DEFAULT_MODELS[prov]?.vision || ''
+      : PROVIDER_DEFAULT_MODELS[prov]?.text || '';
+  }
+
+  function handleVisionProviderChange(newProv: AiProviderId) {
+    roleVisionProvider = newProv;
+    roleVisionModelId = getDefaultOrFirstModel(newProv, true);
+    // 同步將下方金鑰/端點配置區切換到該供應商，免切分頁即可一覽無遺
+    selectProviderPill(newProv);
+    if (providerModelsMap[newProv].length === 0) {
+      probeProviderModels(newProv, false);
     }
   }
 
-  function loadStoredModelSelection() {
-    if (typeof localStorage !== 'undefined') {
-      selectedModelId = localStorage.getItem(`slipknot_model_${selectedProvider}`) || '';
-    } else {
-      selectedModelId = '';
+  function handleCopyProviderChange(newProv: AiProviderId) {
+    roleCopywritingProvider = newProv;
+    roleCopywritingModelId = getDefaultOrFirstModel(newProv, false);
+    if (providerModelsMap[newProv].length === 0) {
+      probeProviderModels(newProv, false);
     }
   }
 
-  /**
-   * Intercept provider tab switching if there is an unsaved API Key
-   */
-  async function handleTabClick(prov: 'gemini' | 'groq') {
-    if (selectedProvider === prov) return;
-    if (apiKeyInput.trim().length > 0) {
-      pendingProviderTarget = prov;
-      unsavedActionType = 'switch';
-      showUnsavedPrompt = true;
-      return;
+  function handleCriticProviderChange(newProv: AiProviderId) {
+    roleCriticProvider = newProv;
+    roleCriticModelId = getDefaultOrFirstModel(newProv, true);
+    if (providerModelsMap[newProv].length === 0) {
+      probeProviderModels(newProv, false);
     }
-    await switchProvider(prov);
   }
 
-  /**
-   * Switch provider tab cleanly
-   */
-  async function switchProvider(prov: 'gemini' | 'groq') {
+  function selectProviderPill(prov: AiProviderId) {
     selectedProvider = prov;
     apiKeyInput = '';
     masterPassword = '';
-    discoveredModels = [];
     statusMessage = null;
-    showUnsavedPrompt = false;
-    pendingProviderTarget = null;
+    if (prov === 'ollama') {
+      ollamaUrlInput = KeyVaultService.getOllamaEndpoint();
+    }
     refreshStatus();
-    loadStoredModelSelection();
-    await autoLoadModelsForSavedKey();
   }
 
-  /**
-   * Automatically query models if a key is already securely stored in vault
-   */
-  async function autoLoadModelsForSavedKey() {
-    if (!vaultStatus.exists || vaultStatus.mode === 'password') return;
-    try {
-      const loaded = await KeyVaultService.loadKey(selectedProvider);
-      if (loaded.apiKey) {
-        await executeDiscovery(selectedProvider, loaded.apiKey, false);
+  async function autoProbeReadyProviders() {
+    const activeProvs = new Set<AiProviderId>([
+      roleVisionProvider,
+      roleCopywritingProvider,
+      selectedProvider,
+    ]);
+    for (const prov of activeProvs) {
+      if (providerModelsMap[prov].length === 0) {
+        await probeProviderModels(prov, false);
       }
-    } catch {
-      // Background auto-load failure is silently handled
     }
   }
 
-  /**
-   * Handle user input in API Key field
-   */
-  function handleKeyInputChange(newVal: string) {
-    apiKeyInput = newVal;
-
-    // Auto-detect provider if key matches signature
-    const detected = ModelDiscoveryService.detectProviderFromKey(newVal);
-    if (detected && detected !== selectedProvider) {
-      selectedProvider = detected;
-      refreshStatus();
-      loadStoredModelSelection();
-    }
-
-    // Debounced dynamic model discovery
-    clearTimeout(discoveryTimer);
-    if (newVal.trim().length > 10) {
-      isDiscoveringModels = true;
-      discoveryTimer = setTimeout(async () => {
-        await executeDiscovery(selectedProvider, newVal.trim(), false);
-      }, 600);
+  async function probeProviderModels(prov: AiProviderId, isManual: boolean) {
+    let keyOrUrl = '';
+    if (prov === 'ollama') {
+      keyOrUrl = (selectedProvider === 'ollama' ? ollamaUrlInput : KeyVaultService.getOllamaEndpoint()).trim();
+      KeyVaultService.setOllamaEndpoint(keyOrUrl);
     } else {
-      discoveredModels = [];
+      if (selectedProvider === prov && apiKeyInput.trim()) {
+        keyOrUrl = apiKeyInput.trim();
+      } else {
+        const st = KeyVaultService.getKeyStatus(prov);
+        if (!st.exists || st.mode === 'password') {
+          if (isManual && st.mode === 'password' && masterPassword) {
+            const loaded = await KeyVaultService.loadKey(prov, masterPassword);
+            keyOrUrl = loaded.apiKey || '';
+          } else if (isManual) {
+            statusMessage = {
+              text: st.mode === 'password' ? '請先輸入主密碼以解鎖金鑰' : `請先輸入 ${getProviderMeta(prov).name} API Key`,
+              type: 'info',
+            };
+            return;
+          } else {
+            return;
+          }
+        } else {
+          const loaded = await KeyVaultService.loadKey(prov);
+          keyOrUrl = loaded.apiKey || '';
+        }
+      }
     }
-  }
 
-  /**
-   * Core execution for model discovery & live endpoint validation
-   */
-  async function executeDiscovery(prov: 'gemini' | 'groq', key: string, isManualTest: boolean) {
-    isDiscoveringModels = true;
-    const meta = getProviderMeta(prov);
-    if (isManualTest) {
-      statusMessage = { text: `正在連線 ${meta.name} 端點驗證金鑰與探測可用模型...`, type: 'info' };
-      toastStore.show(`正在連線 ${meta.name} 驗證金鑰...`, 'info', 2000);
+    if (prov !== 'ollama' && !keyOrUrl) return;
+
+    isDiscoveringProvider = { ...isDiscoveringProvider, [prov]: true };
+    if (isManual) {
+      statusMessage = {
+        text: `正在向 ${getProviderMeta(prov).name} 探測可用模型清單...`,
+        type: 'info',
+      };
     }
 
     try {
-      const res = await ModelDiscoveryService.discoverModels(prov, key);
-
+      const res = await ModelDiscoveryService.discoverModels(prov, keyOrUrl);
       if (res.error) {
-        if (isManualTest) {
-          statusMessage = { text: `端點連線失敗：${res.error}`, type: 'error' };
-          toastStore.show(`端點連線失敗：${res.error}`, 'error', 4500);
+        if (prov === 'ollama') {
+          ollamaReachable = false;
+          refreshStatus();
         }
-        discoveredModels = [];
+        if (isManual) {
+          statusMessage = { text: `連線或探測異常：${res.error}`, type: 'error' };
+          toastStore.show(`${getProviderMeta(prov).name} 探測失敗：${res.error}`, 'error', 4200);
+        }
       } else {
-        discoveredModels = res.models;
-        if (res.models.length > 0) {
-          if (!selectedModelId || !res.models.some(m => m.id === selectedModelId)) {
-            selectedModelId = res.recommendedModelId;
+        if (prov === 'ollama') {
+          ollamaReachable = true;
+          refreshStatus();
+        }
+        providerModelsMap = { ...providerModelsMap, [prov]: res.models };
+        // 若目前指派給該供應商的模型為空或不在清單內，自動填入推薦模型
+        if (roleVisionProvider === prov && res.recommendedModelId) {
+          const visionList = res.models.filter((m) => m.isVisionCapable);
+          if (!roleVisionModelId || !res.models.some((m) => m.id === roleVisionModelId)) {
+            roleVisionModelId = visionList[0]?.id || res.recommendedModelId;
           }
         }
-
-        // 若為手動點擊「測試連線」，進一步執行端對端真實推論診斷（Session 診斷）
-        if (isManualTest) {
-          let targetModel = selectedModelId || res.recommendedModelId || (res.models[0]?.id ?? '');
-          let cleanTarget = targetModel.replace(/^models\//, '');
-          statusMessage = { text: `正在使用當前 Session 對 [${cleanTarget}] 進行推論回應測試...`, type: 'info' };
-          const t0 = Date.now();
-          if (prov === 'gemini') {
-            let testRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${cleanTarget}:generateContent?key=${key}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ contents: [{ parts: [{ text: 'Ping: Reply OK' }] }] })
-            });
-            const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-            if (!testRes.ok) {
-              const errJson = await testRes.json().catch(() => null);
-              const detail = errJson?.error?.message || `HTTP ${testRes.status}`;
-              statusMessage = { text: `❌ Gemini 端點推論失敗 (${detail})`, type: 'error' };
-              toastStore.show(`Gemini 端點推論失敗：${detail}`, 'error', 4500);
-            } else {
-              statusMessage = { text: `🎉 Gemini 視覺引擎測試成功！(端點耗時: ${elapsed}s · 模型: ${cleanTarget})`, type: 'success' };
-              toastStore.show(`Gemini 測試成功！(${elapsed}s · ${cleanTarget})`, 'success', 3500);
-            }
-          } else {
-            const testRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-              body: JSON.stringify({
-                model: targetModel,
-                messages: [{ role: 'user', content: 'hi' }],
-                max_tokens: 5
-              })
-            });
-            const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-            if (!testRes.ok) {
-              const errJson = await testRes.json().catch(() => null);
-              const detail = errJson?.error?.message || `HTTP ${testRes.status}`;
-              statusMessage = { text: `❌ Groq 文案端點失敗 (${detail})`, type: 'error' };
-              toastStore.show(`Groq 文案端點失敗：${detail}`, 'error', 4500);
-            } else {
-              statusMessage = { text: `🎉 Groq 極速文案測試成功！(極速回應: ${elapsed}s · 模型: ${targetModel})`, type: 'success' };
-              toastStore.show(`Groq 測試成功！(${elapsed}s · ${targetModel})`, 'success', 3500);
-            }
+        if (roleCopywritingProvider === prov && res.recommendedModelId) {
+          if (!roleCopywritingModelId || !res.models.some((m) => m.id === roleCopywritingModelId)) {
+            roleCopywritingModelId = res.recommendedModelId;
           }
         }
-      }
-    } catch (err: any) {
-      if (isManualTest) {
-        statusMessage = { text: `連線異常：${err.message || '未知錯誤'}`, type: 'error' };
-        toastStore.show(`連線異常：${err.message || '未知錯誤'}`, 'error', 4500);
+        if (roleCriticProvider === prov && res.recommendedModelId) {
+          const visionList = res.models.filter((m) => m.isVisionCapable);
+          if (!roleCriticModelId || !res.models.some((m) => m.id === roleCriticModelId)) {
+            roleCriticModelId = visionList[0]?.id || res.recommendedModelId;
+          }
+        }
+        if (isManual) {
+          const visionCount = res.models.filter((m) => m.isVisionCapable).length;
+          statusMessage = {
+            text: `✓ ${getProviderMeta(prov).name} 連線成功！共載入 ${res.models.length} 個模型（含 ${visionCount} 個視覺多模態模型）`,
+            type: 'success',
+          };
+          toastStore.show(
+            `${getProviderMeta(prov).name} 已載入 ${res.models.length} 個可用模型 ✓`,
+            'success',
+            3000
+          );
+        }
       }
     } finally {
-      isDiscoveringModels = false;
+      isDiscoveringProvider = { ...isDiscoveringProvider, [prov]: false };
     }
   }
 
-  /**
-   * Manual test connection button trigger
-   */
-  async function handleTestConnection() {
-    let keyToTest = apiKeyInput.trim();
-
-    // If input is empty, fallback to stored key in vault
-    if (!keyToTest && vaultStatus.exists) {
-      try {
-        const loaded = await KeyVaultService.loadKey(selectedProvider, masterPassword);
-        if (loaded.requiresPassword) {
-          statusMessage = { text: '此金鑰受密碼保護，請在下方輸入主密碼後再點擊測試連線', type: 'info' };
-          toastStore.show('此金鑰受密碼保護，請輸入主密碼後再測試', 'warning', 3500);
-          return;
-        }
-        if (loaded.apiKey) {
-          keyToTest = loaded.apiKey;
-        }
-      } catch (err: any) {
-        statusMessage = { text: `無法載入已存金鑰：${err.message}`, type: 'error' };
-        toastStore.show(`無法載入金鑰：${err.message}`, 'error', 4000);
-        return;
-      }
+  let discoveryTimer: any = null;
+  function handleKeyInputChange(newVal: string) {
+    apiKeyInput = newVal;
+    const detected = ModelDiscoveryService.detectProviderFromKey(newVal);
+    if (detected && detected !== selectedProvider && detected !== 'ollama') {
+      selectedProvider = detected;
+      refreshStatus();
     }
+    clearTimeout(discoveryTimer);
+    if (newVal.trim().length > 10) {
+      discoveryTimer = setTimeout(() => {
+        probeProviderModels(selectedProvider, false);
+      }, 650);
+    }
+  }
 
-    if (!keyToTest) {
-      statusMessage = { text: '請先輸入 API Key 後再點擊測試連線', type: 'error' };
-      toastStore.show('請先輸入 API Key 後再點擊測試連線', 'warning', 3500);
+  async function handleSaveProviderKey() {
+    if (selectedProvider === 'ollama') {
+      KeyVaultService.setOllamaEndpoint(ollamaUrlInput);
+      refreshStatus();
+      await probeProviderModels('ollama', true);
       return;
     }
 
-    await executeDiscovery(selectedProvider, keyToTest, true);
-  }
-
-  async function handleSave(autoClose: boolean = true) {
-    if (isSaving) return false;
-    isSaving = true;
-    let keyToSave = apiKeyInput.trim();
-
-    // 持久化儲存任務職責指派 (Task Roles) 與溫度/強度參數
-    AiEngineFactory.setTaskRoles({
-      vision: {
-        provider: roleVisionProvider,
-        modelId: getAssignedModelDisplay(roleVisionProvider),
-        temperature: roleVisionTemp,
-      },
-      copywriting: {
-        provider: roleCopywritingProvider,
-        modelId: getAssignedModelDisplay(roleCopywritingProvider),
-        temperature: roleCopywritingTemp,
-      },
-      critic: {
-        enabled: roleCriticEnabled,
-        useCustomModel: roleCriticUseCustom,
-        provider: roleCriticProvider,
-        modelId: roleCriticUseCustom
-          ? (roleCriticModelId || getAssignedModelDisplay(roleCriticProvider))
-          : getAssignedModelDisplay(roleVisionProvider),
-        temperature: roleCriticTemp,
-      },
-      tuningStrength: roleTuningStrength,
-    });
-    aiPipeline.reloadEngineSettings();
-
-    // If apiKeyInput is empty and at least one key exists, save model/role/temp changes cleanly
-    if (!keyToSave && (vaultStatus.exists || providerReadyMap.gemini || providerReadyMap.groq)) {
-      if (typeof localStorage !== 'undefined') {
-        if (vaultStatus.exists) {
-          localStorage.setItem('slipknot_active_provider', selectedProvider);
-        }
-        if (selectedModelId) {
-          localStorage.setItem(`slipknot_model_${selectedProvider}`, selectedModelId);
-        }
-      }
-      toastStore.show('AI 任務職責、模型與溫度設定已更新', 'success');
-      isSaving = false;
-      if (autoClose) {
-        forceClose();
-      }
-      return true;
-    }
-
-    if (!keyToSave) {
-      statusMessage = { text: '請輸入有效的 API Key', type: 'error' };
-      isSaving = false;
-      return false;
+    const trimmed = apiKeyInput.trim();
+    if (!trimmed) {
+      statusMessage = { text: `請輸入 ${currentProviderMeta.name} API Key`, type: 'error' };
+      return;
     }
 
     try {
-      await KeyVaultService.saveKey(
-        selectedProvider,
-        keyToSave,
-        currentMode,
-        masterPassword
-      );
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('slipknot_active_provider', selectedProvider);
-        if (selectedModelId) {
-          localStorage.setItem(`slipknot_model_${selectedProvider}`, selectedModelId);
-        }
-      }
-      refreshStatus();
-      aiPipeline.reloadEngineSettings();
-      toastStore.show(`金鑰已成功安全儲存（${getModeLabel(currentMode)}）· 任務模型已生效`, 'success');
+      await KeyVaultService.saveKey(selectedProvider, trimmed, currentMode, masterPassword);
       apiKeyInput = '';
       masterPassword = '';
-      if (autoClose) {
-        forceClose();
-      }
-      return true;
+      refreshStatus();
+      statusMessage = {
+        text: `✓ ${currentProviderMeta.name} 金鑰已安全儲存（${getModeLabel(currentMode)}）`,
+        type: 'success',
+      };
+      toastStore.show(`${currentProviderMeta.name} 金鑰已儲存 ✓`, 'success', 2500);
+      await probeProviderModels(selectedProvider, false);
     } catch (err: any) {
-      statusMessage = { text: err.message || '儲存失敗', type: 'error' };
-      return false;
+      statusMessage = { text: err?.message || '金鑰儲存失敗', type: 'error' };
+    }
+  }
+
+  async function handleSaveAll(autoClose = true) {
+    if (isSaving) return;
+    isSaving = true;
+
+    try {
+      // 若下方輸入框有尚未儲存的金鑰或 Ollama URL，順便一併存入
+      if (selectedProvider === 'ollama' && ollamaUrlInput.trim()) {
+        KeyVaultService.setOllamaEndpoint(ollamaUrlInput.trim());
+      } else if (apiKeyInput.trim()) {
+        await KeyVaultService.saveKey(selectedProvider, apiKeyInput.trim(), currentMode, masterPassword);
+        apiKeyInput = '';
+        masterPassword = '';
+      }
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(`slipknot_model_${roleVisionProvider}`, roleVisionModelId);
+        localStorage.setItem(`slipknot_model_${roleCopywritingProvider}`, roleCopywritingModelId);
+        if (roleCriticUseCustom && roleCriticModelId) {
+          localStorage.setItem(`slipknot_model_${roleCriticProvider}`, roleCriticModelId);
+        }
+      }
+
+      const currentRoles = AiEngineFactory.getTaskRoles();
+      AiEngineFactory.setTaskRoles({
+        vision: {
+          provider: roleVisionProvider,
+          modelId: roleVisionModelId,
+          temperature: currentRoles.vision.temperature,
+        },
+        copywriting: {
+          provider: roleCopywritingProvider,
+          modelId: roleCopywritingModelId,
+          temperature: currentRoles.copywriting.temperature,
+        },
+        critic: {
+          ...currentRoles.critic,
+          useCustomModel: roleCriticUseCustom,
+          provider: roleCriticProvider,
+          modelId: roleCriticUseCustom ? roleCriticModelId : roleVisionModelId,
+        },
+      });
+
+      refreshStatus();
+      aiPipeline.reloadEngineSettings();
+      toastStore.show('AI 模型指派與金鑰設定已同步生效 ✓', 'success', 2800);
+
+      if (autoClose) {
+        isOpen = false;
+        onClose?.();
+      }
+    } catch (err: any) {
+      statusMessage = { text: err?.message || '儲存失敗', type: 'error' };
     } finally {
       isSaving = false;
     }
   }
 
-  function handleDelete() {
+  function handleDeleteKey() {
     KeyVaultService.deleteKey(selectedProvider);
     refreshStatus();
-    discoveredModels = [];
-    selectedModelId = null;
-    statusMessage = { text: '金鑰已自本機保險庫徹底清除', type: 'info' };
+    statusMessage = { text: `${currentProviderMeta.name} 設定已重設清除`, type: 'info' };
     apiKeyInput = '';
     masterPassword = '';
   }
 
   function getModeLabel(m: KeyEncryptionMode): string {
     switch (m) {
-      case 'plain': return '無加密（純文字）';
-      case 'transparent': return '透明加密（本機安全綁定）';
-      case 'password': return '密碼加密（主密碼 PBKDF2）';
+      case 'plain':
+        return '無加密（明文）';
+      case 'transparent':
+        return '透明加密（本機安全綁定）';
+      case 'password':
+        return '密碼加密（PBKDF2）';
     }
   }
 
-  function requestClose() {
-    if (apiKeyInput.trim().length > 0) {
-      unsavedActionType = 'close';
-      showUnsavedPrompt = true;
-      return;
-    }
-    forceClose();
-  }
-
-  function forceClose() {
-    showUnsavedPrompt = false;
-    apiKeyInput = '';
-    masterPassword = '';
-    pendingProviderTarget = null;
+  function closeModal() {
     isOpen = false;
     onClose?.();
-  }
-
-  async function handleDiscardAndProceed() {
-    if (unsavedActionType === 'switch' && pendingProviderTarget) {
-      await switchProvider(pendingProviderTarget);
-    } else {
-      forceClose();
-    }
-  }
-
-  async function handleSaveAndProceed() {
-    const isSwitch = unsavedActionType === 'switch' && pendingProviderTarget;
-    const ok = await handleSave(!isSwitch);
-    if (ok && isSwitch && pendingProviderTarget) {
-      await switchProvider(pendingProviderTarget);
-    }
   }
 </script>
 
@@ -530,323 +575,338 @@
       <!-- Modal Header -->
       <div class="modal-header hairline-b">
         <div class="header-title-box">
-          <span class="material-symbols-outlined vault-icon">lock</span>
+          <span class="material-symbols-outlined vault-icon">hub</span>
           <div>
-            <h2 class="modal-title font-headline">AI 金鑰安全保險庫 (Key Vault)</h2>
-            <p class="modal-subtitle font-mono">端對端本機安全存儲 · 支援三層級防護架構</p>
+            <h2 class="modal-title font-headline">AI 模型調度中心與金鑰保險庫 (AI Model & Key Hub)</h2>
+            <p class="modal-subtitle font-mono">
+              管理雲端模型 (Gemini / OpenAI / Claude / Groq / OpenRouter) 與本地端 Ollama
+            </p>
           </div>
         </div>
-        <button 
-          type="button" 
-          class="close-btn" 
-          onclick={requestClose}
-          title="關閉保險庫"
-        >
+        <button type="button" class="close-btn" onclick={closeModal} title="關閉視窗">
           <span class="material-symbols-outlined">close</span>
         </button>
       </div>
 
-      <!-- Modal Body -->
-      <div class="modal-body">
-        <!-- Model Provider Tabs (Data-driven / Extensible) -->
-        <div class="provider-switch hairline-all">
-          {#each PROVIDER_REGISTRY as prov}
-            <button 
-              type="button" 
-              class="prov-btn font-mono" 
-              class:active={selectedProvider === prov.id}
-              onclick={() => handleTabClick(prov.id)}
-            >
-              <span class="dot" class:green={providerReadyMap[prov.id]} class:gray={!providerReadyMap[prov.id]}></span>
-              <span>{prov.tabLabel}</span>
-            </button>
-          {/each}
-        </div>
-
-        <!-- Current Key Status Readout -->
-        <div class="vault-status-box hairline-all">
-          <div class="status-row">
-            <span class="status-label font-mono">當前儲存狀態</span>
-            {#if vaultStatus.exists}
-              <span class="status-badge font-mono active">
-                <span class="dot green"></span>
-                已儲存 · {getModeLabel(vaultStatus.mode!)}
-              </span>
-            {:else}
-              <span class="status-badge font-mono empty">
-                <span class="dot gray"></span>
-                尚未設定金鑰
-              </span>
-            {/if}
-          </div>
-          {#if vaultStatus.updatedAt}
-            <div class="status-row mt-1">
-              <span class="status-label font-mono">更新時間</span>
-              <span class="status-time font-mono">{new Date(vaultStatus.updatedAt).toLocaleString('zh-TW')}</span>
-            </div>
-          {/if}
-        </div>
-
-        <!-- Encryption Tier Selector (Compact Segmented Control) -->
-        <div class="section-block">
-          <div class="section-label font-mono">
-            <span>金鑰防護架構 (ENCRYPTION TIER)</span>
-          </div>
-          <div class="tier-segmented hairline-all">
-            {#each ENCRYPTION_TIER_META as tier}
-              <button
-                type="button"
-                class="tier-seg-btn font-mono"
-                class:active={currentMode === tier.id}
-                onclick={() => (currentMode = tier.id)}
-              >
-                <span>{tier.shortLabel}</span>
-                {#if tier.badge}
-                  <span class="tier-rec-badge">{tier.badge}</span>
-                {/if}
-              </button>
-            {/each}
-          </div>
-          <p class="tier-inline-desc font-body">{activeTierDesc}</p>
-        </div>
-
-        <!-- Key Input Field -->
-        <div class="section-block">
-          <div class="input-header font-mono">
-            <span>API KEY 輸入</span>
-            <button type="button" class="text-toggle font-mono" onclick={() => showKey = !showKey}>
-              {showKey ? '隱藏' : '顯示'}
-            </button>
-          </div>
-          <div class="input-wrap hairline-all">
-            <span class="material-symbols-outlined input-icon">vpn_key</span>
-            <input 
-              type={showKey ? 'text' : 'password'} 
-              placeholder={`請輸入 ${currentProviderMeta.name} (${currentProviderMeta.keyPlaceholder}) API Key`}
-              value={apiKeyInput}
-              oninput={(e) => handleKeyInputChange((e.target as HTMLInputElement).value)}
-              class="vault-input font-mono"
-            />
-          </div>
-        </div>
-
-        <!-- Dynamic Model Configuration (下拉選單，照原本列出，免除手打) -->
-        <div class="section-block">
-          <div class="section-label font-mono">
-            <span>{currentProviderMeta.categoryLabel}</span>
-            <div class="model-action-right">
-              {#if isDiscoveringModels}
-                <span class="detecting-label">
-                  <span class="material-symbols-outlined spin" style="font-size: 12px;">sync</span>
-                  動態探測中...
-                </span>
-              {:else}
-                <button type="button" class="text-toggle font-mono" onclick={handleTestConnection} title="向 API 查詢最新相容模型">
-                  <span class="material-symbols-outlined" style="font-size: 12px; vertical-align: middle;">refresh</span>
-                  即時探測模型
-                </button>
-              {/if}
-            </div>
-          </div>
-
-          <div class="model-select-wrapper hairline-all">
-            <select 
-              class="model-dropdown font-mono" 
-              bind:value={selectedModelId}
-            >
-              {#each currentModelList as m}
-                <option value={m.id}>
-                  {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
-                </option>
-              {/each}
-            </select>
-          </div>
-
-          <!-- Active Selected Model Card -->
-          {#if selectedModelId}
-            {@const currentModel = currentModelList.find(m => m.id === selectedModelId)}
-            {#if currentModel}
-              <div class="selected-model-pill hairline-all">
-                <div class="pill-top">
-                  <span class="pill-name font-mono">{currentModel.displayName || currentModel.id}</span>
-                  {#if currentModel.recommendationTag}
-                    <span class="recommend-tag font-mono">⚡ {currentModel.recommendationTag}</span>
-                  {/if}
-                </div>
-                {#if (currentModel as any).description}
-                  <div class="pill-desc font-body">{(currentModel as any).description}</div>
-                {/if}
-              </div>
-            {/if}
-          {/if}
-        </div>
-
-        <!-- Role Assignment (AI 任務職責指派 - 僅選服務，模型由上方直接套用) -->
+      <!-- Modal Body: 單頁上下整合（上方直接選任務與模型、下方集中管理連線與金鑰） -->
+      <div class="modal-body custom-scroll">
+        <!-- ════════════════════════════════════════════════════════════════
+             第一區：任務引擎與模型同頁直選 (UNIFIED TASK & MODEL SELECTOR)
+             ════════════════════════════════════════════════════════════════ -->
         <div class="section-block role-assign-block hairline-all">
-          <div class="role-header font-mono">
-            <span class="material-symbols-outlined role-header-icon">tune</span>
-            <span class="role-header-title">AI 任務職責指派 (ROLE ASSIGNMENT)</span>
+          <div class="role-header-row">
+            <div class="role-header font-mono">
+              <span class="material-symbols-outlined role-header-icon">tune</span>
+              <span>STEP 1 · 任務模型指派 (MODEL ASSIGNMENT)</span>
+            </div>
           </div>
-          <p class="role-desc font-body">
-            分別指派負責「相片視覺顯影」與「社群文字文案」的引擎服務，模型自動採用上方該服務已選定之模型。
-          </p>
 
           <div class="roles-grid">
-            <!-- 任務 1: 影像視覺顯影 -->
+            <!-- 任務 1: 影像視覺顯影 (Vision) -->
             <div class="role-card hairline-all">
               <div class="role-card-top font-mono">
-                <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">camera</span>
-                <span>影像視覺顯影 (Vision)</span>
+                <div class="role-title-left">
+                  <span class="material-symbols-outlined" style="font-size: 15px; color: var(--amber-highlight);">camera</span>
+                  <span>影像視覺顯影主引擎 (Vision Grading)</span>
+                </div>
+                <button
+                  type="button"
+                  class="mini-probe-btn font-mono"
+                  onclick={() => probeProviderModels(roleVisionProvider, true)}
+                  disabled={isDiscoveringProvider[roleVisionProvider]}
+                  title="從該供應商端點刷新最新模型清單"
+                >
+                  <span class="material-symbols-outlined" class:spin={isDiscoveringProvider[roleVisionProvider]} style="font-size: 12px;">
+                    refresh
+                  </span>
+                  <span>{isDiscoveringProvider[roleVisionProvider] ? '探測中' : '刷新模型'}</span>
+                </button>
               </div>
+
               <div class="role-fields">
-                <select class="role-select font-mono" bind:value={roleVisionProvider}>
-                  <option value="gemini">Google Gemini</option>
-                  <option value="groq">Groq Vision</option>
+                <!-- 選擇供應商 -->
+                <select
+                  class="role-select font-mono"
+                  value={roleVisionProvider}
+                  onchange={(e) => handleVisionProviderChange((e.target as HTMLSelectElement).value as AiProviderId)}
+                >
+                  {#each PROVIDER_REGISTRY as prov}
+                    <option value={prov.id}>
+                      {prov.isLocal ? '🖥️ ' : '☁️ '}{prov.name} {providerReadyMap[prov.id] ? '●' : '○'}
+                    </option>
+                  {/each}
                 </select>
-                <div class="role-model-badge font-mono" title="已於上方選取之模型">
-                  <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">verified</span>
-                  <span class="badge-text">{getAssignedModelDisplay(roleVisionProvider)}</span>
-                </div>
+
+                <!-- 同列直接選擇模型 (免切分頁) -->
+                <select class="role-select model-picker font-mono" bind:value={roleVisionModelId}>
+                  {#each getModelsForRole(roleVisionProvider, true, roleVisionModelId) as m}
+                    <option value={m.id}>
+                      {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
+                    </option>
+                  {/each}
+                </select>
               </div>
-              <div class="role-params-grid">
-                <div class="param-slider-item">
-                  <div class="param-head font-mono">
-                    <span>創意溫度 (Temp)</span>
-                    <span class="param-val">{roleVisionTemp.toFixed(2)}</span>
-                  </div>
-                  <input type="range" min="0" max="1.2" step="0.05" bind:value={roleVisionTemp} class="param-range" />
+
+              {#if roleVisionProvider === 'ollama'}
+                <div class="inline-local-input font-mono">
+                  <span class="local-tag">無清單時可手輸模型 ID：</span>
+                  <input
+                    type="text"
+                    class="inline-model-input font-mono"
+                    placeholder="例如 qwen2.5vl:latest 或 gemma3:12b"
+                    bind:value={roleVisionModelId}
+                  />
                 </div>
-                <div class="param-slider-item">
-                  <div class="param-head font-mono">
-                    <span>調色干預強度</span>
-                    <span class="param-val">{Math.round(roleTuningStrength * 100)}%</span>
-                  </div>
-                  <input type="range" min="0.5" max="1.5" step="0.05" bind:value={roleTuningStrength} class="param-range" />
+              {/if}
+            </div>
+
+            <!-- 任務 2: 社群文案與目錄策展 (Copywriting & DAM) -->
+            <div class="role-card hairline-all">
+              <div class="role-card-top font-mono">
+                <div class="role-title-left">
+                  <span class="material-symbols-outlined" style="font-size: 15px; color: var(--amber-highlight);">edit_note</span>
+                  <span>社群文案與智慧目錄規劃 (Text & IPTC)</span>
                 </div>
+                <button
+                  type="button"
+                  class="mini-probe-btn font-mono"
+                  onclick={() => probeProviderModels(roleCopywritingProvider, true)}
+                  disabled={isDiscoveringProvider[roleCopywritingProvider]}
+                >
+                  <span class="material-symbols-outlined" class:spin={isDiscoveringProvider[roleCopywritingProvider]} style="font-size: 12px;">
+                    refresh
+                  </span>
+                  <span>{isDiscoveringProvider[roleCopywritingProvider] ? '探測中' : '刷新模型'}</span>
+                </button>
+              </div>
+
+              <div class="role-fields">
+                <select
+                  class="role-select font-mono"
+                  value={roleCopywritingProvider}
+                  onchange={(e) => handleCopyProviderChange((e.target as HTMLSelectElement).value as AiProviderId)}
+                >
+                  {#each PROVIDER_REGISTRY as prov}
+                    <option value={prov.id}>
+                      {prov.isLocal ? '🖥️ ' : '☁️ '}{prov.name} {providerReadyMap[prov.id] ? '●' : '○'}
+                    </option>
+                  {/each}
+                </select>
+
+                <select class="role-select model-picker font-mono" bind:value={roleCopywritingModelId}>
+                  {#each getModelsForRole(roleCopywritingProvider, false, roleCopywritingModelId) as m}
+                    <option value={m.id}>
+                      {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
+                    </option>
+                  {/each}
+                </select>
               </div>
             </div>
 
-            <!-- 任務 2: 文字社群文案 -->
+            <!-- 任務 3: 雙圖閉環覆審模型指定 (Pass 2 Critic Model) -->
             <div class="role-card hairline-all">
               <div class="role-card-top font-mono">
-                <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">edit_note</span>
-                <span>社群文案與 IPTC (Text)</span>
-              </div>
-              <div class="role-fields">
-                <select class="role-select font-mono" bind:value={roleCopywritingProvider}>
-                  <option value="groq">Groq (極速推薦)</option>
-                  <option value="gemini">Google Gemini</option>
-                </select>
-                <div class="role-model-badge font-mono" title="已於上方選取之模型">
-                  <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">verified</span>
-                  <span class="badge-text">{getAssignedModelDisplay(roleCopywritingProvider)}</span>
+                <div class="role-title-left">
+                  <span class="material-symbols-outlined" style="font-size: 15px; color: var(--amber-highlight);">fact_check</span>
+                  <span>雙圖覆審品控模型 (Pass 2 Critic · 開關與溫度於設定／暗房調整)</span>
                 </div>
               </div>
-              <div class="param-slider-item" style="margin-top: 2px;">
-                <div class="param-head font-mono">
-                  <span>文案創意溫度 (Temp · 建議 0.6~0.9)</span>
-                  <span class="param-val">{roleCopywritingTemp.toFixed(2)}</span>
-                </div>
-                <input type="range" min="0" max="1.2" step="0.05" bind:value={roleCopywritingTemp} class="param-range" />
-              </div>
-            </div>
 
-            <!-- 任務 3: 雙圖閉環覆審 (Critic) -->
-            <div class="role-card hairline-all" style="grid-column: 1 / -1; margin-top: 4px;">
-              <div class="role-card-top font-mono" style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">fact_check</span>
-                  <span>雙圖閉環覆審 (Pass 2 Two-Pass Refinement)</span>
-                </div>
-                <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;">
-                  <input type="checkbox" bind:checked={roleCriticEnabled} style="accent-color: var(--amber-highlight); cursor: pointer;" />
-                  <span>啟用雙圖閉環覆審</span>
+              <div class="critic-radio-row font-mono">
+                <label>
+                  <input type="radio" name="critic_mode" value={false} bind:group={roleCriticUseCustom} />
+                  <span>沿用上方視覺主引擎 ({roleVisionModelId})</span>
+                </label>
+                <label>
+                  <input type="radio" name="critic_mode" value={true} bind:group={roleCriticUseCustom} />
+                  <span>指定異質覆審模型 (Cross-Model Check)</span>
                 </label>
               </div>
 
-              {#if roleCriticEnabled}
-                <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
-                  <div style="display: flex; gap: 16px; align-items: center; font-size: 11px;">
-                    <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-                      <input type="radio" name="critic_mode" value={false} bind:group={roleCriticUseCustom} style="accent-color: var(--amber-highlight);" />
-                      <span>同起草模型 (推薦 Flash-Lite 極速無感)</span>
-                    </label>
-                    <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-                      <input type="radio" name="critic_mode" value={true} bind:group={roleCriticUseCustom} style="accent-color: var(--amber-highlight);" />
-                      <span>自訂專用覆審模型 (異質品控 Cross-check)</span>
-                    </label>
-                  </div>
+              {#if roleCriticUseCustom}
+                <div class="role-fields">
+                  <select
+                    class="role-select font-mono"
+                    value={roleCriticProvider}
+                    onchange={(e) => handleCriticProviderChange((e.target as HTMLSelectElement).value as AiProviderId)}
+                  >
+                    {#each PROVIDER_REGISTRY as prov}
+                      <option value={prov.id}>
+                        {prov.isLocal ? '🖥️ ' : '☁️ '}{prov.name}
+                      </option>
+                    {/each}
+                  </select>
 
-                  {#if roleCriticUseCustom}
-                    {@const criticModels = getDynamicModelsForProvider(roleCriticProvider)}
-                    <div class="role-fields" style="display: flex; gap: 8px;">
-                      <select 
-                        class="role-select font-mono" 
-                        style="width: 140px; flex-shrink: 0;"
-                        value={roleCriticProvider}
-                        onchange={(e) => onCriticProviderChange((e.target as HTMLSelectElement).value)}
-                      >
-                        <option value="gemini">Google Gemini</option>
-                        <option value="groq">Groq Vision</option>
-                      </select>
-
-                      <select 
-                        class="role-select font-mono" 
-                        style="flex: 1;"
-                        bind:value={roleCriticModelId}
-                      >
-                        {#each criticModels as m}
-                          <option value={m.id}>
-                            {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
-                          </option>
-                        {/each}
-                        {#if !criticModels.some(m => m.id === roleCriticModelId) && roleCriticModelId}
-                          <option value={roleCriticModelId}>
-                            {roleCriticModelId}
-                          </option>
-                        {/if}
-                      </select>
-                    </div>
-                  {:else}
-                    <div class="role-model-badge font-mono" style="align-self: flex-start;">
-                      <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">sync</span>
-                      <span class="badge-text">自動沿用影像視覺模型：{getAssignedModelDisplay(roleVisionProvider)}</span>
-                    </div>
-                  {/if}
-                  <div class="param-slider-item">
-                    <div class="param-head font-mono">
-                      <span>覆審品控溫度 (Critic Temp · 建議 0.1~0.3)</span>
-                      <span class="param-val">{roleCriticTemp.toFixed(2)}</span>
-                    </div>
-                    <input type="range" min="0" max="0.8" step="0.05" bind:value={roleCriticTemp} class="param-range" />
-                  </div>
-                  <p style="font-size: 11px; color: var(--text-muted); margin: 0; line-height: 1.4;">
-                    說明：第一階段起草完成後，本地 WebGL 著色器即時渲染出成品，與原圖一同回傳 AI 比對，專門修正 Shadow Lift 浮灰死黑與色溫偏差。
-                  </p>
+                  <select class="role-select model-picker font-mono" bind:value={roleCriticModelId}>
+                    {#each getModelsForRole(roleCriticProvider, true, roleCriticModelId) as m}
+                      <option value={m.id}>
+                        {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
+                      </option>
+                    {/each}
+                  </select>
                 </div>
               {/if}
             </div>
           </div>
         </div>
 
-        <!-- Master Password Input (If Password Mode or Decrypting) -->
-        {#if currentMode === 'password' || vaultStatus.mode === 'password'}
-          <div class="section-block">
-            <div class="input-header font-mono">
-              <span>主密碼 (MASTER PASSWORD)</span>
-              <span class="pwd-hint">用於 PBKDF2 加密與解鎖</span>
+        <!-- ════════════════════════════════════════════════════════════════
+             第二區：供應商金鑰與本地端 Ollama 連線配置 (PROVIDER CREDENTIALS & OLLAMA)
+             ════════════════════════════════════════════════════════════════ -->
+        <div class="section-block vault-config-block hairline-all">
+          <div class="role-header-row">
+            <div class="role-header font-mono">
+              <span class="material-symbols-outlined role-header-icon">vpn_key</span>
+              <span>STEP 2 · 供應商金鑰與本地端連線設定 (CREDENTIALS & ENDPOINT)</span>
             </div>
-            <div class="input-wrap hairline-all">
-              <span class="material-symbols-outlined input-icon">pin</span>
-              <input 
-                type="password" 
-                placeholder="請輸入主密碼 (至少 4 字元)"
-                bind:value={masterPassword}
-                class="vault-input font-mono"
-              />
-            </div>
+            <span class="provider-doc-hint font-body">{currentProviderMeta.docHint}</span>
           </div>
-        {/if}
+
+          <!-- 6 大供應商快速膠囊列 -->
+          <div class="provider-pill-grid">
+            {#each PROVIDER_REGISTRY as prov}
+              <button
+                type="button"
+                class="prov-pill-btn font-mono"
+                class:active={selectedProvider === prov.id}
+                onclick={() => selectProviderPill(prov.id)}
+              >
+                <span
+                  class="dot"
+                  class:green={providerReadyMap[prov.id]}
+                  class:gray={!providerReadyMap[prov.id]}
+                ></span>
+                <span class="prov-short">{prov.shortName}</span>
+                <span class="prov-badge">{prov.badge}</span>
+              </button>
+            {/each}
+          </div>
+
+          {#if selectedProvider === 'ollama'}
+            <!-- Ollama 專屬免金鑰設定介面 -->
+            <div class="ollama-panel hairline-all">
+              <div class="input-header font-mono">
+                <span>🖥️ OLLAMA 伺服器端點 (LOCAL / LAN ENDPOINT)</span>
+                <button
+                  type="button"
+                  class="text-toggle font-mono"
+                  onclick={() => (showOllamaCorsHelp = !showOllamaCorsHelp)}
+                >
+                  {showOllamaCorsHelp ? '收合 CORS 指引' : '⚠️ 連線失敗？查看 CORS 設定'}
+                </button>
+              </div>
+
+              <div class="ollama-url-row">
+                <div class="input-wrap hairline-all flex-1">
+                  <span class="material-symbols-outlined input-icon">dns</span>
+                  <input
+                    type="text"
+                    placeholder="http://localhost:11434"
+                    bind:value={ollamaUrlInput}
+                    class="vault-input font-mono"
+                  />
+                </div>
+                <button
+                  type="button"
+                  class="archival-btn-secondary font-mono"
+                  onclick={handleSaveProviderKey}
+                  disabled={isDiscoveringProvider['ollama']}
+                >
+                  <span class="material-symbols-outlined" class:spin={isDiscoveringProvider['ollama']} style="font-size: 14px;">
+                    sync
+                  </span>
+                  <span>偵測本機模型</span>
+                </button>
+              </div>
+
+              {#if showOllamaCorsHelp}
+                <div class="cors-help-box font-mono hairline-all">
+                  <div>1. 推薦下載視覺多模態模型：<code>ollama pull qwen2.5vl</code> 或 <code>ollama pull gemma3:12b</code></div>
+                  <div>2. 允許瀏覽器跨域存取 (Windows PowerShell)：</div>
+                  <code>[Environment]::SetEnvironmentVariable("OLLAMA_ORIGINS", "*", "User")</code>
+                  <div>3. 若要讓手機透過區網連線電腦 Ollama，請額外設定對外監聽：</div>
+                  <code>[Environment]::SetEnvironmentVariable("OLLAMA_HOST", "0.0.0.0:11434", "User")</code>
+                  <div>（設定後請完全關閉並重啟系統列 Ollama 圖示，手機端點填寫電腦區網 IP，例如 http://192.168.1.100:11434）</div>
+                </div>
+              {/if}
+            </div>
+          {:else}
+            <!-- 雲端供應商 API Key 與三層加密設定 -->
+            <div class="cloud-key-panel">
+              <div class="status-inline-bar font-mono">
+                <span>
+                  {currentProviderMeta.name} 狀態：
+                  {#if vaultStatus.exists}
+                    <strong class="text-green">● 已儲存 ({getModeLabel(vaultStatus.mode!)})</strong>
+                  {:else}
+                    <span class="text-dim">○ 尚未設定金鑰</span>
+                  {/if}
+                </span>
+                {#if vaultStatus.exists}
+                  <button type="button" class="danger-link font-mono" onclick={handleDeleteKey}>
+                    清除此金鑰
+                  </button>
+                {/if}
+              </div>
+
+              <div class="tier-segmented hairline-all">
+                {#each ENCRYPTION_TIER_META as tier}
+                  <button
+                    type="button"
+                    class="tier-seg-btn font-mono"
+                    class:active={currentMode === tier.id}
+                    onclick={() => (currentMode = tier.id)}
+                  >
+                    <span>{tier.shortLabel}</span>
+                    {#if tier.badge}
+                      <span class="tier-rec-badge">{tier.badge}</span>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+              <p class="tier-inline-desc font-body">{activeTierDesc}</p>
+
+              <div class="key-input-action-row">
+                <div class="input-wrap hairline-all flex-1">
+                  <span class="material-symbols-outlined input-icon">vpn_key</span>
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    placeholder={`輸入 ${currentProviderMeta.name} API Key (${currentProviderMeta.keyPlaceholder})`}
+                    value={apiKeyInput}
+                    oninput={(e) => handleKeyInputChange((e.target as HTMLInputElement).value)}
+                    class="vault-input font-mono"
+                  />
+                  <button type="button" class="text-toggle font-mono" onclick={() => (showKey = !showKey)}>
+                    {showKey ? '隱藏' : '顯示'}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  class="archival-btn-secondary font-mono"
+                  onclick={() => probeProviderModels(selectedProvider, true)}
+                  disabled={isDiscoveringProvider[selectedProvider]}
+                >
+                  <span class="material-symbols-outlined" class:spin={isDiscoveringProvider[selectedProvider]} style="font-size: 14px;">
+                    network_check
+                  </span>
+                  <span>驗證並載入模型</span>
+                </button>
+              </div>
+
+              {#if currentMode === 'password' || vaultStatus.mode === 'password'}
+                <div class="input-wrap hairline-all" style="margin-top: 6px;">
+                  <span class="material-symbols-outlined input-icon">pin</span>
+                  <input
+                    type="password"
+                    placeholder="請輸入主密碼 (至少 4 字元，用於 PBKDF2 加密與解鎖)"
+                    bind:value={masterPassword}
+                    class="vault-input font-mono"
+                  />
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
 
         <!-- Status Message Banner -->
         {#if statusMessage}
@@ -861,77 +921,18 @@
 
       <!-- Modal Footer Actions -->
       <div class="modal-footer hairline-t">
-        {#if vaultStatus.exists}
-          <button type="button" class="archival-btn-secondary danger" onclick={handleDelete}>
-            <span class="material-symbols-outlined" style="font-size: 15px;">delete</span>
-            清除金鑰
-          </button>
-        {/if}
-        <button 
-          type="button" 
-          class="archival-btn-secondary" 
-          onclick={handleTestConnection}
-          disabled={isDiscoveringModels}
-        >
-          <span class="material-symbols-outlined" style="font-size: 15px;">
-            {isDiscoveringModels ? 'sync' : 'network_check'}
-          </span>
-          {isDiscoveringModels ? '連線中...' : '測試連線'}
-        </button>
+        <span class="footer-active-summary font-mono">
+          當前視覺：{getProviderMeta(roleVisionProvider).shortName} · {roleVisionModelId}
+        </span>
         <div class="spacer"></div>
-        <button type="button" class="archival-btn-secondary" onclick={requestClose}>
-          關閉
+        <button type="button" class="archival-btn-secondary" onclick={closeModal}>
+          取消
         </button>
-        <button type="button" class="archival-btn-primary" onclick={() => handleSave(true)} disabled={isSaving}>
+        <button type="button" class="archival-btn-primary" onclick={() => handleSaveAll(true)} disabled={isSaving}>
           <span class="material-symbols-outlined" style="font-size: 15px;">{isSaving ? 'sync' : 'save'}</span>
-          {isSaving ? '儲存中...' : '儲存設定'}
+          {isSaving ? '儲存中...' : '套用模型與儲存設定'}
         </button>
       </div>
-
-      <!-- Unsaved Changes Prompt Dialog -->
-      {#if showUnsavedPrompt}
-        <div class="unsaved-modal-overlay">
-          <div class="unsaved-modal-box hairline-all">
-            <div class="unsaved-header font-mono">
-              <span class="material-symbols-outlined unsaved-warn-icon">warning</span>
-              <span>
-                {unsavedActionType === 'switch' ? '切換標籤前有未儲存的金鑰' : '未儲存的金鑰變更'}
-              </span>
-            </div>
-            <p class="unsaved-text font-body">
-              {#if unsavedActionType === 'switch'}
-                您目前在 <strong>{getProviderName(selectedProvider)}</strong> 標籤已輸入 API Key 但尚未儲存。若直接切換至 <strong>{getProviderName(pendingProviderTarget)}</strong>，剛才輸入的金鑰將會遺失。
-              {:else}
-                您已在輸入框鍵入 API Key，尚未點擊「儲存設定」。若直接關閉畫面，剛才輸入的內容將會遺失。
-              {/if}
-            </p>
-            <div class="unsaved-actions">
-              <button 
-                type="button" 
-                class="archival-btn-secondary" 
-                onclick={() => { showUnsavedPrompt = false; pendingProviderTarget = null; }}
-              >
-                繼續編輯
-              </button>
-              <button 
-                type="button" 
-                class="archival-btn-secondary danger" 
-                onclick={handleDiscardAndProceed}
-              >
-                {unsavedActionType === 'switch' ? '放棄並切換' : '放棄離開'}
-              </button>
-              <button 
-                type="button" 
-                class="archival-btn-primary" 
-                onclick={handleSaveAndProceed}
-              >
-                <span class="material-symbols-outlined" style="font-size: 14px;">save</span>
-                {unsavedActionType === 'switch' ? '儲存並切換' : '儲存並關閉'}
-              </button>
-            </div>
-          </div>
-        </div>
-      {/if}
     </div>
   </div>
 {/if}
@@ -943,8 +944,8 @@
     left: 0;
     width: 100vw;
     height: 100vh;
-    background-color: rgba(8, 9, 11, 0.75);
-    backdrop-filter: blur(4px);
+    background-color: rgba(8, 9, 11, 0.78);
+    backdrop-filter: blur(5px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -953,18 +954,18 @@
 
   .modal-card {
     position: relative;
-    width: 580px;
-    max-width: 90vw;
+    width: 680px;
+    max-width: 94vw;
     background-color: var(--surface-panel);
     border-radius: var(--radius-md);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8);
+    box-shadow: 0 20px 56px rgba(0, 0, 0, 0.85);
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
 
   .modal-header {
-    padding: 16px 20px;
+    padding: 14px 20px;
     background-color: var(--surface-elevated);
     display: flex;
     justify-content: space-between;
@@ -988,7 +989,7 @@
   .modal-subtitle {
     font-size: 10px;
     color: var(--parchment-dim);
-    margin: 0;
+    margin: 2px 0 0 0;
   }
   .close-btn {
     background: transparent;
@@ -1004,288 +1005,33 @@
   }
 
   .modal-body {
-    padding: 20px;
+    padding: 16px 20px;
     overflow-y: auto;
-    max-height: 70vh;
+    max-height: 76vh;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-  }
-
-  .provider-switch {
-    display: flex;
-    background-color: var(--surface-elevated);
-    border-radius: var(--radius-sm);
-    padding: 2px;
-  }
-  .prov-btn {
-    flex: 1;
-    background: transparent;
-    border: none;
-    padding: 8px 10px;
-    font-size: 11px;
-    color: var(--parchment-muted);
-    cursor: pointer;
-    border-radius: var(--radius-xs);
-    transition: all 0.15s ease;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-  .prov-btn.active {
-    background-color: var(--surface-overlay);
-    color: var(--parchment-bright);
-    border: 1px solid var(--hairline-slate);
-    font-weight: 600;
-  }
-
-  .vault-status-box {
-    background-color: var(--surface-elevated);
-    padding: 10px 14px;
-    border-radius: var(--radius-sm);
-  }
-  .status-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 11px;
-  }
-  .status-label {
-    color: var(--parchment-dim);
-  }
-  .status-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-  }
-  .status-badge.active {
-    color: var(--primary-indigo);
-  }
-  .status-badge.empty {
-    color: var(--parchment-dim);
-  }
-  .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-  }
-  .dot.green {
-    background-color: var(--primary-indigo);
-    box-shadow: 0 0 6px var(--primary-indigo);
-  }
-  .dot.gray {
-    background-color: var(--parchment-dim);
-  }
-  .status-time {
-    color: var(--parchment-muted);
-    font-size: 10px;
-  }
-  .mt-1 {
-    margin-top: 4px;
+    gap: 14px;
   }
 
   .section-block {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
   }
-  .section-label, .input-header {
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    color: var(--parchment-dim);
+
+  .role-assign-block,
+  .vault-config-block {
+    background: rgba(24, 25, 29, 0.5);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+  }
+
+  .role-header-row {
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    align-items: center;
-  }
-  .text-toggle {
-    background: transparent;
-    border: none;
-    color: var(--primary-indigo);
-    cursor: pointer;
-    font-size: 10px;
-  }
-  .pwd-hint {
-    color: var(--parchment-ghost);
-    font-size: 9px;
-  }
-
-  .tier-segmented {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
-    padding: 3px;
-    background-color: var(--surface-elevated);
-    border-radius: var(--radius-sm);
-  }
-  .tier-seg-btn {
-    background: transparent;
-    border: 1px solid transparent;
-    color: var(--parchment-muted);
-    padding: 7px 6px;
-    border-radius: var(--radius-xs);
-    font-size: 11px;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    transition: all 0.15s ease;
-  }
-  .tier-seg-btn:hover {
-    color: var(--parchment-bright);
-    background: rgba(255, 255, 255, 0.04);
-  }
-  .tier-seg-btn.active {
-    background-color: var(--surface-overlay);
-    border-color: var(--amber-highlight);
-    color: var(--parchment-bright);
-    font-weight: 600;
-  }
-  .tier-rec-badge {
-    font-size: 9px;
-    padding: 0 4px;
-    border-radius: 3px;
-    background: rgba(212, 163, 115, 0.18);
-    color: var(--amber-highlight);
-  }
-  .tier-inline-desc {
-    margin: 0;
-    font-size: 11px;
-    color: var(--parchment-muted);
-    line-height: 1.4;
-  }
-
-  .input-wrap {
-    background-color: var(--canvas-base);
-    border-radius: var(--radius-sm);
-    padding: 0 10px;
-    display: flex;
-    align-items: center;
     gap: 8px;
-  }
-  .input-icon {
-    font-size: 16px;
-    color: var(--parchment-dim);
-  }
-  .vault-input {
-    flex: 1;
-    background: transparent;
-    border: none;
-    outline: none;
-    padding: 8px 0;
-    color: var(--parchment-bright);
-    font-size: 12px;
-  }
-
-  /* Dynamic Model Discovery Styling */
-  .detecting-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--amber-highlight);
-    font-size: 10px;
-  }
-  .spin {
-    animation: spin 1s linear infinite;
-  }
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-
-  .model-select-wrapper {
-    background-color: var(--canvas-base);
-    border-radius: var(--radius-sm);
-    padding: 0;
-    display: flex;
-    align-items: center;
-    overflow: hidden;
-  }
-  .model-dropdown {
-    width: 100%;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-color: var(--canvas-base);
-    border: none;
-    color: var(--parchment-bright);
-    font-size: 12px;
-    padding: 8px 36px 8px 12px;
-    outline: none;
-    cursor: pointer;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23d4a373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-    color-scheme: dark;
-    transition: box-shadow 0.15s ease;
-  }
-  .model-dropdown:focus {
-    box-shadow: inset 0 0 0 1px var(--amber-highlight);
-  }
-  .model-dropdown option {
-    background-color: #18191d;
-    color: #e8e4dc;
-    padding: 8px;
-  }
-
-  .selected-model-pill {
-    background-color: var(--surface-elevated);
-    border-radius: var(--radius-sm);
-    padding: 8px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .pill-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .pill-name {
-    font-size: 11px;
-    color: var(--parchment-bright);
-    font-weight: 600;
-  }
-  .recommend-tag {
-    font-size: 9px;
-    color: var(--amber-highlight);
-    background-color: rgba(212, 163, 115, 0.15);
-    padding: 2px 6px;
-    border-radius: var(--radius-xs);
-  }
-  .pill-desc {
-    font-size: 10px;
-    color: var(--parchment-dim);
-    line-height: 1.35;
-  }
-
-  .model-hint-box {
-    background-color: var(--canvas-base);
-    border-radius: var(--radius-sm);
-    padding: 8px 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 10px;
-    color: var(--parchment-muted);
-  }
-
-  .model-hint-row {
-    margin-top: 4px;
-    font-size: 10px;
-    display: flex;
-    justify-content: space-between;
-  }
-  .hint-count { color: #52b788; }
-  .hint-muted { color: var(--parchment-dim); }
-
-  .role-assign-block {
-    background: rgba(24, 25, 29, 0.4);
-    border-radius: var(--radius-sm);
-    padding: 10px 12px;
-    margin-top: 6px;
+    flex-wrap: wrap;
   }
   .role-header {
     display: flex;
@@ -1298,18 +1044,15 @@
   .role-header-icon {
     font-size: 15px;
   }
-  .role-desc {
+  .provider-doc-hint {
     font-size: 11px;
     color: var(--parchment-dim);
-    margin: 4px 0 8px 0;
-    line-height: 1.4;
   }
+
   .roles-grid {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    width: 100%;
-    box-sizing: border-box;
   }
   .role-card {
     background: var(--canvas-base);
@@ -1318,64 +1061,83 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    width: 100%;
-    box-sizing: border-box;
-    overflow: hidden;
   }
   .role-card-top {
     display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: space-between;
     font-size: 11px;
     color: var(--parchment-bright);
     font-weight: 600;
   }
+  .role-title-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .mini-probe-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--hairline-slate);
+    color: var(--parchment-muted);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .mini-probe-btn:hover {
+    color: var(--amber-highlight);
+    border-color: var(--amber-highlight);
+  }
+
   .role-fields {
     display: grid;
-    grid-template-columns: 130px 1fr;
+    grid-template-columns: 185px 1fr;
     gap: 8px;
-    width: 100%;
-    box-sizing: border-box;
   }
   .role-select {
     width: 100%;
-    min-width: 0;
-    max-width: 100%;
-    box-sizing: border-box;
     background: var(--surface-elevated);
-    border: 1px solid var(--hairline-color);
+    border: 1px solid var(--hairline-slate);
     color: var(--parchment-bright);
     font-size: 11px;
-    padding: 6px 8px;
+    padding: 7px 10px;
     border-radius: var(--radius-xs);
     outline: none;
     cursor: pointer;
+    color-scheme: dark;
   }
   .role-select:focus {
     border-color: var(--amber-highlight);
   }
-  .role-model-badge {
+  .role-select.model-picker {
+    border-color: rgba(212, 163, 115, 0.35);
+    font-weight: 600;
+  }
+
+  .inline-local-input {
     display: flex;
     align-items: center;
-    gap: 6px;
-    background: rgba(24, 25, 29, 0.6);
-    border: 1px dashed var(--hairline-color);
-    border-radius: var(--radius-xs);
-    padding: 4px 8px;
-    font-size: 11px;
+    gap: 8px;
+    font-size: 10px;
     color: var(--parchment-dim);
-    overflow: hidden;
   }
-  .role-model-badge .badge-text {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .inline-model-input {
+    flex: 1;
+    background: var(--surface-elevated);
+    border: 1px dashed var(--hairline-slate);
+    color: var(--parchment-bright);
+    padding: 4px 8px;
+    border-radius: var(--radius-xs);
+    font-size: 11px;
   }
+
   .role-params-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 10px;
-    margin-top: 2px;
   }
   .param-slider-item {
     display: flex;
@@ -1384,7 +1146,7 @@
     background: rgba(255, 255, 255, 0.025);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-xs);
-    padding: 6px 8px;
+    padding: 5px 8px;
   }
   .param-head {
     display: flex;
@@ -1404,6 +1166,228 @@
     height: 4px;
   }
 
+  .critic-switch-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .critic-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .critic-radio-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    color: var(--parchment-muted);
+  }
+  .critic-radio-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+  }
+
+  /* 6 Provider Pills */
+  .provider-pill-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+  }
+  .prov-pill-btn {
+    background: var(--canvas-base);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    padding: 7px 6px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    transition: all 0.15s ease;
+  }
+  .prov-pill-btn:hover {
+    border-color: rgba(212, 163, 115, 0.5);
+  }
+  .prov-pill-btn.active {
+    background: rgba(212, 163, 115, 0.12);
+    border-color: var(--amber-highlight);
+  }
+  .prov-short {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--parchment-bright);
+  }
+  .prov-badge {
+    font-size: 9px;
+    color: var(--parchment-dim);
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .dot.green {
+    background-color: #4ade80;
+    box-shadow: 0 0 6px rgba(74, 222, 128, 0.6);
+  }
+  .dot.gray {
+    background-color: var(--parchment-dim);
+  }
+
+  .ollama-panel,
+  .cloud-key-panel {
+    background: var(--canvas-base);
+    border-radius: var(--radius-xs);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ollama-url-row,
+  .key-input-action-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .flex-1 {
+    flex: 1;
+  }
+  .cors-help-box {
+    background: rgba(212, 163, 115, 0.08);
+    padding: 8px 10px;
+    border-radius: var(--radius-xs);
+    font-size: 10px;
+    color: var(--parchment-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    line-height: 1.45;
+  }
+  .cors-help-box code {
+    color: var(--amber-highlight);
+    background: rgba(0, 0, 0, 0.4);
+    padding: 2px 5px;
+    border-radius: 3px;
+  }
+
+  .status-inline-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: var(--parchment-muted);
+  }
+  .text-green {
+    color: #4ade80;
+  }
+  .text-dim {
+    color: var(--parchment-dim);
+  }
+  .danger-link {
+    background: transparent;
+    border: none;
+    color: #ff9999;
+    font-size: 10px;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  .input-header {
+    font-size: 10px;
+    color: var(--parchment-dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .text-toggle {
+    background: transparent;
+    border: none;
+    color: var(--amber-highlight);
+    cursor: pointer;
+    font-size: 10px;
+  }
+
+  .tier-segmented {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 3px;
+    background-color: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+  }
+  .tier-seg-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--parchment-muted);
+    padding: 6px;
+    border-radius: var(--radius-xs);
+    font-size: 10px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+  .tier-seg-btn.active {
+    background-color: var(--surface-overlay);
+    border-color: var(--amber-highlight);
+    color: var(--parchment-bright);
+    font-weight: 600;
+  }
+  .tier-rec-badge {
+    font-size: 9px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(212, 163, 115, 0.18);
+    color: var(--amber-highlight);
+  }
+  .tier-inline-desc {
+    margin: 0;
+    font-size: 10px;
+    color: var(--parchment-dim);
+  }
+
+  .input-wrap {
+    background-color: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .input-icon {
+    font-size: 15px;
+    color: var(--parchment-dim);
+  }
+  .vault-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 7px 0;
+    color: var(--parchment-bright);
+    font-size: 12px;
+  }
+
+  .spin {
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   .status-banner {
     padding: 8px 12px;
     border-radius: var(--radius-sm);
@@ -1413,9 +1397,9 @@
     font-size: 11px;
   }
   .status-banner.success {
-    background-color: rgba(96, 130, 182, 0.15);
-    border-color: var(--primary-indigo);
-    color: var(--primary-indigo);
+    background-color: rgba(74, 222, 128, 0.12);
+    border-color: #4ade80;
+    color: #4ade80;
   }
   .status-banner.error {
     background-color: rgba(201, 74, 74, 0.15);
@@ -1429,100 +1413,32 @@
   }
 
   .modal-footer {
-    padding: 14px 20px;
+    padding: 12px 20px;
     background-color: var(--surface-elevated);
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  .danger {
-    color: #ff9999;
-  }
-  .danger:hover {
-    border-color: var(--alert-red);
+  .footer-active-summary {
+    font-size: 11px;
+    color: var(--amber-highlight);
   }
   .spacer {
     flex: 1;
   }
 
-  /* Unsaved confirmation dialog */
-  .unsaved-modal-overlay {
-    position: absolute;
-    inset: 0;
-    background-color: rgba(5, 6, 8, 0.85);
-    backdrop-filter: blur(6px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    z-index: 50;
-  }
-  .unsaved-modal-box {
-    width: 420px;
-    max-width: 100%;
-    background-color: var(--surface-panel);
-    border-radius: var(--radius-md);
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.9);
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    border: 1px solid var(--border-hairline);
-  }
-  .unsaved-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--amber-highlight);
-  }
-  .unsaved-warn-icon {
-    font-size: 20px;
-  }
-  .unsaved-text {
-    font-size: 13px;
-    line-height: 1.6;
-    color: var(--parchment-dim);
-    margin: 0;
-  }
-  .unsaved-actions {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 8px;
-    margin-top: 4px;
-  }
-
   @media (max-width: 768px) {
-    .modal-backdrop {
-      align-items: flex-end;
-    }
-    .modal-card {
-      width: 100%;
-      max-width: 100%;
-      max-height: 92dvh;
-      border-radius: 16px 16px 0 0;
-    }
-    .modal-body {
-      max-height: calc(92dvh - 125px);
-      padding: 14px;
-      gap: 12px;
-    }
-    .provider-switch {
-      flex-direction: column;
-    }
-    .tier-seg-btn {
-      font-size: 10px;
-      padding: 7px 4px;
+    .provider-pill-grid {
+      grid-template-columns: repeat(3, 1fr);
     }
     .role-fields,
     .role-params-grid {
       grid-template-columns: 1fr;
     }
-    .modal-footer {
-      flex-wrap: wrap;
-      padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    .ollama-url-row,
+    .key-input-action-row {
+      flex-direction: column;
+      align-items: stretch;
     }
   }
 </style>

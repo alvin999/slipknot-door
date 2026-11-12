@@ -7,6 +7,9 @@
 import type { IVisionStrategy, ITextStrategy, AiTaskRolesConfig } from './types';
 import { GeminiAdapter } from './geminiAdapter';
 import { GroqAdapter } from './groqAdapter';
+import { createOpenAIAdapter, createOpenRouterAdapter } from './openaiCompatibleAdapter';
+import { AnthropicAdapter } from './anthropicAdapter';
+import { OllamaAdapter } from './ollamaAdapter';
 import { KeyVaultService } from '../keyVaultService';
 
 export class AiEngineFactory {
@@ -42,12 +45,24 @@ export class AiEngineFactory {
   static {
     const gemini = new GeminiAdapter();
     const groq = new GroqAdapter();
+    const openai = createOpenAIAdapter();
+    const anthropic = new AnthropicAdapter();
+    const openrouter = createOpenRouterAdapter();
+    const ollama = new OllamaAdapter();
 
     this.registerVisionStrategy(gemini);
+    this.registerVisionStrategy(openai);
+    this.registerVisionStrategy(anthropic);
     this.registerVisionStrategy(groq);
+    this.registerVisionStrategy(openrouter);
+    this.registerVisionStrategy(ollama);
 
     this.registerTextStrategy(groq);
     this.registerTextStrategy(gemini);
+    this.registerTextStrategy(openai);
+    this.registerTextStrategy(anthropic);
+    this.registerTextStrategy(openrouter);
+    this.registerTextStrategy(ollama);
   }
 
   /**
@@ -249,7 +264,7 @@ export class AiEngineFactory {
     if (!strategy) {
       strategy = this.visionRegistry.get('gemini') || Array.from(this.visionRegistry.values())[0];
     }
-    const loaded = await KeyVaultService.loadKey(strategy.providerId as 'gemini' | 'groq');
+    const loaded = await KeyVaultService.loadKey(strategy.providerId);
     return {
       strategy,
       modelId: roles.critic.modelId,
@@ -279,8 +294,8 @@ export class AiEngineFactory {
       strategy = this.visionRegistry.get('gemini') || Array.from(this.visionRegistry.values())[0];
     }
 
-    // 載入該 Provider 的 API 金鑰
-    const loaded = await KeyVaultService.loadKey(strategy.providerId as 'gemini' | 'groq');
+    // 載入該 Provider 的 API 金鑰（若為 Ollama 則回傳 Endpoint URL）
+    const loaded = await KeyVaultService.loadKey(strategy.providerId);
     const apiKey = loaded.apiKey || '';
 
     return {
@@ -309,7 +324,7 @@ export class AiEngineFactory {
       strategy = this.textRegistry.get('groq') || Array.from(this.textRegistry.values())[0];
     }
 
-    const loaded = await KeyVaultService.loadKey(strategy.providerId as 'gemini' | 'groq');
+    const loaded = await KeyVaultService.loadKey(strategy.providerId);
     const apiKey = loaded.apiKey || '';
 
     return {

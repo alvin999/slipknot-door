@@ -58,18 +58,17 @@
 
       <div class="prompt-body">
         <p class="prompt-desc">
-          目前尚未檢測到已配置的 <strong>Google Gemini</strong> 或
-          <strong>Groq</strong> API 金鑰。AI 神經顯影調色需仰賴雲端視覺多模態模型進行即時判讀，請先前往金鑰保險庫配置 API 金鑰。
+          目前尚未檢測到已配置的 AI 雲端金鑰。您可前往模型調度中心配置 <strong>Google Gemini</strong>、<strong>OpenAI</strong>、<strong>Anthropic Claude</strong>、<strong>Groq</strong>、<strong>OpenRouter</strong> 金鑰，或直接切換為免金鑰的本地端 <strong>Ollama</strong> 進行離線顯影。
         </p>
 
         <div class="prompt-modes-grid">
           <div class="prompt-mode-card highlight">
             <div class="mode-card-header font-mono amber">
               <span class="material-symbols-outlined">psychology</span>
-              <span>雲端 AI 多模態顯影</span>
+              <span>雲端主流模型 & 本地端 Ollama 雙軌支援</span>
             </div>
             <p class="mode-card-text">
-              支援 Google Gemini 視覺多模態即時美學分析與 Groq 社群文案生成。可在右下角金鑰保險庫中隨時切換與管理。
+              支援六大主流 AI 供應商與本地端 Ollama 視覺多模態模型（如 Qwen2.5-VL、Gemma 3），可在單一面板隨時切換模型與管理金鑰。
             </p>
           </div>
         </div>

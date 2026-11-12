@@ -1,6 +1,8 @@
 <script lang="ts">
   import { IngestionService, type CameraMountInfo } from '$lib/services/ingestionService';
-  import { ModelDiscoveryService } from '$lib/services/modelDiscoveryService';
+  import { KeyVaultService } from '$lib/services/keyVaultService';
+  import { ModelDiscoveryService, PROVIDER_DEFAULT_MODELS } from '$lib/services/modelDiscoveryService';
+  import type { AiProviderId } from '$lib/services/ai/types';
   import { aiPipeline } from '$lib/stores/aiPipeline.svelte';
   import type { AiScopePreferences } from '$lib/types/photo';
 
@@ -45,14 +47,29 @@
     { key: 'keystone', label: '透視幾何校正' },
   ];
 
-  function getModelsForProvider(provider: string, currentId: string): { id: string; displayName: string }[] {
-    const prov = provider === 'groq' ? 'groq' : 'gemini';
-    const cached = ModelDiscoveryService.getCachedModels(prov).map((m) => ({
+  const DEVICE_PROVIDERS: { id: AiProviderId; label: string }[] = [
+    { id: 'gemini', label: 'Google Gemini' },
+    { id: 'openai', label: 'OpenAI' },
+    { id: 'anthropic', label: 'Anthropic Claude' },
+    { id: 'groq', label: 'Groq Cloud' },
+    { id: 'openrouter', label: 'OpenRouter' },
+    { id: 'ollama', label: 'Ollama (本地端)' },
+  ];
+
+  function getModelsForProvider(provider: string, currentId: string, visionOnly = false): { id: string; displayName: string }[] {
+    const prov = (provider as AiProviderId) || 'gemini';
+    const raw = ModelDiscoveryService.getCachedModels(prov);
+    const filtered = visionOnly ? raw.filter((m) => m.isVisionCapable) : raw;
+    const cached = (filtered.length > 0 ? filtered : raw).map((m) => ({
       id: m.id,
       displayName: m.displayName || m.id
     }));
-    if (cached.some((m) => m.id === currentId)) return cached;
-    return [{ id: currentId, displayName: currentId }, ...cached];
+    const fallback = visionOnly
+      ? (PROVIDER_DEFAULT_MODELS[prov]?.vision || 'gemini-2.5-flash')
+      : (PROVIDER_DEFAULT_MODELS[prov]?.text || 'llama-3.3-70b-versatile');
+    const targetId = currentId || fallback;
+    if (cached.some((m) => m.id === targetId)) return cached;
+    return [{ id: targetId, displayName: targetId }, ...cached];
   }
 
   function formatVaultMode(status: { exists: boolean; mode: string | null }): string {
@@ -145,21 +162,22 @@
                 class="compact-select"
                 value={aiPipeline.visionProvider}
                 onchange={(e) => {
-                  const prov = e.currentTarget.value === 'groq' ? 'groq' : 'gemini';
-                  const fallback = prov === 'gemini' ? 'gemini-2.5-flash' : 'meta-llama/llama-4-scout-17b-16e-instruct';
-                  const list = getModelsForProvider(prov, fallback);
+                  const prov = (e.currentTarget.value as AiProviderId) || 'gemini';
+                  const fallback = PROVIDER_DEFAULT_MODELS[prov]?.vision || 'gemini-2.5-flash';
+                  const list = getModelsForProvider(prov, fallback, true);
                   aiPipeline.setVisionEngineSelection(prov, list[0]?.id ?? fallback);
                 }}
               >
-                <option value="gemini">Google Gemini</option>
-                <option value="groq">Groq Cloud</option>
+                {#each DEVICE_PROVIDERS as p}
+                  <option value={p.id}>{p.label}</option>
+                {/each}
               </select>
               <select
                 class="compact-select flex-1"
                 value={aiPipeline.visionModelId}
                 onchange={(e) => aiPipeline.setVisionEngineSelection(aiPipeline.visionProvider, e.currentTarget.value)}
               >
-                {#each getModelsForProvider(aiPipeline.visionProvider, aiPipeline.visionModelId) as m}
+                {#each getModelsForProvider(aiPipeline.visionProvider, aiPipeline.visionModelId, true) as m}
                   <option value={m.id}>{m.displayName || m.id}</option>
                 {/each}
               </select>
@@ -248,21 +266,22 @@
                 class="compact-select"
                 value={aiPipeline.copywritingProvider}
                 onchange={(e) => {
-                  const prov = e.currentTarget.value === 'groq' ? 'groq' : 'gemini';
-                  const fallback = prov === 'gemini' ? 'gemini-2.5-flash-lite' : 'llama-3.3-70b-versatile';
-                  const list = getModelsForProvider(prov, fallback);
+                  const prov = (e.currentTarget.value as AiProviderId) || 'groq';
+                  const fallback = PROVIDER_DEFAULT_MODELS[prov]?.text || 'llama-3.3-70b-versatile';
+                  const list = getModelsForProvider(prov, fallback, false);
                   aiPipeline.setCopywritingEngineSelection(prov, list[0]?.id ?? fallback);
                 }}
               >
-                <option value="gemini">Google Gemini</option>
-                <option value="groq">Groq Cloud</option>
+                {#each DEVICE_PROVIDERS as p}
+                  <option value={p.id}>{p.label}</option>
+                {/each}
               </select>
               <select
                 class="compact-select flex-1"
                 value={aiPipeline.copywritingModelId}
                 onchange={(e) => aiPipeline.setCopywritingEngineSelection(aiPipeline.copywritingProvider, e.currentTarget.value)}
               >
-                {#each getModelsForProvider(aiPipeline.copywritingProvider, aiPipeline.copywritingModelId) as m}
+                {#each getModelsForProvider(aiPipeline.copywritingProvider, aiPipeline.copywritingModelId, false) as m}
                   <option value={m.id}>{m.displayName || m.id}</option>
                 {/each}
               </select>
@@ -333,18 +352,22 @@
         </div>
 
         <div class="vault-info-box font-mono">
-          <div class="vault-row">
-            <span class="vault-lbl">Google Gemini</span>
-            <span class={geminiKeyStatus.exists ? 'vault-val green' : 'vault-val dim'}>
-              {geminiKeyStatus.exists ? `● 已配置 · ${formatVaultMode(geminiKeyStatus)}` : '○ 尚未設定（將自動嘗試備援或啟發式）'}
-            </span>
-          </div>
-          <div class="vault-row">
-            <span class="vault-lbl">Groq Cloud</span>
-            <span class={groqKeyStatus.exists ? 'vault-val green' : 'vault-val dim'}>
-              {groqKeyStatus.exists ? `● 已配置 · ${formatVaultMode(groqKeyStatus)}` : '○ 尚未設定'}
-            </span>
-          </div>
+          {#each DEVICE_PROVIDERS as prov}
+            {#if prov.id === 'ollama'}
+              <div class="vault-row">
+                <span class="vault-lbl">{prov.label}</span>
+                <span class="vault-val">端點：{KeyVaultService.getOllamaEndpoint()}（免金鑰）</span>
+              </div>
+            {:else}
+              {@const st = prov.id === 'gemini' ? geminiKeyStatus : prov.id === 'groq' ? groqKeyStatus : KeyVaultService.getKeyStatus(prov.id)}
+              <div class="vault-row">
+                <span class="vault-lbl">{prov.label}</span>
+                <span class={st.exists ? 'vault-val green' : 'vault-val dim'}>
+                  {st.exists ? `● 已配置 · ${formatVaultMode(st)}` : '○ 尚未設定'}
+                </span>
+              </div>
+            {/if}
+          {/each}
           <div class="vault-row">
             <span class="vault-lbl">推論安全性</span>
             <span class="vault-val">端對端本地加密存儲 · 絕不上傳至任何第三方中轉雲端</span>

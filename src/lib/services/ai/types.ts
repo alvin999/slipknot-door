@@ -8,6 +8,8 @@ import type { ExifOpticalData, AiScopePreferences, HslAdjustments, HslBandKey, H
 import type { AiSceneDecision, CopywritingPayload, CopywritingResult } from '../aiSceneService';
 import type { CustomLutRecord } from '../customLutService';
 
+export type AiProviderId = 'gemini' | 'groq' | 'openai' | 'anthropic' | 'openrouter' | 'ollama';
+
 export type StylePresetKey =
   | 'standard'
   | 'fieldnote'
@@ -133,7 +135,7 @@ export interface DirectoryPlanResult {
   rationale: string;
   folders: DirectoryPlanFolder[];
   rawBackupSubPath?: string;
-  providerUsed: 'groq' | 'gemini' | 'offline';
+  providerUsed: AiProviderId | 'offline' | string;
 }
 
 export interface DirectoryPlanOptions {

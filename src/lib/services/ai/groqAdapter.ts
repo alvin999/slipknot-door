@@ -57,10 +57,10 @@ export class GroqAdapter implements IVisionStrategy, ITextStrategy {
       throw new Error('未配置 Groq API 金鑰');
     }
 
-    const activeModel = (modelId && modelId.trim()) ? modelId.trim() : 'llama-3.2-11b-vision-preview';
-    const isVisionModel = /(vision|-vl-|llama-3.2-(11b|90b)-vision)/i.test(activeModel);
+    const activeModel = (modelId && modelId.trim()) ? modelId.trim() : 'meta-llama/llama-4-scout-17b-16e-instruct';
+    const isVisionModel = /(vision|-vl-|llama-3\.2-(11b|90b)-vision|llama-4|scout|maverick|pixtral)/i.test(activeModel);
     if (!isVisionModel) {
-      throw new Error(`Groq 模型 [${activeModel}] 為純文字語言引擎，不支援相片影像上傳。請指派具備多模態能力之模型 (如 Gemini 視覺模型或 Groq Vision)`);
+      throw new Error(`Groq 模型 [${activeModel}] 為純文字語言引擎，不支援相片影像上傳。請指派具備多模態能力之模型`);
     }
 
     const cleanBase64 = imagePayload1024pxBase64.includes(',')
@@ -306,8 +306,8 @@ Respond ONLY with raw JSON matching this schema:
       throw new Error('未配置 Groq API 金鑰');
     }
 
-    const activeModel = (modelId && modelId.trim()) ? modelId.trim() : 'llama-3.2-11b-vision-preview';
-    const isVisionModel = /(vision|-vl-|llama-3.2-(11b|90b)-vision)/i.test(activeModel);
+    const activeModel = (modelId && modelId.trim()) ? modelId.trim() : 'meta-llama/llama-4-scout-17b-16e-instruct';
+    const isVisionModel = /(vision|-vl-|llama-3\.2-(11b|90b)-vision|llama-4|scout|maverick|pixtral)/i.test(activeModel);
     if (!isVisionModel) {
       throw new Error(`Groq 模型 [${activeModel}] 為純文字引擎，不支援雙圖視覺覆審`);
     }

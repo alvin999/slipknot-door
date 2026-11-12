@@ -6,10 +6,12 @@
  * 3. Password (PBKDF2 + AES-GCM): Master password protection, decrypted on-demand
  */
 
+import type { AiProviderId } from './ai/types';
+
 export type KeyEncryptionMode = 'plain' | 'transparent' | 'password';
 
 export interface StoredKeyRecord {
-  modelProvider: 'gemini' | 'groq';
+  modelProvider: AiProviderId;
   mode: KeyEncryptionMode;
   ciphertextBase64: string;
   ivBase64?: string;
@@ -19,18 +21,38 @@ export interface StoredKeyRecord {
 
 export class KeyVaultService {
   private static STORAGE_PREFIX = 'slipknot_vault_';
+  private static OLLAMA_ENDPOINT_KEY = 'slipknot_ollama_endpoint';
   // Hardware-anchored salt seed for transparent encryption
   private static TRANSPARENT_SEED = 'slipknot-curatorial-alexandria-device-anchor-v1';
+
+  /**
+   * 取得或設定 Ollama 本地/區域網路推理伺服器 URL
+   */
+  public static getOllamaEndpoint(): string {
+    if (typeof localStorage === 'undefined') return 'http://localhost:11434';
+    const saved = localStorage.getItem(this.OLLAMA_ENDPOINT_KEY);
+    return (saved && saved.trim()) ? saved.trim().replace(/\/+$/, '') : 'http://localhost:11434';
+  }
+
+  public static setOllamaEndpoint(url: string): void {
+    if (typeof localStorage === 'undefined') return;
+    const cleaned = (url && url.trim()) ? url.trim().replace(/\/+$/, '') : 'http://localhost:11434';
+    localStorage.setItem(this.OLLAMA_ENDPOINT_KEY, cleaned);
+  }
 
   /**
    * Save API Key with selected encryption mode
    */
   public static async saveKey(
-    modelProvider: 'gemini' | 'groq',
+    modelProvider: AiProviderId,
     apiKey: string,
     mode: KeyEncryptionMode,
     masterPassword?: string
   ): Promise<void> {
+    if (modelProvider === 'ollama') {
+      this.setOllamaEndpoint(apiKey);
+      return;
+    }
     if (!apiKey || apiKey.trim() === '') {
       this.deleteKey(modelProvider);
       return;
@@ -87,9 +109,17 @@ export class KeyVaultService {
    * Load and Decrypt API Key
    */
   public static async loadKey(
-    modelProvider: 'gemini' | 'groq',
+    modelProvider: AiProviderId | string,
     masterPassword?: string
   ): Promise<{ apiKey: string | null; mode: KeyEncryptionMode | null; requiresPassword: boolean }> {
+    if (modelProvider === 'ollama') {
+      return {
+        apiKey: this.getOllamaEndpoint(),
+        mode: 'plain',
+        requiresPassword: false
+      };
+    }
+
     const raw = localStorage.getItem(`${this.STORAGE_PREFIX}${modelProvider}`);
     if (!raw) {
       return { apiKey: null, mode: null, requiresPassword: false };
@@ -150,7 +180,11 @@ export class KeyVaultService {
   /**
    * Check vault record status without decrypting
    */
-  public static getKeyStatus(modelProvider: 'gemini' | 'groq'): { exists: boolean; mode: KeyEncryptionMode | null; updatedAt: string | null } {
+  public static getKeyStatus(modelProvider: AiProviderId | string): { exists: boolean; mode: KeyEncryptionMode | null; updatedAt: string | null } {
+    if (modelProvider === 'ollama') {
+      const ep = this.getOllamaEndpoint();
+      return { exists: Boolean(ep), mode: 'plain', updatedAt: null };
+    }
     const raw = localStorage.getItem(`${this.STORAGE_PREFIX}${modelProvider}`);
     if (!raw) return { exists: false, mode: null, updatedAt: null };
     try {
@@ -164,8 +198,21 @@ export class KeyVaultService {
   /**
    * Delete stored key
    */
-  public static deleteKey(modelProvider: 'gemini' | 'groq'): void {
+  public static deleteKey(modelProvider: AiProviderId | string): void {
+    if (modelProvider === 'ollama') {
+      localStorage.removeItem(this.OLLAMA_ENDPOINT_KEY);
+      return;
+    }
     localStorage.removeItem(`${this.STORAGE_PREFIX}${modelProvider}`);
+  }
+
+  /**
+   * Check if any cloud key is stored or if ollama is active
+   */
+  public static hasAnyConfiguredProvider(activeVisionProvider?: string): boolean {
+    if (activeVisionProvider === 'ollama') return true;
+    const providers: AiProviderId[] = ['gemini', 'groq', 'openai', 'anthropic', 'openrouter'];
+    return providers.some((p) => this.getKeyStatus(p).exists);
   }
 
   /* --- Web Crypto API Core Cryptography --- */

@@ -43,7 +43,7 @@ export interface AiSceneDecision {
   tags?: string[];
   isFallback: boolean;
   fallbackReason?: string; // 記錄跌入本地兜底的真實原因 (透明化 Log 呈現)
-  providerUsed?: 'gemini' | 'groq' | 'offline';
+  providerUsed?: import('./ai/types').AiProviderId | 'offline' | string;
   modelUsed?: string;
   inferenceDurationMs?: number;
   // 智慧構圖、裁切與透視校正
@@ -82,7 +82,7 @@ export interface CopywritingResult {
   caption: string;
   hashtags: string[];
   iptcKeywords: string[];
-  providerUsed: 'groq' | 'gemini' | 'offline';
+  providerUsed: import('./ai/types').AiProviderId | 'offline' | string;
 }
 
 export class AiSceneService {
@@ -220,12 +220,20 @@ export class AiSceneService {
   }
 
   /**
-   * 取得當前指派用於「影像顯影分析 (Vision)」之雲端引擎與模型名稱 (同步讀取 LocalStorage)
+   * 取得當前指派用於「影像顯影分析 (Vision)」之雲端/本地引擎與模型名稱 (同步讀取 LocalStorage)
    */
   public static getActiveModelInfo(): { provider: string; modelId: string } {
     const roles = AiEngineFactory.getTaskRoles();
     const provider = roles.vision.provider;
-    const defaultModel = provider === 'groq' ? 'llama-3.2-11b-vision-preview' : 'gemini-2.5-flash';
+    const defaultModelMap: Record<string, string> = {
+      gemini: 'gemini-2.5-flash',
+      groq: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      openai: 'gpt-4o-mini',
+      anthropic: 'claude-3-5-sonnet-latest',
+      openrouter: 'google/gemini-2.5-flash',
+      ollama: 'qwen2.5vl:latest',
+    };
+    const defaultModel = defaultModelMap[provider] || 'gemini-2.5-flash';
     const modelId = roles.vision.modelId || defaultModel;
     return { provider, modelId };
   }
@@ -250,12 +258,12 @@ export class AiSceneService {
   ): Promise<AiSceneDecision> {
     const startTime = Date.now();
 
-    // 檢查當前視覺引擎是否具備金鑰
+    // 檢查當前視覺引擎是否具備金鑰（Ollama 本地端免 API Key）
     const { strategy, modelId, apiKey, temperature: visionTemp } = await AiEngineFactory.getVisionEngine();
-    const hasValidKey = !!(apiKey && apiKey.trim() !== '');
+    const hasValidKey = strategy.providerId === 'ollama' || !!(apiKey && apiKey.trim() !== '');
 
     if (!hasValidKey) {
-      throw new Error(`未配置 ${strategy.providerName} 之可用 API 金鑰，請先至右下角保險庫輸入金鑰`);
+      throw new Error(`未配置 ${strategy.providerName} 之可用 API 金鑰，請先至金鑰與模型中心輸入金鑰`);
     }
 
     if (!imagePayload1024pxBase64 || imagePayload1024pxBase64.trim() === '') {
@@ -522,7 +530,9 @@ export class AiSceneService {
         // 若開啟雙圖閉環覆審 (Pass 2 Critic Refinement)，且有提供渲染器
         try {
           const criticEngine = await AiEngineFactory.getCriticEngine();
-          if (criticEngine.enabled && criticEngine.strategy?.refinePhoto && criticEngine.apiKey && options?.renderPreview) {
+          const criticReady =
+            criticEngine.strategy?.providerId === 'ollama' || Boolean(criticEngine.apiKey && criticEngine.apiKey.trim() !== '');
+          if (criticEngine.enabled && criticEngine.strategy?.refinePhoto && criticReady && options?.renderPreview) {
             if (options.onLog) {
               await options.onLog(`> [AI_CRITIC] 啟動雙圖閉環覆審 (${criticEngine.modelId || criticEngine.strategy.providerName})...`);
             }
@@ -815,7 +825,8 @@ export class AiSceneService {
    */
   public static async planExportDirectory(payload: import('./ai/types').DirectoryPlanPayload): Promise<import('./ai/types').DirectoryPlanResult> {
     const { strategy, modelId, apiKey } = await AiEngineFactory.getCopywritingEngine();
-    if (strategy.planDirectory && apiKey && apiKey.trim() !== '') {
+    const isReady = strategy.providerId === 'ollama' || Boolean(apiKey && apiKey.trim() !== '');
+    if (strategy.planDirectory && isReady) {
       try {
         return await strategy.planDirectory({
           apiKey,

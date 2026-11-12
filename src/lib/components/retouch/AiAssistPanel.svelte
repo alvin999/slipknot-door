@@ -4,6 +4,8 @@
   import { photoLibrary } from "$lib/stores/photoLibrary.svelte";
   import { styleKeywordCatalog } from "$lib/stores/styleKeywordCatalog.svelte";
   import { toastStore } from "$lib/stores/toastStore.svelte";
+  import { PROVIDER_DEFAULT_MODELS } from "$lib/services/modelDiscoveryService";
+  import type { AiProviderId } from "$lib/services/ai/types";
   import type { StyleKeywordEntry } from "$lib/services/ai/styleDirectives";
   import KeywordManagerModal from "./KeywordManagerModal.svelte";
   import {
@@ -163,7 +165,9 @@
   }
 
   const visionModelShortName = $derived.by(() => {
-    const raw = aiPipeline.visionModelId || (aiPipeline.visionProvider === "groq" ? "Llama Vision" : "Gemini Flash");
+    const prov = (aiPipeline.visionProvider as AiProviderId) || "gemini";
+    const fallback = PROVIDER_DEFAULT_MODELS[prov]?.vision || "Gemini Flash";
+    const raw = aiPipeline.visionModelId || fallback;
     return raw.replace(/^models\//, "").replace(/-preview.*$/, "");
   });
 
@@ -382,13 +386,11 @@
       class:open={isQuickEngineOpen}
       onclick={() => (isQuickEngineOpen = !isQuickEngineOpen)}
       aria-expanded={isQuickEngineOpen}
-      title="點擊快速調整 AI 溫度 (Temp)、調色干預強度與雙圖覆審開關"
+      title="點擊快速調整調色干預強度與雙圖覆審開關"
     >
       <span class="engine-pill-left">
         <span class="engine-dot" class:critic={aiPipeline.criticEnabled}></span>
         <span class="engine-name">{visionModelShortName}</span>
-        <span class="engine-sep">·</span>
-        <span>Temp {aiPipeline.visionTemperature.toFixed(1)}</span>
         <span class="engine-sep">·</span>
         <span>強度 {Math.round(aiPipeline.aiTuningStrength * 100)}%</span>
         {#if aiPipeline.criticEnabled}
@@ -406,51 +408,6 @@
 
     {#if isQuickEngineOpen}
       <div class="quick-engine-drawer hairline-all">
-        <div class="qe-row">
-          <div class="qe-head font-mono">
-            <span>視覺創意溫度 (Temp)</span>
-            <span class="qe-val">{aiPipeline.visionTemperature.toFixed(2)}</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="1.2"
-            step="0.05"
-            class="qe-slider"
-            value={aiPipeline.visionTemperature}
-            oninput={(e) =>
-              aiPipeline.setVisionTemperature(
-                parseFloat((e.target as HTMLInputElement).value),
-              )}
-          />
-          <div class="qe-presets font-mono">
-            <button
-              type="button"
-              class="qe-preset-btn"
-              class:active={Math.abs(aiPipeline.visionTemperature - 0.1) < 0.03}
-              onclick={() => aiPipeline.setVisionTemperature(0.1)}
-            >
-              0.1 嚴謹復刻
-            </button>
-            <button
-              type="button"
-              class="qe-preset-btn"
-              class:active={Math.abs(aiPipeline.visionTemperature - 0.4) < 0.03}
-              onclick={() => aiPipeline.setVisionTemperature(0.4)}
-            >
-              0.4 自然平衡
-            </button>
-            <button
-              type="button"
-              class="qe-preset-btn"
-              class:active={Math.abs(aiPipeline.visionTemperature - 0.8) < 0.03}
-              onclick={() => aiPipeline.setVisionTemperature(0.8)}
-            >
-              0.8 創意奔放
-            </button>
-          </div>
-        </div>
-
         <div class="qe-row">
           <div class="qe-head font-mono">
             <span>AI 調色干預強度</span>

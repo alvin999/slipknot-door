@@ -134,16 +134,17 @@
   function refreshKeyStatus() {
     const sGemini = KeyVaultService.getKeyStatus("gemini");
     const sGroq = KeyVaultService.getKeyStatus("groq");
-    geminiKeyStatus = { exists: sGemini.exists, mode: sGemini.mode };
-    groqKeyStatus = { exists: sGroq.exists, mode: sGroq.mode };
     hasKey = hasActiveApiKey();
     aiPipeline.reloadEngineSettings();
+    geminiKeyStatus = {
+      exists: hasKey,
+      mode: aiPipeline.visionProvider === "ollama" ? "transparent" : sGemini.mode || sGroq.mode,
+    };
+    groqKeyStatus = { exists: sGroq.exists, mode: sGroq.mode };
   }
 
   function hasActiveApiKey(): boolean {
-    const gemini = KeyVaultService.getKeyStatus("gemini");
-    const groq = KeyVaultService.getKeyStatus("groq");
-    return gemini.exists || groq.exists;
+    return KeyVaultService.hasAnyConfiguredProvider(aiPipeline.visionProvider);
   }
 
   async function refreshCameraMounts() {
@@ -208,7 +209,9 @@
   const userCustomLuts = $derived(lutCatalog.userCustomLuts);
   const allProfiles = $derived(lutCatalog.allProfiles);
   const allStyleGradingPresets = $derived(lutCatalog.allStyleGradingPresets);
-  const stylePreviewThumbs = $derived(thumbnailRenderService.stylePreviewThumbs);
+  const stylePreviewThumbs = $derived(
+    thumbnailRenderService.stylePreviewThumbs,
+  );
 
   async function handleImportCustomLut(lut: CustomLutRecord) {
     await lutCatalog.importCustomLut(lut);
@@ -1449,7 +1452,10 @@
       padding: 0 12px calc(12px + env(safe-area-inset-bottom, 0px));
       box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.75);
       z-index: 20;
-      transition: flex-basis 0.2s ease, height 0.2s ease, max-height 0.2s ease;
+      transition:
+        flex-basis 0.2s ease,
+        height 0.2s ease,
+        max-height 0.2s ease;
     }
 
     .workspace-container.mobile-retouch-split.mobile-drawer-expanded

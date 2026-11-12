@@ -229,12 +229,13 @@ export class AiPipelineStore {
   onTriggerRender: (() => void) | null = null;
 
   /**
-   * 檢查目前是否已設定可用的雲端 API 金鑰 (Gemini 或 Groq)
+   * 檢查目前指派之視覺引擎是否已設定可用金鑰（或使用免金鑰本地端 Ollama）
    */
   hasActiveApiKey(): boolean {
-    const gemini = KeyVaultService.getKeyStatus("gemini");
-    const groq = KeyVaultService.getKeyStatus("groq");
-    return gemini.exists || groq.exists;
+    if (this.visionProvider === "ollama") return true;
+    const activeStatus = KeyVaultService.getKeyStatus(this.visionProvider);
+    if (activeStatus.exists) return true;
+    return KeyVaultService.hasAnyConfiguredProvider(this.visionProvider);
   }
 
   /**
@@ -439,8 +440,17 @@ export class AiPipelineStore {
       20,
     );
     const activeModelInfo = AiSceneService.getActiveModelInfo();
+    const providerLabelMap: Record<string, string> = {
+      gemini: "Google Gemini",
+      openai: "OpenAI",
+      anthropic: "Anthropic Claude",
+      groq: "Groq Vision",
+      openrouter: "OpenRouter",
+      ollama: "Ollama (Local)",
+    };
+    const providerLabel = providerLabelMap[activeModelInfo.provider] || activeModelInfo.provider;
     await this.appendAiLog(
-      `> [STREAM] 傳輸 1024px 縮圖至 ${activeModelInfo.provider === "gemini" ? "Google Gemini" : "Groq Vision"} (${activeModelInfo.modelId} · Temp ${this.visionTemperature.toFixed(2)} · 強度 ${Math.round(this.aiTuningStrength * 100)}%)...`,
+      `> [STREAM] 傳輸 1024px 縮圖至 ${providerLabel} (${activeModelInfo.modelId} · Temp ${this.visionTemperature.toFixed(2)} · 強度 ${Math.round(this.aiTuningStrength * 100)}%)...`,
       40,
     );
     const activeDirectives = darkroomState.getActiveDirectives();
