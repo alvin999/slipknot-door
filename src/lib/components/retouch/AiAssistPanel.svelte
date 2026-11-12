@@ -2,7 +2,10 @@
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
   import { darkroomState } from "$lib/stores/darkroomState.svelte";
   import { photoLibrary } from "$lib/stores/photoLibrary.svelte";
-  import { STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
+  import { styleKeywordCatalog } from "$lib/stores/styleKeywordCatalog.svelte";
+  import { toastStore } from "$lib/stores/toastStore.svelte";
+  import type { StyleKeywordEntry } from "$lib/services/ai/styleDirectives";
+  import KeywordManagerModal from "./KeywordManagerModal.svelte";
   import {
     AI_PANEL_UI_STORAGE_KEY,
     DEFAULT_AI_PANEL_UI_STATE,
@@ -80,6 +83,9 @@
   let isProcessLogOpen = $state<boolean>(false);
   let isReportExpanded = $state<boolean>(true);
   let isKeywordDirectivesOpen = $state<boolean>(false);
+  let isKeywordManagerOpen = $state<boolean>(false);
+  let keywordManagerMode = $state<"list" | "create">("list");
+  let keywordPrefillPrompt = $state<string>("");
   let isExpandedStyles = $state<boolean>(
     Boolean(
       readLocalJson(AI_PANEL_UI_STORAGE_KEY, DEFAULT_AI_PANEL_UI_STATE)
@@ -232,6 +238,41 @@
       /\.\.\.$/,
       "",
     );
+  }
+
+  function openKeywordManager() {
+    keywordManagerMode = "list";
+    keywordPrefillPrompt = "";
+    isKeywordManagerOpen = true;
+  }
+
+  function openCreateKeywordModal(prefill: string = "") {
+    keywordManagerMode = "create";
+    keywordPrefillPrompt = prefill;
+    isKeywordManagerOpen = true;
+  }
+
+  function handleSavedCustomKeyword(created: StyleKeywordEntry) {
+    if (!darkroomState.selectedStyleKeywords.includes(created.id)) {
+      darkroomState.toggleStyleKeyword(created.id);
+    }
+    if (
+      keywordPrefillPrompt &&
+      darkroomState.customStylePrompt.trim() === keywordPrefillPrompt.trim()
+    ) {
+      darkroomState.customStylePrompt = "";
+    }
+    keywordPrefillPrompt = "";
+  }
+
+  function handleSaveKeywordOverride(kwId: string) {
+    if (darkroomState.saveKeywordOverrideToStorage(kwId)) {
+      const entry = styleKeywordCatalog.findById(kwId);
+      toastStore.show(
+        `已將「${entry?.shortTag || kwId}」儲存為本地預設指令`,
+        "success",
+      );
+    }
   }
 </script>
 
@@ -611,34 +652,57 @@
           <span class="step-badge font-mono">STEP 2</span>
           <span class="section-title">調色意境與自訂描述</span>
         </div>
-        {#if darkroomState.selectedStyleKeywords.length > 0 || hasCustomPrompt}
+        <div class="vibe-header-actions">
+          {#if darkroomState.selectedStyleKeywords.length > 0 || hasCustomPrompt}
+            <button
+              type="button"
+              class="vibe-clear-btn font-mono"
+              onclick={() => darkroomState.clearStyleKeywords()}
+              title="清空目前選取的調色關鍵字與描述框（不會刪除已儲存的自訂關鍵字）"
+            >
+              清空 ({darkroomState.selectedStyleKeywords.length +
+                (hasCustomPrompt ? 1 : 0)})
+            </button>
+          {/if}
           <button
             type="button"
-            class="vibe-clear-btn font-mono"
-            onclick={() => darkroomState.clearStyleKeywords()}
-            title="清空已選取的調色關鍵字與自訂指令"
+            class="vibe-manage-btn font-mono"
+            onclick={openKeywordManager}
+            title="管理自訂與預設關鍵字"
           >
-            清空 ({darkroomState.selectedStyleKeywords.length +
-              (hasCustomPrompt ? 1 : 0)})
+            <span class="material-symbols-outlined" style="font-size: 12px;"
+              >bookmarks</span
+            >
+            <span>管理</span>
           </button>
-        {/if}
+        </div>
       </div>
 
       <!-- 意境關鍵字 Chips -->
       <div class="vibe-chips-grid">
-        {#each STYLE_KEYWORD_ENTRIES as kw}
+        {#each styleKeywordCatalog.visibleKeywords as kw (kw.id)}
           {@const isSelected = darkroomState.selectedStyleKeywords.includes(kw.id)}
           <button
             type="button"
             class="vibe-keyword-chip"
             class:active={isSelected}
-            title={kw.tooltip}
+            class:is-custom={Boolean(kw.isCustom)}
+            class:is-modified={Boolean(kw.isModified)}
+            title={kw.tooltip || kw.promptEnglish}
             onclick={() => darkroomState.toggleStyleKeyword(kw.id)}
           >
             <span class="vibe-chip-dot"></span>
             <span>{kw.shortTag}</span>
           </button>
         {/each}
+        <button
+          type="button"
+          class="vibe-keyword-chip add-chip font-mono"
+          onclick={() => openCreateKeywordModal("")}
+          title="新增自訂調色關鍵字"
+        >
+          <span>＋ 新增</span>
+        </button>
       </div>
 
       <!-- 若有選取關鍵字，提供不佔空間的收合微調入口 -->
@@ -669,17 +733,21 @@
           {#if isKeywordDirectivesOpen}
             <div class="style-labels-list">
               {#each darkroomState.selectedStyleKeywords as kwId}
-                {@const entry = STYLE_KEYWORD_ENTRIES.find((k) => k.id === kwId)}
+                {@const entry = styleKeywordCatalog.findById(kwId)}
                 {@const isEditing = darkroomState.editingKeywordId === kwId}
-                {@const isOverridden =
+                {@const isDraftOverridden =
                   darkroomState.keywordOverrides[kwId] !== undefined}
                 {#if entry}
                   <div class="style-label-card" class:is-editing={isEditing}>
                     <div class="label-card-head font-mono">
                       <div class="label-badge-group">
                         <span class="label-card-badge">{entry.shortTag}</span>
-                        {#if isOverridden}
-                          <span class="label-custom-indicator">已自訂</span>
+                        {#if isDraftOverridden}
+                          <span class="label-custom-indicator">未儲存微調</span>
+                        {:else if entry.isCustom}
+                          <span class="label-custom-indicator">自訂</span>
+                        {:else if entry.isModified}
+                          <span class="label-custom-indicator">已編修預設</span>
                         {/if}
                       </div>
                       <div class="label-card-actions">
@@ -687,9 +755,18 @@
                           <button
                             type="button"
                             class="label-action-btn primary font-mono"
-                            onclick={() => darkroomState.stopEditingKeyword()}
+                            onclick={() => handleSaveKeywordOverride(kwId)}
+                            title="將修改後的指令正式儲存至本地"
                           >
-                            完成
+                            儲存
+                          </button>
+                          <button
+                            type="button"
+                            class="label-action-btn font-mono"
+                            onclick={() => darkroomState.stopEditingKeyword()}
+                            title="僅於本次套用，不寫入本地儲存"
+                          >
+                            暫套用
                           </button>
                           <button
                             type="button"
@@ -697,7 +774,7 @@
                             onclick={() =>
                               darkroomState.resetKeywordOverride(kwId)}
                           >
-                            還原
+                            捨棄
                           </button>
                         {:else}
                           <button
@@ -708,14 +785,35 @@
                           >
                             編輯Prompt
                           </button>
-                          {#if isOverridden}
+                          {#if isDraftOverridden}
+                            <button
+                              type="button"
+                              class="label-action-btn primary font-mono"
+                              onclick={() => handleSaveKeywordOverride(kwId)}
+                            >
+                              儲存
+                            </button>
                             <button
                               type="button"
                               class="label-action-btn font-mono"
                               onclick={() =>
                                 darkroomState.resetKeywordOverride(kwId)}
                             >
-                              還原
+                              捨棄
+                            </button>
+                          {:else if !entry.isCustom && entry.isModified}
+                            <button
+                              type="button"
+                              class="label-action-btn font-mono"
+                              onclick={() => {
+                                styleKeywordCatalog.resetBuiltinKeyword(kwId);
+                                toastStore.show(
+                                  `已還原預設「${entry.shortTag}」`,
+                                  "info",
+                                );
+                              }}
+                            >
+                              還原預設
                             </button>
                           {/if}
                           <button
@@ -742,7 +840,11 @@
                       ></textarea>
                     {:else}
                       <div class="label-directive-display">
-                        {entry.tooltip}
+                        {#if isDraftOverridden}
+                          {darkroomState.getKeywordDirective(kwId)}
+                        {:else}
+                          {entry.tooltip || entry.promptEnglish}
+                        {/if}
                       </div>
                     {/if}
                   </div>
@@ -776,17 +878,33 @@
                 可自由描述光影、色溫或氛圍偏好
               {/if}
             </span>
-            <button
-              type="button"
-              class="vibe-sample-btn font-mono"
-              onclick={applyRandomVibeSample}
-              title="隨機填入一組視覺風格描述範例"
-            >
-              <span class="material-symbols-outlined" style="font-size: 12px;"
-                >casino</span
+            <div class="vibe-footer-actions">
+              {#if hasCustomPrompt}
+                <button
+                  type="button"
+                  class="vibe-save-kw-btn font-mono"
+                  onclick={() =>
+                    openCreateKeywordModal(darkroomState.customStylePrompt)}
+                  title="將目前描述儲存為可重複點選的關鍵字標籤"
+                >
+                  <span class="material-symbols-outlined" style="font-size: 12px;"
+                    >bookmark_add</span
+                  >
+                  <span>存為關鍵字</span>
+                </button>
+              {/if}
+              <button
+                type="button"
+                class="vibe-sample-btn font-mono"
+                onclick={applyRandomVibeSample}
+                title="隨機填入一組視覺風格描述範例"
               >
-              <span>試試範例</span>
-            </button>
+                <span class="material-symbols-outlined" style="font-size: 12px;"
+                  >casino</span
+                >
+                <span>試試範例</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1000,6 +1118,14 @@
     {/if}
   </footer>
 </div>
+
+<KeywordManagerModal
+  bind:isOpen={isKeywordManagerOpen}
+  initialMode={keywordManagerMode}
+  prefillPrompt={keywordPrefillPrompt}
+  onSavedCustomKeyword={handleSavedCustomKeyword}
+  onKeywordHiddenOrDeleted={(id) => darkroomState.removeStyleKeyword(id)}
+/>
 
 <style>
   .ai-assistant-dock {
@@ -1594,6 +1720,29 @@
     background: rgba(226, 157, 82, 0.16);
     border-color: var(--amber-highlight);
   }
+  .vibe-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .vibe-manage-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 7px;
+    font-size: 10px;
+    color: var(--parchment-muted);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.14s ease;
+  }
+  .vibe-manage-btn:hover {
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+    background: rgba(226, 157, 82, 0.12);
+  }
   .vibe-chips-grid {
     display: flex;
     flex-wrap: wrap;
@@ -1612,6 +1761,19 @@
     cursor: pointer;
     transition: all 0.14s ease;
   }
+  .vibe-keyword-chip.is-custom {
+    border-style: dashed;
+    border-color: rgba(226, 157, 82, 0.35);
+  }
+  .vibe-keyword-chip.is-modified .vibe-chip-dot {
+    background: #90caf9;
+  }
+  .vibe-keyword-chip.add-chip {
+    color: var(--parchment-dim);
+    border-style: dashed;
+    border-color: rgba(255, 255, 255, 0.18);
+    font-size: 10.5px;
+  }
   .vibe-keyword-chip:hover {
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(226, 157, 82, 0.5);
@@ -1619,6 +1781,7 @@
   }
   .vibe-keyword-chip.active {
     background: rgba(226, 157, 82, 0.18);
+    border-style: solid;
     border-color: var(--amber-highlight);
     color: var(--amber-highlight);
     font-weight: 600;
@@ -1790,6 +1953,30 @@
   .vibe-intent-status.active {
     color: var(--amber-highlight);
     font-weight: 600;
+  }
+  .vibe-footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+  .vibe-save-kw-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    background: rgba(226, 157, 82, 0.14);
+    border: 1px solid rgba(226, 157, 82, 0.45);
+    border-radius: 3px;
+    color: var(--amber-highlight);
+    font-size: 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.14s ease;
+  }
+  .vibe-save-kw-btn:hover {
+    background: rgba(226, 157, 82, 0.24);
+    border-color: var(--amber-highlight);
   }
   .vibe-sample-btn {
     display: inline-flex;

@@ -31,6 +31,11 @@ export interface StyleKeywordEntry {
   shortTag: string;
   tooltip: string;
   promptEnglish: string;
+  isCustom?: boolean;
+  isModified?: boolean;
+  hidden?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 /**
@@ -92,11 +97,14 @@ export const STYLE_KEYWORD_ENTRIES: StyleKeywordEntry[] = [
 /**
  * 依據選取的風格關鍵字清單，自動組合專業英文光學指令
  */
-export function composeStyleKeywordPrompt(ids: StyleKeywordId[]): string {
+export function composeStyleKeywordPrompt(
+  ids: StyleKeywordId[],
+  entries: StyleKeywordEntry[] = STYLE_KEYWORD_ENTRIES
+): string {
   if (!Array.isArray(ids) || ids.length === 0) return '';
   const parts: string[] = [];
   for (const id of ids) {
-    const entry = STYLE_KEYWORD_ENTRIES.find((k) => k.id === id);
+    const entry = entries.find((k) => k.id === id);
     if (entry && entry.promptEnglish) {
       parts.push(entry.promptEnglish);
     }

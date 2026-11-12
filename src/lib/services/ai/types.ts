@@ -22,7 +22,7 @@ export type StylePresetKey =
   | 'lowsun'
   | 'auto';
 
-export type StyleKeywordId =
+export type BuiltinStyleKeywordId =
   | 'film_like'
   | 'lomo'
   | 'airy_jp'
@@ -30,6 +30,8 @@ export type StyleKeywordId =
   | 'faded_vintage'
   | 'neon_wkw'
   | 'gritty_mono';
+
+export type StyleKeywordId = BuiltinStyleKeywordId | (string & {});
 
 export interface VisionInferenceOptions {
   apiKey: string;

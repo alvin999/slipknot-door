@@ -7,10 +7,10 @@
 
 import { AiSceneService } from "$lib/services/aiSceneService";
 import { KeyVaultService } from "$lib/services/keyVaultService";
-import { STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
 import { thumbnailRenderService } from "$lib/services/thumbnailRenderService.svelte";
 import { darkroomState } from "$lib/stores/darkroomState.svelte";
 import { lutCatalog } from "$lib/stores/lutCatalog.svelte";
+import { styleKeywordCatalog } from "$lib/stores/styleKeywordCatalog.svelte";
 import {
   photoLibrary,
   type PhotoPlateItem,
@@ -327,8 +327,7 @@ export class AiPipelineStore {
     if (darkroomState.selectedStyleKeywords.length > 0 || userPrompt) {
       const kwLabels = darkroomState.selectedStyleKeywords
         .map(
-          (id) =>
-            STYLE_KEYWORD_ENTRIES.find((k) => k.id === id)?.shortTag || id,
+          (id) => styleKeywordCatalog.findById(id)?.shortTag || id,
         )
         .concat(userPrompt ? [userPrompt] : []);
       await this.appendAiLog(

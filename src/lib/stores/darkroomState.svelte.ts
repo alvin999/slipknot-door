@@ -14,8 +14,8 @@ import {
 } from "$lib/types/photo";
 import type { PhotoPlateItem } from "./photoLibrary.svelte";
 import { lutCatalog } from "./lutCatalog.svelte";
+import { styleKeywordCatalog } from "./styleKeywordCatalog.svelte";
 import type { StyleKeywordId, StylePresetKey } from "$lib/services/ai/types";
-import { composeStyleKeywordPrompt, STYLE_KEYWORD_ENTRIES } from "$lib/services/ai/styleDirectives";
 
 export type DiffMode = "off" | "split" | "sideBySide";
 export type CropRatioPreset = "original" | "1:1" | "4:5" | "16:9" | "9:16" | "free";
@@ -226,34 +226,62 @@ export class DarkroomStateStore {
   }
 
   /**
-   * 開始編輯指定標籤的指令內容
+   * 開始編輯指定標籤的指令內容（暫態草稿，需點擊儲存才會寫入 localStorage）
    */
   startEditingKeyword(id: StyleKeywordId): void {
-    if (!this.keywordOverrides[id]) {
-      const entry = STYLE_KEYWORD_ENTRIES.find((k) => k.id === id);
+    if (this.keywordOverrides[id] === undefined) {
+      const entry = styleKeywordCatalog.findById(id);
       if (entry?.promptEnglish) {
-        this.keywordOverrides[id] = entry.promptEnglish;
+        this.keywordOverrides = {
+          ...this.keywordOverrides,
+          [id]: entry.promptEnglish,
+        };
       }
     }
     this.editingKeywordId = id;
   }
 
   /**
-   * 完成編輯指定標籤
+   * 完成編輯指定標籤（僅保留為本次工作階段的暫時微調，不寫入儲存）
    */
   stopEditingKeyword(): void {
     this.editingKeywordId = null;
   }
 
   /**
-   * 更新指定標籤的自訂指令
+   * 更新指定標籤的暫時指令草稿
    */
   updateKeywordOverride(id: StyleKeywordId, text: string): void {
-    this.keywordOverrides[id] = text;
+    this.keywordOverrides = {
+      ...this.keywordOverrides,
+      [id]: text,
+    };
   }
 
   /**
-   * 還原指定標籤為預設指令
+   * 將目前暫時微調的關鍵字指令正式儲存至 localStorage
+   */
+  saveKeywordOverrideToStorage(id: StyleKeywordId): boolean {
+    const draft = this.keywordOverrides[id] ?? this.getKeywordDirective(id);
+    const trimmed = draft.trim();
+    if (!trimmed) return false;
+
+    const updated = styleKeywordCatalog.updateKeyword(id, {
+      promptEnglish: trimmed,
+    });
+    if (!updated) return false;
+
+    const next = { ...this.keywordOverrides };
+    delete next[id];
+    this.keywordOverrides = next;
+    if (this.editingKeywordId === id) {
+      this.editingKeywordId = null;
+    }
+    return true;
+  }
+
+  /**
+   * 捨棄指定標籤的暫時微調草稿，恢復為目前儲存值
    */
   resetKeywordOverride(id: StyleKeywordId): void {
     const next = { ...this.keywordOverrides };
@@ -262,13 +290,13 @@ export class DarkroomStateStore {
   }
 
   /**
-   * 取得指定標籤目前的生效指令
+   * 取得指定標籤目前的生效指令（暫時草稿優先，否則讀取關鍵字典藏庫）
    */
   getKeywordDirective(id: StyleKeywordId): string {
     if (this.keywordOverrides[id] !== undefined) {
       return this.keywordOverrides[id];
     }
-    const entry = STYLE_KEYWORD_ENTRIES.find((k) => k.id === id);
+    const entry = styleKeywordCatalog.findById(id);
     return entry?.promptEnglish || "";
   }
 
