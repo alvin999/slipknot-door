@@ -31,7 +31,6 @@
   }: Props = $props();
 
   let autoPolling = $state<boolean>(true);
-  let cacheStatusText = $state<string>('極速預覽快取良好（50ms 記憶體抽取）');
   let showWebSandboxDetails = $state<boolean>(false);
   let isWebMode = $derived(!IngestionService.isTauri());
 
@@ -61,13 +60,6 @@
     if (status.mode === 'password') return '密碼加密 (PBKDF2)';
     if (status.mode === 'transparent') return '透明加密 (AES-GCM)';
     return '無加密 (明文)';
-  }
-
-  function clearPreviewCache() {
-    cacheStatusText = '已清理暫存快取標頭';
-    setTimeout(() => {
-      cacheStatusText = '極速預覽快取良好（50ms 記憶體抽取）';
-    }, 2500);
   }
 </script>
 
@@ -433,23 +425,6 @@
           {/if}
         </div>
       {/if}
-
-      <!-- LOCAL CACHE MANAGEMENT -->
-      <div class="status-section hairline-all">
-        <div class="section-top font-mono">
-          <div class="status-indicator-box">
-            <span class="material-symbols-outlined" style="font-size: 18px; color: var(--parchment-muted);">memory</span>
-            <span class="section-heading font-headline">50ms 內嵌 JPEG 極速快取管理</span>
-          </div>
-          <button type="button" class="tool-btn font-mono" onclick={clearPreviewCache}>
-            清理快取
-          </button>
-        </div>
-
-        <p class="cache-desc font-body">
-          {cacheStatusText}。內嵌 JPEG 與光學 EXIF 解析引擎採純二進位標頭抽取（不執行全尺寸去馬賽克），僅佔用微量記憶體快取。
-        </p>
-      </div>
     </div>
   </div>
 </div>
@@ -723,13 +698,6 @@
 
   .vault-val.dim {
     color: var(--parchment-dim);
-  }
-
-  .cache-desc {
-    font-size: 12px;
-    color: var(--parchment-muted);
-    line-height: 1.6;
-    margin: 0;
   }
 
   .spin {
