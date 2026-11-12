@@ -12,6 +12,7 @@ import {
   type HslAdjustments,
 } from '../types/photo';
 import { AiEngineFactory } from './ai/engineFactory';
+import { resolveLockedProfileId } from './ai/styleDirectives';
 
 export interface AiSceneDecision {
   scene_type: string;
@@ -64,6 +65,8 @@ export interface AnalyzeSceneOptions {
   renderPreview?: (previewSrc: string, decision: AiSceneDecision) => Promise<string | null>;
   scope?: AiScopePreferences;
   monochrome?: boolean;
+  /** 當 scope.lutProfile 關閉（凍結 LUT 強度）時，傳入目前實際強度供覆審預覽維持原狀 */
+  currentLutIntensity?: number;
 }
 
 export interface CopywritingPayload {
@@ -279,6 +282,12 @@ export class AiSceneService {
         const scope = options?.scope;
         const needGeometry = !scope || scope.crop || scope.keystone;
         const needColor = !scope || scope.tone || scope.whiteBalance || scope.lutProfile || scope.filmPhysics !== false;
+        const lockedProfileId = resolveLockedProfileId(options?.stylePreset, options?.customLuts);
+        const allowAiLutIntensity = !scope || scope.lutProfile;
+        const frozenLutIntensity =
+          !allowAiLutIntensity && typeof options?.currentLutIntensity === 'number'
+            ? options.currentLutIntensity
+            : undefined;
 
         // 【分階段智慧排程管線】
         // 若使用者指派了 scope，且幾何與調色同時需要，由 strategy 分步推論
@@ -344,7 +353,7 @@ export class AiSceneService {
             scene_title: colorDecision.scene_title || '光影畫面顯影',
             style_insight: colorDecision.style_insight || 'AI 已完成分步幾何構圖與階調調校。',
             recommended_mood: colorDecision.recommended_mood || '底片氛圍調性',
-            recommended_profile: colorDecision.recommended_profile || 'Profile_00_StandardNatural',
+            recommended_profile: lockedProfileId || colorDecision.recommended_profile || 'Profile_00_StandardNatural',
             exposure_compensation: typeof colorDecision.exposure_compensation === 'number' ? colorDecision.exposure_compensation : 0.0,
             highlights: typeof colorDecision.highlights === 'number' ? colorDecision.highlights : 0.0,
             contrast: typeof colorDecision.contrast === 'number' ? colorDecision.contrast : 0.0,
@@ -353,7 +362,7 @@ export class AiSceneService {
             lift_shadows: typeof colorDecision.lift_shadows === 'number' ? colorDecision.lift_shadows : 0.0,
             blacks: typeof colorDecision.blacks === 'number' ? colorDecision.blacks : 0.0,
             vibrance: typeof colorDecision.vibrance === 'number' ? colorDecision.vibrance : 0.0,
-            lut_intensity: typeof colorDecision.lut_intensity === 'number' ? colorDecision.lut_intensity : 0.85,
+            lut_intensity: frozenLutIntensity ?? (typeof colorDecision.lut_intensity === 'number' ? colorDecision.lut_intensity : 0.85),
             clarity: typeof colorDecision.clarity === 'number' ? colorDecision.clarity : 0.0,
             sharpness: typeof colorDecision.sharpness === 'number' ? colorDecision.sharpness : 0.0,
             color_density: typeof colorDecision.color_density === 'number' ? colorDecision.color_density : 0.0,
@@ -430,7 +439,7 @@ export class AiSceneService {
             scene_title: colorDecision.scene_title || '光影畫面顯影',
             style_insight: colorDecision.style_insight || 'AI 已完成光影與色調分級。',
             recommended_mood: colorDecision.recommended_mood || '底片氛圍調性',
-            recommended_profile: colorDecision.recommended_profile || 'Profile_00_StandardNatural',
+            recommended_profile: lockedProfileId || colorDecision.recommended_profile || 'Profile_00_StandardNatural',
             exposure_compensation: typeof colorDecision.exposure_compensation === 'number' ? colorDecision.exposure_compensation : 0.0,
             highlights: typeof colorDecision.highlights === 'number' ? colorDecision.highlights : 0.0,
             contrast: typeof colorDecision.contrast === 'number' ? colorDecision.contrast : 0.0,
@@ -439,7 +448,7 @@ export class AiSceneService {
             lift_shadows: typeof colorDecision.lift_shadows === 'number' ? colorDecision.lift_shadows : 0.0,
             blacks: typeof colorDecision.blacks === 'number' ? colorDecision.blacks : 0.0,
             vibrance: typeof colorDecision.vibrance === 'number' ? colorDecision.vibrance : 0.0,
-            lut_intensity: typeof colorDecision.lut_intensity === 'number' ? colorDecision.lut_intensity : 0.85,
+            lut_intensity: frozenLutIntensity ?? (typeof colorDecision.lut_intensity === 'number' ? colorDecision.lut_intensity : 0.85),
             clarity: typeof colorDecision.clarity === 'number' ? colorDecision.clarity : 0.0,
             sharpness: typeof colorDecision.sharpness === 'number' ? colorDecision.sharpness : 0.0,
             color_density: typeof colorDecision.color_density === 'number' ? colorDecision.color_density : 0.0,
@@ -476,6 +485,12 @@ export class AiSceneService {
             timeoutMs: 180000,
             monochrome: options?.monochrome,
           });
+          if (lockedProfileId) {
+            decision.recommended_profile = lockedProfileId;
+          }
+          if (frozenLutIntensity !== undefined) {
+            decision.lut_intensity = frozenLutIntensity;
+          }
         }
 
         // Pass 1 視覺分析完成，即時輸出初判成果與風格洞見
@@ -526,6 +541,7 @@ export class AiSceneService {
                 styleKeywords: options.styleKeywords,
                 customStylePrompt: options.customStylePrompt,
                 monochrome: options.monochrome,
+                scope: options.scope,
               });
 
               // 記錄 Pass 1 原始基準值以供差值對照紀錄
@@ -562,7 +578,7 @@ export class AiSceneService {
               if (typeof refinement.tint_delta === 'number') {
                 decision.tint = parseFloat(clamp(prevTint + refinement.tint_delta, -100.0, 100.0).toFixed(1));
               }
-              if (typeof refinement.lut_intensity_delta === 'number') {
+              if (allowAiLutIntensity && typeof refinement.lut_intensity_delta === 'number') {
                 decision.lut_intensity = parseFloat(clamp(prevLut + refinement.lut_intensity_delta, 0.0, 1.0).toFixed(2));
               }
               if (typeof refinement.clarity_delta === 'number') {
@@ -645,7 +661,7 @@ export class AiSceneService {
                   const newTint = decision.tint ?? 0.0;
                   diffLogs.push(`  • 色調 (Tint): ${refinement.tint_delta > 0 ? '+' : ''}${refinement.tint_delta.toFixed(1)} (${prevTint >= 0 ? '+' : ''}${prevTint.toFixed(1)} → ${newTint >= 0 ? '+' : ''}${newTint.toFixed(1)})`);
                 }
-                if (typeof refinement.lut_intensity_delta === 'number' && Math.abs(refinement.lut_intensity_delta) >= 0.01) {
+                if (allowAiLutIntensity && typeof refinement.lut_intensity_delta === 'number' && Math.abs(refinement.lut_intensity_delta) >= 0.01) {
                   diffLogs.push(`  • LUT 濃度: ${formatDelta(refinement.lut_intensity_delta)} (${prevLut.toFixed(2)} → ${decision.lut_intensity.toFixed(2)})`);
                 }
                 if (typeof refinement.clarity_delta === 'number' && Math.abs(refinement.clarity_delta) >= 0.01) {

@@ -155,6 +155,7 @@ export interface RefinementInferenceOptions {
   styleKeywords?: StyleKeywordId[];
   customStylePrompt?: string;
   monochrome?: boolean;
+  scope?: AiScopePreferences;
 }
 
 export interface RefinementDecision {

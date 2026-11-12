@@ -314,7 +314,8 @@ Respond ONLY with raw JSON matching this schema:
       options.stylePreset,
       options.styleKeywords,
       options.customStylePrompt,
-      options.monochrome
+      options.monochrome,
+      options.scope
     );
 
     let response: Response;

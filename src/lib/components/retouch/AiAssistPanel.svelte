@@ -138,7 +138,7 @@
     { key: "lutProfile", label: "3D LUT 風格推薦", short: "LUT", icon: "palette" },
     { key: "tone", label: "基礎光影與動態", short: "光影", icon: "tonality" },
     { key: "whiteBalance", label: "自動色溫與色偏", short: "白平衡", icon: "thermostat" },
-    { key: "filmPhysics", label: "分區調色與底片質感", short: "底片質感", icon: "grain" },
+    { key: "filmPhysics", label: "分區調色與質感", short: "底片質感", icon: "grain" },
     { key: "crop", label: "智慧構圖與裁切", short: "構圖裁切", icon: "crop" },
     { key: "keystone", label: "梯形與水平校正", short: "水平透視", icon: "straighten" },
   ];
@@ -149,13 +149,57 @@
     return Boolean(currentAiScope[key]);
   }
 
+  // 當前選中的風格預設物件（置於動態 Scope 摘要前以利衍生）
+  const selectedPresetObj = $derived(
+    styleGradingPresets.find((p) => p.key === darkroomState.activeStylePreset) ||
+      styleGradingPresets[0],
+  );
+  const isStyleLocked = $derived(darkroomState.activeStylePreset !== "auto");
+  const lockedStyleLabel = $derived(
+    selectedPresetObj?.shortLabel || selectedPresetObj?.title || "指定風格",
+  );
+
+  function getScopeItemLabel(item: (typeof SCOPE_ITEMS)[number]): string {
+    if (item.key === "lutProfile" && isStyleLocked) {
+      return "LUT 濃度微調";
+    }
+    return item.label;
+  }
+
+  function getScopeItemShort(item: (typeof SCOPE_ITEMS)[number]): string {
+    if (item.key === "lutProfile" && isStyleLocked) {
+      return "LUT 濃度";
+    }
+    return item.short;
+  }
+
+  function getScopeItemTitle(
+    item: (typeof SCOPE_ITEMS)[number],
+    checked: boolean,
+  ): string {
+    if (item.key === "lutProfile") {
+      if (isStyleLocked) {
+        return checked
+          ? `已由 STEP 1 鎖定「${lockedStyleLabel}」，AI 僅微調 LUT 濃度（點擊可凍結目前濃度）`
+          : `已由 STEP 1 鎖定「${lockedStyleLabel}」且凍結 LUT 濃度，AI 不會變動風格與強度滑桿`;
+      }
+      return checked
+        ? "由 AI 自動挑選最適合畫面的 3D LUT 風格與濃度"
+        : "保留目前 3D LUT 風格與濃度不變";
+    }
+    if (item.key === "filmPhysics") {
+      return "分區調色與底片質感（自然飽和度、色彩密度、分區色調、光暈、微粒、暗角與 HSL）";
+    }
+    return item.label;
+  }
+
   const aiScopeActiveCount = $derived(
     SCOPE_ITEMS.filter((item) => isScopeEnabled(item.key)).length,
   );
 
   const activeScopeSummary = $derived(
     SCOPE_ITEMS.filter((item) => isScopeEnabled(item.key))
-      .map((i) => i.short)
+      .map((i) => getScopeItemShort(i))
       .join(" · "),
   );
 
@@ -174,12 +218,6 @@
     if (found) return found.title || found.shortLabel;
     return pid.replace(/^Profile_\d+_/, "");
   });
-
-  // 當前選中的風格預設物件
-  const selectedPresetObj = $derived(
-    styleGradingPresets.find((p) => p.key === darkroomState.activeStylePreset) ||
-      styleGradingPresets[0],
-  );
 
   // 判斷是否已有 AI 判讀結果可展示
   const hasAiReportData = $derived(
@@ -967,7 +1005,7 @@
                 onToggleAiScope
                   ? onToggleAiScope(item.key)
                   : aiPipeline.toggleAiScope(item.key as any)}
-              title={item.label}
+              title={getScopeItemTitle(item, checked)}
             >
               <span
                 class="material-symbols-outlined scope-item-icon"
@@ -975,7 +1013,7 @@
               >
                 {checked ? "check_box" : "check_box_outline_blank"}
               </span>
-              <span class="scope-item-text">{item.label}</span>
+              <span class="scope-item-text">{getScopeItemLabel(item)}</span>
             </button>
           {/each}
         </div>

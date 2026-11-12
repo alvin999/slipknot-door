@@ -206,6 +206,21 @@ export function buildLutManifestPrompt(customLuts?: CustomLutRecord[]): string {
 }
 
 /**
+ * 依據 stylePreset 與使用者自訂 LUT 清單，解析是否已鎖定特定 3D LUT Profile ID
+ * （非 'auto' 且存在對應內建或自訂 LUT 時回傳該 profileId，否則回傳 undefined）
+ */
+export function resolveLockedProfileId(
+  preset?: StylePresetKey | string,
+  customLuts?: CustomLutRecord[]
+): string | undefined {
+  if (!preset || preset === 'auto') return undefined;
+  const entry = LUT_DIRECTIVE_ENTRIES.find((e) => e.presetKey === preset);
+  if (entry) return entry.profileId;
+  const customFound = customLuts?.find((c) => c.id === preset);
+  return customFound?.id;
+}
+
+/**
  * 根據使用者選擇的 `stylePreset`、關鍵字按鈕 (`styleKeywords`)、自訂文字 (`customStylePrompt`) 與使用者自訂 LUT 清單產生對應的風格背景資訊與調色指令
  */
 export function buildStyleInstructionBlock(
@@ -217,9 +232,11 @@ export function buildStyleInstructionBlock(
 ): {
   instructionBlock: string;
   recommendedProfileSchemaHint: string;
+  isProfileLocked: boolean;
 } {
   let baseBlock = '';
   let recommendedProfileSchemaHint = 'string (One ID from Available 3D LUT Profiles)';
+  let isProfileLocked = false;
 
   if (!preset || preset === 'auto') {
     const manifest = buildLutManifestPrompt(customLuts);
@@ -231,14 +248,16 @@ ${manifest}`;
     // 1. 優先檢查是否為內建 10 款 LUT 或別名
     const entry = LUT_DIRECTIVE_ENTRIES.find((e) => e.presetKey === preset);
     if (entry) {
-      baseBlock = `Selected 3D LUT Profile: "${entry.profileId}": ${entry.prototypeName}`;
+      baseBlock = `Selected 3D LUT Profile (Locked by User): "${entry.profileId}": ${entry.prototypeName}`;
       recommendedProfileSchemaHint = `"${entry.profileId}"`;
+      isProfileLocked = true;
     } else {
       // 2. 檢查是否為使用者自訂的 LUT (例如 "custom_xxx")
       const customFound = customLuts?.find((c) => c.id === preset);
       if (customFound) {
-        baseBlock = `Selected 3D LUT Profile: "${customFound.id}": [User Custom 3D LUT] ${customFound.name} (${customFound.directiveDescription})`;
+        baseBlock = `Selected 3D LUT Profile (Locked by User): "${customFound.id}": [User Custom 3D LUT] ${customFound.name} (${customFound.directiveDescription})`;
         recommendedProfileSchemaHint = `"${customFound.id}"`;
+        isProfileLocked = true;
       } else {
         const manifest = buildLutManifestPrompt(customLuts);
         baseBlock = `Available 3D LUT Profiles:\n${manifest}`;
@@ -298,6 +317,7 @@ ${manifest}`;
   return {
     instructionBlock: baseBlock,
     recommendedProfileSchemaHint,
+    isProfileLocked,
   };
 }
 
@@ -310,7 +330,8 @@ export function buildCriticInstructionBlock(
   stylePreset?: StylePresetKey,
   styleKeywords?: StyleKeywordId[],
   customStylePrompt?: string,
-  monochrome?: boolean
+  monochrome?: boolean,
+  scope?: AiScopePreferences
 ): string {
   const isDecisionObj = typeof firstPassInput === 'object' && firstPassInput !== null;
   const firstPassProfile = isDecisionObj ? firstPassInput.recommended_profile : firstPassInput;
@@ -373,6 +394,7 @@ export function buildCriticInstructionBlock(
   const monochromeLine = monochrome
     ? `- Monochrome Output Mode: ACTIVE (User-selected B&W output). Image 2 is rendered in monochrome; keep vibrance_delta & color_density_delta at 0.0, use hsl_deltas[band].lum as B&W optical filter refinements, and preserve neutral grayscale unless subtle darkroom split-toning is intended.\n`
     : '';
+  const enableLutIntensity = !scope || scope.lutProfile;
 
   let criticPrompt = `You are a darkroom quality-control colorist and technical critic.
 You are inspecting TWO images:
@@ -397,8 +419,10 @@ ${aestheticLine}${monochromeLine}- Since you have Image 2 (rendered actual resul
   4. COLOR TEMPERATURE & AMBIENT HARMONY (color_temp_delta, valid range: -3000 to 3000 Kelvin; tint_delta, optional, valid range: -100.0 to 100.0):
      - Supply the necessary Kelvin adjustment within [-3000, 3000] K to harmonize ambient scene lighting with the selected film profile and aesthetic targets.
      - Supply a tint delta within [-100.0, 100.0] to adjust the green-magenta balance relative to the target aesthetic.
-  5. 3D LUT INTENSITY (lut_intensity_delta, optional, valid range: -1.0 to 1.0):
-     - Modulate the 3D LUT's volumetric influence within [-1.0, 1.0] if a more subtle or distinct profile presence is desired.
+  5. 3D LUT INTENSITY (${enableLutIntensity ? 'lut_intensity_delta, optional, valid range: -1.0 to 1.0' : 'LOCKED by user preference'}):
+     - ${enableLutIntensity
+       ? "Modulate the 3D LUT's volumetric influence within [-1.0, 1.0] if a more subtle or distinct profile presence is desired."
+       : 'User froze LUT intensity; keep LUT intensity untouched and do NOT emit lut_intensity_delta.'}
   6. OPTICAL TEXTURE & ACUTANCE (clarity_delta & sharpness_delta, optional, valid range: -0.5 to 0.5):
      - Supply a negative delta within [-0.5, 0.0] to soften micro-contrast or edge steepness relative to target character.
      - Supply a positive delta within [0.0, 0.5] when stronger micro-contrast or fine detail accentuation is warranted.
@@ -423,8 +447,7 @@ Respond ONLY with raw JSON matching this schema:
   "blacks_delta": "number between -0.5 and 0.5 (optional black point anchor adjustment, 0.0 if optimal)",
   "color_temp_delta": "integer between -3000 and 3000 (Kelvin adjustment, 0 if accurate)",
   "tint_delta": "number between -100.0 and 100.0 (optional tint adjustment, 0.0 if balanced)",
-  "contrast_delta": "number between -0.8 and 0.8 (contrast adjustment, 0.0 if balanced)",
-  "lut_intensity_delta": "number between -1.0 and 1.0 (optional LUT intensity adjustment, 0.0 if optimal)",
+  "contrast_delta": "number between -0.8 and 0.8 (contrast adjustment, 0.0 if balanced)",${enableLutIntensity ? '\n  "lut_intensity_delta": "number between -1.0 and 1.0 (optional LUT intensity adjustment, 0.0 if optimal)",' : ''}
   "clarity_delta": "number between -0.5 and 0.5 (optional clarity adjustment, 0.0 if optimal)",
   "sharpness_delta": "number between -0.5 and 0.5 (optional sharpness adjustment, 0.0 if optimal)",
   "vibrance_delta": "number between -0.5 and 0.5 (optional skin-aware vibrance adjustment, 0.0 if optimal)",
@@ -541,7 +564,7 @@ Respond ONLY with raw JSON matching this schema:
 export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions): string {
   const { exif, stylePreset, styleKeywords, customStylePrompt, customLuts, scope, monochrome } = options;
 
-  const { instructionBlock, recommendedProfileSchemaHint } = buildStyleInstructionBlock(
+  const { instructionBlock, recommendedProfileSchemaHint, isProfileLocked } = buildStyleInstructionBlock(
     stylePreset,
     styleKeywords,
     customStylePrompt,
@@ -552,7 +575,8 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
   // 根據 AiScope 偏好決定啟用的物理通道，若未傳入 scope 則預設全開
   const enableTone = !scope || scope.tone;
   const enableWb = !scope || scope.whiteBalance;
-  const enableLut = !scope || scope.lutProfile;
+  const enableLutIntensity = !scope || scope.lutProfile;
+  const enableProfileSelection = enableLutIntensity && !isProfileLocked;
   const enableFilmPhysics = !scope || scope.filmPhysics !== false;
 
   const channels: string[] = [];
@@ -567,8 +591,10 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
   if (enableWb) {
     channels.push('7. color_temp & tint: Pre-LUT white balance (color_temp: integer 2800 to 8500, 5500 baseline; tint: -100.0 to +100.0).');
   }
-  if (enableLut) {
+  if (enableProfileSelection) {
     channels.push('8. recommended_profile & lut_intensity: 3D film volumetric emulation (lut_intensity: 0.0 to 1.0).');
+  } else if (enableLutIntensity) {
+    channels.push('8. lut_intensity: 3D film LUT volumetric strength (0.0 to 1.0) for the user-locked 3D LUT profile.');
   }
   if (enableFilmPhysics) {
     channels.push('9. vibrance [-1.0 to +1.0, baseline: 0.0]: Post-LUT skin-aware natural saturation scaling. Modulates muted chromatic regions proportionally while protecting skin tones.');
@@ -580,6 +606,12 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
     channels.push('15. vignette [-1.0 to +1.0, baseline: 0.0]: Optical radial peripheral falloff. Negative darkens outer corners; positive brightens outer corners.');
     channels.push('16. hsl (optional partial 6-band color mixer): Adjust targeted hue (±30° normalized to -1.0..1.0), saturation (-1.0..1.0), and luminance (-1.0..1.0) per band ("red" | "orange" | "yellow" | "green" | "cyan" | "blue"). Omit bands that remain 0.0.');
   }
+
+  const lutSchemaFields = enableProfileSelection
+    ? `,\n  "recommended_profile": "${recommendedProfileSchemaHint}",\n  "lut_intensity": "number between 0.0 and 1.0"`
+    : enableLutIntensity
+      ? `,\n  "lut_intensity": "number between 0.0 and 1.0"`
+      : '';
 
   return `You are a radiometric calibration and volumetric color grading specialist.
 The geometric frame and perspective have already been stabilized. Analyze the optical luminance distribution and chromatic harmony of this image.
@@ -598,6 +630,6 @@ Respond ONLY with raw JSON matching this schema:
   "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
   "style_insight": "string (1-2 sentences in Traditional Chinese)",
   "recommended_mood": "string (short mood label in Traditional Chinese)",
-  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${enableLut ? `,\n  "recommended_profile": "${recommendedProfileSchemaHint}",\n  "lut_intensity": "number between 0.0 and 1.0"` : ''}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "highlights": "number between -1.0 and +1.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "blacks": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}${enableFilmPhysics ? `,\n  "vibrance": "number between -1.0 and +1.0",\n  "color_density": "number between -1.0 and +1.0",\n  "shadow_hue": "number between 0 and 360",\n  "shadow_tint_amount": "number between 0.0 and 1.0",\n  "highlight_hue": "number between 0 and 360",\n  "highlight_tint_amount": "number between 0.0 and 1.0",\n  "halation": "number between 0.0 and 1.0",\n  "grain_amount": "number between 0.0 and 1.0",\n  "vignette": "number between -1.0 and +1.0",\n  "hsl": "optional partial object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-1.0, +1.0]"` : ''}
+  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${lutSchemaFields}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "highlights": "number between -1.0 and +1.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "blacks": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}${enableFilmPhysics ? `,\n  "vibrance": "number between -1.0 and +1.0",\n  "color_density": "number between -1.0 and +1.0",\n  "shadow_hue": "number between 0 and 360",\n  "shadow_tint_amount": "number between 0.0 and 1.0",\n  "highlight_hue": "number between 0 and 360",\n  "highlight_tint_amount": "number between 0.0 and 1.0",\n  "halation": "number between 0.0 and 1.0",\n  "grain_amount": "number between 0.0 and 1.0",\n  "vignette": "number between -1.0 and +1.0",\n  "hsl": "optional partial object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-1.0, +1.0]"` : ''}
 }`;
 }

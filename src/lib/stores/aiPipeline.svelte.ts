@@ -262,14 +262,19 @@ export class AiPipelineStore {
   /**
    * 套用底片風格檔並排程縮圖重繪
    */
-  private applyProfileToActivePhoto(profileId: string): void {
+  private applyProfileToActivePhoto(
+    profileId: string,
+    resetDefaults = true,
+  ): void {
     const activePhoto = photoLibrary.activePhoto;
     if (!activePhoto) return;
     activePhoto.appliedProfile = profileId;
     photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
       p.id === activePhoto.id ? { ...p, appliedProfile: profileId } : p,
     );
-    darkroomState.applyProfileDefaults(profileId);
+    if (resetDefaults) {
+      darkroomState.applyProfileDefaults(profileId);
+    }
     this.onTriggerRender?.();
     thumbnailRenderService.enqueueThumbnailRender(activePhoto);
   }
@@ -342,6 +347,29 @@ export class AiPipelineStore {
         : (photoToProcess.tuning?.monochrome ?? false);
 
     const activeStylePreset = darkroomState.activeStylePreset;
+    // 使用者指定風格（非自動配對）時鎖定目標 3D LUT；是否交由 AI 調整 LUT 濃度仍由 aiScope.lutProfile 控制
+    const forcedProfileId =
+      activeStylePreset !== "auto"
+        ? lutCatalog.allStyleGradingPresets.find(
+            (sp) => sp.key === activeStylePreset,
+          )?.profileId
+        : undefined;
+    const isStyleLocked = Boolean(forcedProfileId);
+    const applyLutProfile = this.aiScope.lutProfile || isStyleLocked;
+    const applyLutIntensity = this.aiScope.lutProfile;
+
+    const previewTargetProfile =
+      forcedProfileId || photoToProcess.appliedProfile;
+    const previewFoundProfile = lutCatalog.allProfiles.find(
+      (pr) => pr.id === previewTargetProfile,
+    );
+    const frozenLutIntensityFallback =
+      photoToProcess.appliedProfile === previewTargetProfile
+        ? (photoToProcess.tuning?.lutIntensity ??
+          (previewFoundProfile ? previewFoundProfile.lutIntensityDefault : 1.0))
+        : (previewFoundProfile
+            ? previewFoundProfile.lutIntensityDefault
+            : (photoToProcess.tuning?.lutIntensity ?? 1.0));
 
     try {
       const decision = await AiSceneService.analyzeScene(
@@ -361,6 +389,9 @@ export class AiPipelineStore {
           customStylePrompt: finalStylePrompt || undefined,
           customLuts: lutCatalog.userCustomLuts,
           monochrome: targetMonochrome,
+          currentLutIntensity: applyLutIntensity
+            ? undefined
+            : frozenLutIntensityFallback,
           onLog: async (msg: string) => {
             await this.appendAiLog(msg, 15);
           },
@@ -375,17 +406,9 @@ export class AiPipelineStore {
         },
       );
 
-      // 使用者指定風格（非自動配對）時，強制套用對應 3D LUT，並確保足夠的 LUT 強度
-      const forcedProfileId =
-        activeStylePreset !== "auto"
-          ? lutCatalog.allStyleGradingPresets.find(
-              (sp) => sp.key === activeStylePreset,
-            )?.profileId
-          : undefined;
       if (forcedProfileId) {
         decision.recommended_profile = forcedProfileId;
       }
-      const applyLut = this.aiScope.lutProfile || !!forcedProfileId;
 
       // 若為焦點相片或單幀模式，同步頂部與面板 AI 決策狀態
       if (isCurrentActive || !this.isBatchAiRunning) {
@@ -409,12 +432,12 @@ export class AiPipelineStore {
       );
 
       // 計算目標參數值
-      const foundProfile = lutCatalog.builtinProfiles.find(
-        (pr) => pr.id === decision.recommended_profile,
-      );
-      const targetProfile = applyLut
+      const targetProfile = applyLutProfile
         ? decision.recommended_profile
         : photoToProcess.appliedProfile;
+      const foundProfile = lutCatalog.allProfiles.find(
+        (pr) => pr.id === targetProfile,
+      );
 
       const baseEv = this.aiScope.tone
         ? decision.exposure_compensation
@@ -437,10 +460,16 @@ export class AiPipelineStore {
       const baseTint = this.aiScope.whiteBalance
         ? (decision.tint ?? 0.0)
         : (photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0);
-      const baseLut = applyLut
+      const preservedLutIntensity =
+        photoToProcess.appliedProfile === targetProfile
+          ? (photoToProcess.tuning?.lutIntensity ??
+            (foundProfile ? foundProfile.lutIntensityDefault : 1.0))
+          : (foundProfile
+              ? foundProfile.lutIntensityDefault
+              : (photoToProcess.tuning?.lutIntensity ?? 1.0));
+      const baseLut = applyLutIntensity
         ? decision.lut_intensity
-        : (photoToProcess.tuning?.lutIntensity ??
-          (foundProfile ? foundProfile.lutIntensityDefault : 1.0));
+        : preservedLutIntensity;
       const baseClarity = this.aiScope.tone
         ? (decision.clarity ?? 0.0)
         : (photoToProcess.tuning?.clarity ?? 0.0);
@@ -520,7 +549,17 @@ export class AiPipelineStore {
           15,
         );
       }
-      if (applyLut) {
+      if (isStyleLocked && applyLutIntensity) {
+        await this.appendAiLog(
+          `> [AI_LUT] 風格鎖定：${targetProfile} · AI 微調濃度 (${origLut.toFixed(2)} → ${baseLut.toFixed(2)})`,
+          15,
+        );
+      } else if (isStyleLocked && !applyLutIntensity) {
+        await this.appendAiLog(
+          `> [AI_LUT] 風格鎖定：${targetProfile} · 凍結目前濃度 (${baseLut.toFixed(2)})`,
+          15,
+        );
+      } else if (applyLutProfile) {
         await this.appendAiLog(
           `> [AI_LUT] 底片風格套用：${targetProfile} (濃度: ${origLut.toFixed(2)} → ${baseLut.toFixed(2)})`,
           15,
@@ -674,7 +713,7 @@ export class AiPipelineStore {
       // 若目前為聚焦相片且為手動單幀觸發，更新全域滑桿與動態動畫
       if (isCurrentActive) {
         if (!this.isBatchAiRunning) {
-          this.applyProfileToActivePhoto(targetProfile);
+          this.applyProfileToActivePhoto(targetProfile, false);
           const targetAnim: {
             exposure?: number;
             highlights?: number;
@@ -710,8 +749,10 @@ export class AiPipelineStore {
             targetAnim.colorTemp = baseTemp;
             targetAnim.tint = baseTint;
           }
-          if (applyLut) {
+          if (applyLutIntensity) {
             targetAnim.lutIntensity = baseLut;
+          } else {
+            darkroomState.lutIntensity = baseLut;
           }
           if (applyFilmPhysics) {
             targetAnim.vibrance = baseVibrance;
