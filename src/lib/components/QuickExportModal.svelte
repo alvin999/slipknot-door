@@ -2,11 +2,11 @@
   import {
     ExportService,
     getExportExtension,
-    type ExportFormat
-  } from '$lib/services/exportService';
+    type ExportFormat,
+  } from "$lib/services/exportService";
 
   export interface QuickExportOptions {
-    mode: 'modeA' | 'modeB';
+    mode: "modeA" | "modeB";
     format: ExportFormat;
     quality: number;
     maxLongEdge: number | null;
@@ -26,35 +26,37 @@
   interface Props {
     isOpen?: boolean;
     photo: PhotoInfo | null;
-    exportMode?: 'modeA' | 'modeB';
+    exportMode?: "modeA" | "modeB";
     targetDir?: string;
     onClose: () => void;
     onExport: (options: QuickExportOptions) => Promise<void> | void;
   }
 
-  const initialDir = typeof localStorage !== 'undefined' && localStorage.getItem('slipknot_export_target_dir')
-    ? localStorage.getItem('slipknot_export_target_dir')!
-    : './Exports';
+  const initialDir =
+    typeof localStorage !== "undefined" &&
+    localStorage.getItem("slipknot_export_target_dir")
+      ? localStorage.getItem("slipknot_export_target_dir")!
+      : "./Exports";
 
   let {
     isOpen = $bindable(false),
     photo = null,
-    exportMode = 'modeA',
+    exportMode = "modeA",
     targetDir = initialDir,
     onClose,
-    onExport
+    onExport,
   }: Props = $props();
 
-  type QuickPreset = 'social' | 'high' | 'archive';
-  let selectedPreset = $state<QuickPreset>('high');
+  type QuickPreset = "social" | "high" | "archive";
+  let selectedPreset = $state<QuickPreset>("high");
   let isProcessing = $state<boolean>(false);
   let resultSuccess = $state<boolean>(false);
-  let resolvedTargetDir = $state<string>('');
+  let resolvedTargetDir = $state<string>("");
 
   const presetConfig: Record<QuickPreset, QuickExportOptions> = {
-    social: { mode: 'modeA', format: 'jpeg', quality: 0.92, maxLongEdge: 2048 },
-    high: { mode: 'modeA', format: 'jpeg', quality: 0.95, maxLongEdge: null },
-    archive: { mode: 'modeB', format: 'png', quality: 1.0, maxLongEdge: null }
+    social: { mode: "modeA", format: "jpeg", quality: 0.92, maxLongEdge: 2048 },
+    high: { mode: "modeA", format: "jpeg", quality: 0.95, maxLongEdge: null },
+    archive: { mode: "modeB", format: "png", quality: 1.0, maxLongEdge: null },
   };
 
   let activeConfig = $derived(presetConfig[selectedPreset]);
@@ -62,7 +64,7 @@
 
   // 同步外部傳入的 exportMode 與目標路徑解析
   $effect(() => {
-    selectedPreset = exportMode === 'modeB' ? 'archive' : 'high';
+    selectedPreset = exportMode === "modeB" ? "archive" : "high";
     resolvedTargetDir = targetDir;
     ExportService.resolveExportPath(targetDir).then((res) => {
       resolvedTargetDir = res;
@@ -88,20 +90,20 @@
   function handleKeydown(e: KeyboardEvent) {
     if (!isOpen) return;
 
-    if (e.key === 'Escape') {
+    if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
       onClose();
-    } else if (e.key === 'Enter') {
+    } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
       handleConfirmExport();
-    } else if (e.key === '1') {
-      selectedPreset = 'social';
-    } else if (e.key === '2') {
-      selectedPreset = 'high';
-    } else if (e.key === '3') {
-      selectedPreset = 'archive';
+    } else if (e.key === "1") {
+      selectedPreset = "social";
+    } else if (e.key === "2") {
+      selectedPreset = "high";
+    } else if (e.key === "3") {
+      selectedPreset = "archive";
     }
   }
 </script>
@@ -109,10 +111,14 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if isOpen && photo}
-  <div 
-    class="modal-backdrop" 
-    onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    onkeydown={(e) => { if (e.key === 'Escape' && e.target === e.currentTarget) onClose(); }}
+  <div
+    class="modal-backdrop"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) onClose();
+    }}
+    onkeydown={(e) => {
+      if (e.key === "Escape" && e.target === e.currentTarget) onClose();
+    }}
     role="dialog"
     aria-modal="true"
     tabindex="-1"
@@ -124,10 +130,17 @@
           <span class="material-symbols-outlined bolt-icon">bolt</span>
           <div>
             <h3 class="title font-headline">快速匯出這張相片</h3>
-            <span class="subtitle font-mono">選擇輸出用途與畫質後即可立即儲存</span>
+            <span class="subtitle font-mono"
+              >選擇輸出用途與畫質後即可立即儲存</span
+            >
           </div>
         </div>
-        <button type="button" class="close-btn" onclick={onClose} title="關閉 (Esc)">
+        <button
+          type="button"
+          class="close-btn"
+          onclick={onClose}
+          title="關閉 (Esc)"
+        >
           <span class="material-symbols-outlined">close</span>
         </button>
       </header>
@@ -136,9 +149,9 @@
       <div class="modal-body">
         <div class="preview-column">
           <div class="thumb-frame hairline-all">
-            <img 
-              src={photo.gradedThumbnail || photo.thumbnail} 
-              alt={photo.filename} 
+            <img
+              src={photo.gradedThumbnail || photo.thumbnail}
+              alt={photo.filename}
               class="thumb-img"
             />
             {#if photo.frameNo}
@@ -152,11 +165,11 @@
           <!-- Export Preset Selector -->
           <div class="section-title">選擇輸出規格</div>
           <div class="mode-options-grid three-cols">
-            <button 
-              type="button" 
-              class="mode-card hairline-all" 
-              class:active={selectedPreset === 'social'}
-              onclick={() => selectedPreset = 'social'}
+            <button
+              type="button"
+              class="mode-card hairline-all"
+              class:active={selectedPreset === "social"}
+              onclick={() => (selectedPreset = "social")}
             >
               <div class="mode-head">
                 <span class="material-symbols-outlined icon amber">share</span>
@@ -167,14 +180,16 @@
               <kbd class="kbd-micro">按 1</kbd>
             </button>
 
-            <button 
-              type="button" 
-              class="mode-card hairline-all" 
-              class:active={selectedPreset === 'high'}
-              onclick={() => selectedPreset = 'high'}
+            <button
+              type="button"
+              class="mode-card hairline-all"
+              class:active={selectedPreset === "high"}
+              onclick={() => (selectedPreset = "high")}
             >
               <div class="mode-head">
-                <span class="material-symbols-outlined icon cyan">photo_library</span>
+                <span class="material-symbols-outlined icon cyan"
+                  >photo_library</span
+                >
                 <span class="mode-badge cyan">日常保存</span>
               </div>
               <div class="mode-name">高畫質相片</div>
@@ -182,14 +197,16 @@
               <kbd class="kbd-micro">按 2</kbd>
             </button>
 
-            <button 
-              type="button" 
-              class="mode-card hairline-all" 
-              class:active={selectedPreset === 'archive'}
-              onclick={() => selectedPreset = 'archive'}
+            <button
+              type="button"
+              class="mode-card hairline-all"
+              class:active={selectedPreset === "archive"}
+              onclick={() => (selectedPreset = "archive")}
             >
               <div class="mode-head">
-                <span class="material-symbols-outlined icon indigo">diamond</span>
+                <span class="material-symbols-outlined icon indigo"
+                  >diamond</span
+                >
                 <span class="mode-badge indigo">最高品質</span>
               </div>
               <div class="mode-name">無損原圖</div>
@@ -202,15 +219,24 @@
           <div class="metadata-box hairline-all">
             <div class="meta-row">
               <span class="label">儲存資料夾：</span>
-              <span class="val truncate" title={resolvedTargetDir || targetDir}>{resolvedTargetDir || targetDir}</span>
+              <span class="val truncate" title={resolvedTargetDir || targetDir}
+                >{resolvedTargetDir || targetDir}</span
+              >
             </div>
             <div class="meta-row">
               <span class="label">匯出檔名：</span>
-              <span class="val amber truncate">{photo.filename.replace(/\.[^/.]+$/, '')}_graded.{previewExtension}</span>
+              <span class="val amber truncate"
+                >{photo.filename.replace(
+                  /\.[^/.]+$/,
+                  "",
+                )}_graded.{previewExtension}</span
+              >
             </div>
             <div class="meta-row">
               <span class="label">套用風格：</span>
-              <span class="val">{photo.appliedProfile || '標準自然 (Natural)'}</span>
+              <span class="val"
+                >{photo.appliedProfile || "標準自然 (Natural)"}</span
+              >
             </div>
           </div>
         </div>
@@ -227,21 +253,34 @@
         </div>
 
         <div class="footer-actions">
-          <button type="button" class="archival-btn-secondary" onclick={onClose} disabled={isProcessing}>
+          <button
+            type="button"
+            class="archival-btn-secondary"
+            onclick={onClose}
+            disabled={isProcessing}
+          >
             取消
           </button>
-          <button 
-            type="button" 
-            class="archival-btn-primary dispatch-btn" 
+          <button
+            type="button"
+            class="archival-btn-primary dispatch-btn"
             class:success={resultSuccess}
             onclick={handleConfirmExport}
             disabled={isProcessing}
           >
             <span class="material-symbols-outlined">
-              {resultSuccess ? 'check_circle' : isProcessing ? 'sync' : 'download'}
+              {resultSuccess
+                ? "check_circle"
+                : isProcessing
+                  ? "sync"
+                  : "download"}
             </span>
             <span>
-              {resultSuccess ? '✓ 已完成匯出！' : isProcessing ? '正在匯出中...' : '立即匯出相片 ↵'}
+              {resultSuccess
+                ? "✓ 已完成匯出！"
+                : isProcessing
+                  ? "正在匯出中..."
+                  : "立即匯出相片 ↵"}
             </span>
           </button>
         </div>
@@ -267,8 +306,14 @@
   }
 
   @keyframes fadeIn {
-    from { opacity: 0; transform: scale(0.98); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+      opacity: 0;
+      transform: scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   .export-modal-card {
@@ -433,9 +478,15 @@
   .mode-head .icon {
     font-size: 18px;
   }
-  .icon.amber { color: var(--amber-highlight); }
-  .icon.cyan { color: var(--cyan-accent, #56b6c2); }
-  .icon.indigo { color: var(--primary-indigo); }
+  .icon.amber {
+    color: var(--amber-highlight);
+  }
+  .icon.cyan {
+    color: var(--cyan-accent, #56b6c2);
+  }
+  .icon.indigo {
+    color: var(--primary-indigo);
+  }
 
   .mode-badge {
     font-size: 9px;
@@ -532,7 +583,9 @@
     color: var(--parchment-bright);
   }
 
-  .sep { color: var(--parchment-dim); }
+  .sep {
+    color: var(--parchment-dim);
+  }
 
   .footer-actions {
     display: flex;

@@ -6,7 +6,7 @@
 
   let { isOpen = $bindable(false), onClose }: Props = $props();
 
-  let activeSection = $state<'guide' | 'workflow'>('guide');
+  let activeSection = $state<"guide" | "workflow">("guide");
   let isMobile = $state<boolean>(false);
 
   interface MobileGuideItem {
@@ -14,7 +14,7 @@
     title: string;
     desc: string;
     highlight?: boolean;
-    tone?: 'amber' | 'cyan' | 'green';
+    tone?: "amber" | "cyan" | "green";
   }
 
   interface MobileGuideGroup {
@@ -25,112 +25,112 @@
 
   const mobileOperationGroups: MobileGuideGroup[] = [
     {
-      badge: 'STEP 01',
-      title: '膠卷目錄挑圖 (CATALOG)',
+      badge: "STEP 01",
+      title: "膠卷目錄挑圖 (CATALOG)",
       items: [
         {
-          action: '輕點相片',
-          title: '進入單張暗房精修',
-          desc: '點擊任一張底片縮圖，立即開啟暗房精修工作台',
+          action: "輕點相片",
+          title: "進入單張暗房精修",
+          desc: "點擊任一張底片縮圖，立即開啟暗房精修工作台",
           highlight: true,
-          tone: 'amber',
+          tone: "amber",
         },
         {
-          action: '點擊書籤圖示',
-          title: '挑選 / 取消挑選底片',
-          desc: '點選卡片右上角書籤標記納入佇列，再點一次立即取消',
+          action: "點擊書籤圖示",
+          title: "挑選 / 取消挑選底片",
+          desc: "點選卡片右上角書籤標記納入佇列，再點一次立即取消",
           highlight: true,
-          tone: 'amber',
+          tone: "amber",
         },
         {
-          action: '長按並滑動',
-          title: '多選與滑刷連選底片',
-          desc: '長按相片進入多選模式並可直接滑過連選，使用底部工具列批次挑選、排除或刪除',
+          action: "長按並滑動",
+          title: "多選與滑刷連選底片",
+          desc: "長按相片進入多選模式並可直接滑過連選，使用底部工具列批次挑選、排除或刪除",
         },
         {
-          action: '上方工具列',
-          title: '載入與追加相片來源',
-          desc: '切換「更換目錄」、「追加目錄」或「追加相片」，亦可直接載入相機記憶卡',
+          action: "上方工具列",
+          title: "載入與追加相片來源",
+          desc: "切換「更換目錄」、「追加目錄」或「追加相片」，亦可直接載入相機記憶卡",
         },
       ],
     },
     {
-      badge: 'STEP 02',
-      title: '單張暗房精修 (RETOUCH)',
+      badge: "STEP 02",
+      title: "單張暗房精修 (RETOUCH)",
       items: [
         {
-          action: '畫布左右滑動',
-          title: '切換上一張 / 下一張底片',
-          desc: '在非放大狀態下左右滑動預覽畫布，依序檢視相卷底片',
+          action: "畫布左右滑動",
+          title: "切換上一張 / 下一張底片",
+          desc: "在非放大狀態下左右滑動預覽畫布，依序檢視相卷底片",
         },
         {
-          action: '雙擊畫布',
-          title: '放大檢視細節 / 恢復全幅',
-          desc: '快速點兩下畫布可局部放大確認合焦，再點兩下還原全幅檢視',
+          action: "雙擊畫布",
+          title: "放大檢視細節 / 恢復全幅",
+          desc: "快速點兩下畫布可局部放大確認合焦，再點兩下還原全幅檢視",
           highlight: true,
-          tone: 'amber',
+          tone: "amber",
         },
         {
-          action: '按住比對原圖',
-          title: 'A/B 原始本相即時對比',
-          desc: '長按畫布浮動「比對原圖」按鈕檢視 RAW 原圖，放開即恢復調色成果',
+          action: "按住比對原圖",
+          title: "A/B 原始本相即時對比",
+          desc: "長按畫布浮動「比對原圖」按鈕檢視 RAW 原圖，放開即恢復調色成果",
           highlight: true,
-          tone: 'cyan',
+          tone: "cyan",
         },
         {
-          action: '底部暗房操作列',
-          title: '一鍵 AI 顯影與抽屜面板',
-          desc: '直接點擊「一鍵 AI」或「批次」顯影，或開啟「風格」／「微調」抽屜調整細節',
+          action: "底部暗房操作列",
+          title: "一鍵 AI 顯影與抽屜面板",
+          desc: "直接點擊「一鍵 AI」或「批次」顯影，或開啟「風格」／「微調」抽屜調整細節",
           highlight: true,
-          tone: 'amber',
+          tone: "amber",
         },
         {
-          action: '雙擊滑桿或數值',
-          title: '單項參數快速歸零',
-          desc: '點兩下參數名稱、數值或軌道可重設為基準值；輕點數值亦可直接輸入調整',
+          action: "雙擊滑桿或數值",
+          title: "單項參數快速歸零",
+          desc: "點兩下參數名稱、數值或軌道可重設為基準值；輕點數值亦可直接輸入調整",
         },
       ],
     },
     {
-      badge: 'STEP 03',
-      title: '導出與社群分享 (EXPORT)',
+      badge: "STEP 03",
+      title: "導出與社群分享 (EXPORT)",
       items: [
         {
-          action: '底部導航列',
-          title: '切換各階段工作視圖',
-          desc: '隨時於「挑圖」、「精修」、「導出/分享」、「風格庫」與「設定」之間切換',
+          action: "底部導航列",
+          title: "切換各階段工作視圖",
+          desc: "隨時於「挑圖」、「精修」、「導出/分享」、「風格庫」與「設定」之間切換",
         },
         {
-          action: '選擇輸出規格',
-          title: '社群分享 / 高畫質 / 無損原圖',
-          desc: '可依用途挑選快速預設，或自由調整 JPG / PNG / WebP 格式、畫質與長邊尺寸',
+          action: "選擇輸出規格",
+          title: "社群分享 / 高畫質 / 無損原圖",
+          desc: "可依用途挑選快速預設，或自由調整 JPG / PNG / WebP 格式、畫質與長邊尺寸",
           highlight: true,
-          tone: 'green',
+          tone: "green",
         },
         {
-          action: '生成文案與分享',
-          title: '一鍵匯出或呼叫系統分享',
-          desc: '產生 AI 策展文案後直接匯出成品，或點擊分享開啟手機原生分享面板',
+          action: "生成文案與分享",
+          title: "一鍵匯出或呼叫系統分享",
+          desc: "產生 AI 策展文案後直接匯出成品，或點擊分享開啟手機原生分享面板",
         },
       ],
     },
   ];
 
   $effect(() => {
-    if (typeof window === 'undefined') return;
-    const mq = window.matchMedia('(max-width: 768px)');
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 768px)");
     isMobile = mq.matches;
     const handleChange = (e: MediaQueryListEvent) => {
       isMobile = e.matches;
     };
-    mq.addEventListener?.('change', handleChange);
-    return () => mq.removeEventListener?.('change', handleChange);
+    mq.addEventListener?.("change", handleChange);
+    return () => mq.removeEventListener?.("change", handleChange);
   });
 
   function handleKeydown(e: KeyboardEvent) {
     if (!isOpen) return;
 
-    if (e.key === 'Escape' || e.key === '?') {
+    if (e.key === "Escape" || e.key === "?") {
       e.preventDefault();
       e.stopPropagation();
       onClose();
@@ -141,11 +141,15 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if isOpen}
-  <div 
-    class="modal-backdrop" 
-    onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    onkeydown={(e) => { if (e.key === 'Escape' && e.target === e.currentTarget) onClose(); }}
-    role="dialog" 
+  <div
+    class="modal-backdrop"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) onClose();
+    }}
+    onkeydown={(e) => {
+      if (e.key === "Escape" && e.target === e.currentTarget) onClose();
+    }}
+    role="dialog"
     aria-modal="true"
     tabindex="-1"
   >
@@ -156,10 +160,14 @@
           <span class="material-symbols-outlined help-icon">help_outline</span>
           <div>
             <h2 class="title font-headline">
-              {isMobile ? '大相無形 · 系統操作說明' : '大相無形 · 系統操作與快捷鍵指南'}
+              {isMobile
+                ? "大相無形 · 系統操作說明"
+                : "大相無形 · 系統操作與快捷鍵指南"}
             </h2>
             <p class="subtitle font-mono">
-              {isMobile ? 'CURATORIAL WORKFLOW & OPERATION GUIDE' : 'CURATORIAL WORKFLOW & KEYBOARD CHEAT SHEET'}
+              {isMobile
+                ? "CURATORIAL WORKFLOW & OPERATION GUIDE"
+                : "CURATORIAL WORKFLOW & KEYBOARD CHEAT SHEET"}
             </p>
           </div>
         </div>
@@ -168,7 +176,7 @@
           type="button"
           class="close-btn"
           onclick={onClose}
-          title={isMobile ? '關閉說明' : '關閉 (Esc 或 ?)'}
+          title={isMobile ? "關閉說明" : "關閉 (Esc 或 ?)"}
         >
           <span class="material-symbols-outlined">close</span>
         </button>
@@ -176,20 +184,26 @@
 
       <!-- Section Tabs -->
       <div class="section-tabs hairline-b font-mono">
-        <button 
-          type="button" 
-          class="tab-btn" 
-          class:active={activeSection === 'guide'}
-          onclick={() => activeSection = 'guide'}
+        <button
+          type="button"
+          class="tab-btn"
+          class:active={activeSection === "guide"}
+          onclick={() => (activeSection = "guide")}
         >
-          <span class="material-symbols-outlined tab-icon">{isMobile ? 'touch_app' : 'keyboard'}</span>
-          <span>{isMobile ? '操作說明 (OPERATIONS)' : '鍵盤快捷鍵速查 (SHORTCUTS)'}</span>
+          <span class="material-symbols-outlined tab-icon"
+            >{isMobile ? "touch_app" : "keyboard"}</span
+          >
+          <span
+            >{isMobile
+              ? "操作說明 (OPERATIONS)"
+              : "鍵盤快捷鍵速查 (SHORTCUTS)"}</span
+          >
         </button>
-        <button 
-          type="button" 
-          class="tab-btn" 
-          class:active={activeSection === 'workflow'}
-          onclick={() => activeSection = 'workflow'}
+        <button
+          type="button"
+          class="tab-btn"
+          class:active={activeSection === "workflow"}
+          onclick={() => (activeSection = "workflow")}
         >
           <span class="material-symbols-outlined tab-icon">schema</span>
           <span>3 步驟流水線指引 (WORKFLOW)</span>
@@ -198,7 +212,7 @@
 
       <!-- Modal Body -->
       <div class="modal-body custom-scroll">
-        {#if activeSection === 'guide' && isMobile}
+        {#if activeSection === "guide" && isMobile}
           <!-- 手機版操作說明 -->
           <div class="shortcuts-container">
             {#each mobileOperationGroups as group}
@@ -213,9 +227,9 @@
                       <div class="keys">
                         <span
                           class="op-badge font-mono"
-                          class:amber={item.tone === 'amber'}
-                          class:cyan={item.tone === 'cyan'}
-                          class:green={item.tone === 'green'}
+                          class:amber={item.tone === "amber"}
+                          class:cyan={item.tone === "cyan"}
+                          class:green={item.tone === "green"}
                         >
                           {item.action}
                         </span>
@@ -230,7 +244,7 @@
               </div>
             {/each}
           </div>
-        {:else if activeSection === 'guide'}
+        {:else if activeSection === "guide"}
           <!-- 快捷鍵對照表 -->
           <div class="shortcuts-container">
             <!-- 模組 1: 膠卷目錄挑圖 -->
@@ -264,7 +278,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">跨列跳轉照片</span>
-                    <span class="desc-sub font-mono">依網格排版上下翻動一整列</span>
+                    <span class="desc-sub font-mono"
+                      >依網格排版上下翻動一整列</span
+                    >
                   </div>
                 </div>
 
@@ -274,7 +290,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">大圖即時預覽 (Quick Look)</span>
-                    <span class="desc-sub font-mono">彈出高畫質大圖審查合焦，再按一次關閉</span>
+                    <span class="desc-sub font-mono"
+                      >彈出高畫質大圖審查合焦，再按一次關閉</span
+                    >
                   </div>
                 </div>
 
@@ -284,7 +302,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">挑選 / 取消挑選 (Toggle Pick)</span>
-                    <span class="desc-sub font-mono">單鍵標記入隊，再按一次立即取消</span>
+                    <span class="desc-sub font-mono"
+                      >單鍵標記入隊，再按一次立即取消</span
+                    >
                   </div>
                 </div>
 
@@ -296,7 +316,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">個別多選 / 退選底片</span>
-                    <span class="desc-sub font-mono">按住 Ctrl (或 macOS ⌘) 點擊相片，不連續加選或單獨剔除</span>
+                    <span class="desc-sub font-mono"
+                      >按住 Ctrl (或 macOS ⌘) 點擊相片，不連續加選或單獨剔除</span
+                    >
                   </div>
                 </div>
 
@@ -308,7 +330,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">連續區間範圍連選</span>
-                    <span class="desc-sub font-mono">按住 Shift 點擊相片，一次選取與起點之間的整段底片</span>
+                    <span class="desc-sub font-mono"
+                      >按住 Shift 點擊相片，一次選取與起點之間的整段底片</span
+                    >
                   </div>
                 </div>
 
@@ -320,7 +344,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">全選所有底片 (Select All)</span>
-                    <span class="desc-sub font-mono">一鍵全選相卷所有相片，進入多選批次工作列</span>
+                    <span class="desc-sub font-mono"
+                      >一鍵全選相卷所有相片，進入多選批次工作列</span
+                    >
                   </div>
                 </div>
 
@@ -331,8 +357,13 @@
                     <kbd class="kbd-chip">Backspace</kbd>
                   </div>
                   <div class="action-desc">
-                    <span class="desc-main">排除底片 / 剔除淘汰 (Remove / Cull)</span>
-                    <span class="desc-sub font-mono">自相卷工作區排除並自動移至下一張（保留磁碟原檔，附帶 5 秒一鍵復原 ↺）</span>
+                    <span class="desc-main"
+                      >排除底片 / 剔除淘汰 (Remove / Cull)</span
+                    >
+                    <span class="desc-sub font-mono"
+                      >自相卷工作區排除並自動移至下一張（保留磁碟原檔，附帶 5
+                      秒一鍵復原 ↺）</span
+                    >
                   </div>
                 </div>
 
@@ -343,8 +374,13 @@
                     <kbd class="kbd-chip amber">Del</kbd>
                   </div>
                   <div class="action-desc">
-                    <span class="desc-main">實體刪除磁碟檔案 (Delete from Disk)</span>
-                    <span class="desc-sub font-mono">彈出二次確認後將磁碟 RAW/照片移入資源回收筒 / 廢紙簍（支援多選批次刪除）</span>
+                    <span class="desc-main"
+                      >實體刪除磁碟檔案 (Delete from Disk)</span
+                    >
+                    <span class="desc-sub font-mono"
+                      >彈出二次確認後將磁碟 RAW/照片移入資源回收筒 /
+                      廢紙簍（支援多選批次刪除）</span
+                    >
                   </div>
                 </div>
 
@@ -354,7 +390,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">進入下一步 ➔ 一鍵暗房精修</span>
-                    <span class="desc-sub font-mono">將已選底片（或全量）載入精修工作台</span>
+                    <span class="desc-sub font-mono"
+                      >將已選底片（或全量）載入精修工作台</span
+                    >
                   </div>
                 </div>
               </div>
@@ -374,7 +412,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">切換精修底片</span>
-                    <span class="desc-sub font-mono">依序檢視隊列中的下一張底片</span>
+                    <span class="desc-sub font-mono"
+                      >依序檢視隊列中的下一張底片</span
+                    >
                   </div>
                 </div>
 
@@ -384,7 +424,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">A/B 原始本相即時對比</span>
-                    <span class="desc-sub font-mono">瞬間切換 RAW 原始狀態與顯影調色成果</span>
+                    <span class="desc-sub font-mono"
+                      >瞬間切換 RAW 原始狀態與顯影調色成果</span
+                    >
                   </div>
                 </div>
 
@@ -396,7 +438,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">復原上一步調色 (Undo)</span>
-                    <span class="desc-sub font-mono">復原上一步曝光、對比、陰影、色溫或構圖調整</span>
+                    <span class="desc-sub font-mono"
+                      >復原上一步曝光、對比、陰影、色溫或構圖調整</span
+                    >
                   </div>
                 </div>
 
@@ -408,7 +452,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">重做下一步調色 (Redo)</span>
-                    <span class="desc-sub font-mono">重做調色步進（亦支援 Ctrl+Shift+Z / ⌘Shift+Z）</span>
+                    <span class="desc-sub font-mono"
+                      >重做調色步進（亦支援 Ctrl+Shift+Z / ⌘Shift+Z）</span
+                    >
                   </div>
                 </div>
 
@@ -417,8 +463,12 @@
                     <kbd class="kbd-chip">雙擊滑桿</kbd>
                   </div>
                   <div class="action-desc">
-                    <span class="desc-main">單項參數快速歸零 (Reset to Default)</span>
-                    <span class="desc-sub font-mono">點兩下滑桿標籤、數值或軌道即刻還原標準基準值</span>
+                    <span class="desc-main"
+                      >單項參數快速歸零 (Reset to Default)</span
+                    >
+                    <span class="desc-sub font-mono"
+                      >點兩下滑桿標籤、數值或軌道即刻還原標準基準值</span
+                    >
                   </div>
                 </div>
 
@@ -429,8 +479,11 @@
                     <kbd class="kbd-chip">⌥</kbd>
                   </div>
                   <div class="action-desc">
-                    <span class="desc-main">懸停滾輪微調 (Wheel Scrubbing)</span>
-                    <span class="desc-sub font-mono">滑鼠懸停滾輪微調，按住 Shift (5x 快速) / Alt (0.2x 細微)</span>
+                    <span class="desc-main">懸停滾輪微調 (Wheel Scrubbing)</span
+                    >
+                    <span class="desc-sub font-mono"
+                      >滑鼠懸停滾輪微調，按住 Shift (5x 快速) / Alt (0.2x 細微)</span
+                    >
                   </div>
                 </div>
 
@@ -441,8 +494,13 @@
                     <kbd class="kbd-chip">Ctrl+E</kbd>
                   </div>
                   <div class="action-desc">
-                    <span class="desc-main">快速匯出這張相片 (Quick Export)</span>
-                    <span class="desc-sub font-mono">跳出快速匯出視窗（按 1 社群分享 / 2 高畫質 / 3 無損原圖），免進批次頁面即可儲存</span>
+                    <span class="desc-main"
+                      >快速匯出這張相片 (Quick Export)</span
+                    >
+                    <span class="desc-sub font-mono"
+                      >跳出快速匯出視窗（按 1 社群分享 / 2 高畫質 / 3
+                      無損原圖），免進批次頁面即可儲存</span
+                    >
                   </div>
                 </div>
 
@@ -452,7 +510,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">進入下一步 ➔ 前往批次導出</span>
-                    <span class="desc-sub font-mono">帶著所有調色參數進入匯出隊列</span>
+                    <span class="desc-sub font-mono"
+                      >帶著所有調色參數進入匯出隊列</span
+                    >
                   </div>
                 </div>
 
@@ -464,7 +524,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">自工作區排除此幀</span>
-                    <span class="desc-sub font-mono">剔除底片並自動推進至下一張（支援一鍵復原 ↺）</span>
+                    <span class="desc-sub font-mono"
+                      >剔除底片並自動推進至下一張（支援一鍵復原 ↺）</span
+                    >
                   </div>
                 </div>
 
@@ -475,8 +537,12 @@
                     <kbd class="kbd-chip amber">Del</kbd>
                   </div>
                   <div class="action-desc">
-                    <span class="desc-main">實體刪除此底片 (Delete from Disk)</span>
-                    <span class="desc-sub font-mono">彈出二次確認後將磁碟原檔移至資源回收筒 / 廢紙簍</span>
+                    <span class="desc-main"
+                      >實體刪除此底片 (Delete from Disk)</span
+                    >
+                    <span class="desc-sub font-mono"
+                      >彈出二次確認後將磁碟原檔移至資源回收筒 / 廢紙簍</span
+                    >
                   </div>
                 </div>
 
@@ -505,7 +571,10 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">開始匯出已選相片</span>
-                    <span class="desc-sub font-mono">依所選格式（JPG / PNG / WebP）、畫質與長邊尺寸立即輸出並歸檔</span>
+                    <span class="desc-sub font-mono"
+                      >依所選格式（JPG / PNG /
+                      WebP）、畫質與長邊尺寸立即輸出並歸檔</span
+                    >
                   </div>
                 </div>
 
@@ -517,7 +586,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">自工作區排除此幀</span>
-                    <span class="desc-sub font-mono">剔除底片並自動推進至下一張（支援一鍵復原 ↺）</span>
+                    <span class="desc-sub font-mono"
+                      >剔除底片並自動推進至下一張（支援一鍵復原 ↺）</span
+                    >
                   </div>
                 </div>
 
@@ -527,7 +598,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">返回上一步 ➔ 暗房精修</span>
-                    <span class="desc-sub font-mono">繼續微調光影或更換 LUT 風格</span>
+                    <span class="desc-sub font-mono"
+                      >繼續微調光影或更換 LUT 風格</span
+                    >
                   </div>
                 </div>
               </div>
@@ -546,7 +619,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">開啟 / 關閉此指南</span>
-                    <span class="desc-sub font-mono">隨時叫出操作指引與快捷鍵速查</span>
+                    <span class="desc-sub font-mono"
+                      >隨時叫出操作指引與快捷鍵速查</span
+                    >
                   </div>
                 </div>
 
@@ -558,7 +633,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">自工作區排除此幀</span>
-                    <span class="desc-sub font-mono">剔除底片並自動推進至下一張（支援一鍵復原 ↺）</span>
+                    <span class="desc-sub font-mono"
+                      >剔除底片並自動推進至下一張（支援一鍵復原 ↺）</span
+                    >
                   </div>
                 </div>
 
@@ -568,7 +645,9 @@
                   </div>
                   <div class="action-desc">
                     <span class="desc-main">關閉彈窗 / 返回上一層</span>
-                    <span class="desc-sub font-mono">優先關閉浮層（大圖、說明、金鑰金庫）</span>
+                    <span class="desc-sub font-mono"
+                      >優先關閉浮層（大圖、說明、金鑰金庫）</span
+                    >
                   </div>
                 </div>
               </div>
@@ -580,18 +659,27 @@
             <div class="workflow-step-card hairline-all">
               <div class="step-num-badge">01</div>
               <div class="step-content">
-                <h3 class="step-title font-headline">相機連線與膠卷挑圖 (Ingestion & Curation)</h3>
+                <h3 class="step-title font-headline">
+                  相機連線與膠卷挑圖 (Ingestion & Curation)
+                </h3>
                 {#if isMobile}
                   <p class="step-desc">
                     載入相機記憶卡或本機相片資料夾後，於膠卷目錄中瀏覽底片縮圖。
-                    點擊卡片右上角 <span class="highlight-text">書籤圖示</span> 加入挑選清單，或 <span class="highlight-text">長按並滑動</span> 進行批次選取；輕點任一相片即可直接進入暗房精修。
+                    點擊卡片右上角 <span class="highlight-text">書籤圖示</span>
+                    加入挑選清單，或
+                    <span class="highlight-text">長按並滑動</span> 進行批次選取；輕點任一相片即可直接進入暗房精修。
                   </p>
                 {:else}
                   <p class="step-desc">
-                    插入相機記憶卡或連接傳輸線，系統即插即讀自動探測 DCIM 目錄與 RAW 檔案。
-                    在目錄矩陣中，利用右手 <span class="highlight-text">HJKL</span> 瀏覽底片，
-                    按下 <span class="highlight-text">Space</span> 叫出 Quick Look 審視合焦細節，
-                    左手按下 <span class="highlight-text">P</span> 鍵加入挑選清單。挑選完畢後按 <span class="highlight-text">Enter</span> 順暢進入暗房。
+                    插入相機記憶卡或連接傳輸線，系統即插即讀自動探測 DCIM 目錄與
+                    RAW 檔案。 在目錄矩陣中，利用右手 <span
+                      class="highlight-text">HJKL</span
+                    >
+                    瀏覽底片， 按下 <span class="highlight-text">Space</span>
+                    叫出 Quick Look 審視合焦細節， 左手按下
+                    <span class="highlight-text">P</span>
+                    鍵加入挑選清單。挑選完畢後按
+                    <span class="highlight-text">Enter</span> 順暢進入暗房。
                   </p>
                 {/if}
               </div>
@@ -602,17 +690,30 @@
             <div class="workflow-step-card hairline-all">
               <div class="step-num-badge">02</div>
               <div class="step-content">
-                <h3 class="step-title font-headline">單張暗房精修 (Darkroom Retouch)</h3>
+                <h3 class="step-title font-headline">
+                  單張暗房精修 (Darkroom Retouch)
+                </h3>
                 {#if isMobile}
                   <p class="step-desc">
-                    暗房工作台具備 60FPS WebGL 2.0 即時 3D LUT 色彩模擬，可透過底部操作列執行 <span class="highlight-text">一鍵 AI</span> 或 <span class="highlight-text">批次顯影</span>，並隨時展開「風格」與「微調」抽屜。
-                    左右滑動畫布可切換底片、雙擊可放大檢視，按住 <span class="highlight-text">比對原圖</span> 即可檢視 A/B 原始本相效果。
+                    暗房工作台具備 60FPS WebGL 2.0 即時 3D LUT
+                    色彩模擬，可透過底部操作列執行 <span class="highlight-text"
+                      >一鍵 AI</span
+                    >
+                    或
+                    <span class="highlight-text">批次顯影</span
+                    >，並隨時展開「風格」與「微調」抽屜。
+                    左右滑動畫布可切換底片、雙擊可放大檢視，按住
+                    <span class="highlight-text">比對原圖</span> 即可檢視 A/B 原始本相效果。
                   </p>
                 {:else}
                   <p class="step-desc">
-                    暗房工作台載入挑選底片，具備 60FPS WebGL 2.0 即時 3D LUT 色彩模擬。
-                    支援多模態 AI 智慧顯影調色與獨立微型快捷動作（AI 裁切、AI 拉平、AI 白平衡、AI 光比）。
-                    修圖過程中長按或按一下 <span class="highlight-text">Space</span> 進行 A/B 原始本相對比。滿意後按 <span class="highlight-text">Enter</span> 推進至導出。
+                    暗房工作台載入挑選底片，具備 60FPS WebGL 2.0 即時 3D LUT
+                    色彩模擬。 支援多模態 AI 智慧顯影調色與獨立微型快捷動作（AI
+                    裁切、AI 拉平、AI 白平衡、AI 光比）。 修圖過程中長按或按一下 <span
+                      class="highlight-text">Space</span
+                    >
+                    進行 A/B 原始本相對比。滿意後按
+                    <span class="highlight-text">Enter</span> 推進至導出。
                   </p>
                 {/if}
               </div>
@@ -623,16 +724,26 @@
             <div class="workflow-step-card hairline-all">
               <div class="step-num-badge">03</div>
               <div class="step-content">
-                <h3 class="step-title font-headline">智慧分類與批次匯出 (Export & Archive)</h3>
+                <h3 class="step-title font-headline">
+                  智慧分類與批次匯出 (Export & Archive)
+                </h3>
                 {#if isMobile}
                   <p class="step-desc">
-                    點選底部導航切換至「導出/分享」，自由挑選 <span class="highlight-text">社群分享、高畫質相片或無損典藏</span> 預設，亦可自訂格式（JPG / PNG / WebP）、畫質與長邊尺寸。
-                    內建 AI 策展文案與資料夾自動分類，確認設定後點擊匯出或使用系統分享面板即可完成。
+                    點選底部導航切換至「導出/分享」，自由挑選 <span
+                      class="highlight-text"
+                      >社群分享、高畫質相片或無損典藏</span
+                    > 預設，亦可自訂格式（JPG / PNG / WebP）、畫質與長邊尺寸。 內建
+                    AI 策展文案與資料夾自動分類，確認設定後點擊匯出或使用系統分享面板即可完成。
                   </p>
                 {:else}
                   <p class="step-desc">
-                    自由挑選 <span class="highlight-text">社群分享、高畫質相片或無損典藏</span> 用途預設，亦可自訂格式（JPG / PNG / WebP）、畫質百分比與長邊像素限制。
-                    支援 AI 場景資料夾分類與 RAW 備份，確認後按下 <span class="highlight-text">Enter</span> 立即開始匯出。
+                    自由挑選 <span class="highlight-text"
+                      >社群分享、高畫質相片或無損典藏</span
+                    >
+                    用途預設，亦可自訂格式（JPG / PNG /
+                    WebP）、畫質百分比與長邊像素限制。 支援 AI 場景資料夾分類與
+                    RAW 備份，確認後按下
+                    <span class="highlight-text">Enter</span> 立即開始匯出。
                   </p>
                 {/if}
               </div>
@@ -644,15 +755,19 @@
       <!-- Modal Footer -->
       <footer class="modal-footer hairline-t font-mono">
         <div class="footer-tip">
-          <span class="material-symbols-outlined tip-icon">tips_and_updates</span>
+          <span class="material-symbols-outlined tip-icon"
+            >tips_and_updates</span
+          >
           {#if isMobile}
             <span>提示：點擊右上角「?」圖示可隨時開啟或關閉此操作說明。</span>
           {:else}
-            <span>提示：在任何介面隨時按下 <kbd class="kbd-chip">?</kbd> 鍵即可快速叫出或關閉此說明視窗。</span>
+            <span
+              >提示：在任何介面隨時按下 <kbd class="kbd-chip">?</kbd> 鍵即可快速叫出或關閉此說明視窗。</span
+            >
           {/if}
         </div>
         <button type="button" class="archival-btn-primary" onclick={onClose}>
-          <span>{isMobile ? '瞭解並關閉' : '瞭解並關閉 (Esc)'}</span>
+          <span>{isMobile ? "瞭解並關閉" : "瞭解並關閉 (Esc)"}</span>
         </button>
       </footer>
     </div>
@@ -677,8 +792,14 @@
   }
 
   @keyframes fadeIn {
-    from { opacity: 0; transform: scale(0.99); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+      opacity: 0;
+      transform: scale(0.99);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   .modal-card {

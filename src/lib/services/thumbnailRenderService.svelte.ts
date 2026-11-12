@@ -378,3 +378,4 @@ export class ThumbnailRenderService {
 }
 
 export const thumbnailRenderService = new ThumbnailRenderService();
+
