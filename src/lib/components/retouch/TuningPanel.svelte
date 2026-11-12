@@ -1119,15 +1119,32 @@
     <div class="sub-group-card last">
       <div class="sub-group-title">
         <span>畫面長寬比例</span>
-        <button
-          type="button"
-          class="crop-frame-toggle font-mono"
-          class:active={darkroomState.isCropMode}
-          onclick={() => (darkroomState.isCropMode = !darkroomState.isCropMode)}
-        >
-          <span class="material-symbols-outlined" style="font-size: 12px;">crop</span>
-          <span>{darkroomState.isCropMode ? "完成調整" : "顯示裁切框"}</span>
-        </button>
+        <div class="crop-title-actions">
+          {#if hasAnyCropAdjustment}
+            <button
+              type="button"
+              class="section-reset-btn font-mono"
+              onclick={() => {
+                darkroomState.resetCropState();
+                darkroomState.isCropMode = false;
+                darkroomState.recordSnapshot(true);
+              }}
+              title="重設所有裁切、旋轉與透視變形"
+            >
+              <span class="material-symbols-outlined" style="font-size: 12px;">restart_alt</span>
+              <span>重設構圖</span>
+            </button>
+          {/if}
+          <button
+            type="button"
+            class="crop-frame-toggle font-mono"
+            class:active={darkroomState.isCropMode}
+            onclick={() => (darkroomState.isCropMode = !darkroomState.isCropMode)}
+          >
+            <span class="material-symbols-outlined" style="font-size: 12px;">crop</span>
+            <span>{darkroomState.isCropMode ? "完成調整" : "顯示裁切框"}</span>
+          </button>
+        </div>
       </div>
 
       <!-- Aspect Ratio Presets -->
@@ -1173,7 +1190,7 @@
         parseInput={parseCleanNumber}
       />
 
-      <!-- Flip & Reset Controls -->
+      <!-- Flip Controls -->
       <div class="geom-actions-row">
         <button
           type="button"
@@ -1197,15 +1214,6 @@
             style="font-size: 13px; transform: rotate(90deg);">flip</span
           >
           <span>垂直翻轉</span>
-        </button>
-        <button
-          type="button"
-          class="geom-btn reset"
-          onclick={() => darkroomState.resetCropState()}
-          title="重設所有裁切、旋轉與透視變形"
-        >
-          <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
-          <span>重設構圖</span>
         </button>
       </div>
     </div>
@@ -1778,15 +1786,16 @@
     background-color: var(--surface-overlay);
   }
 
+  .crop-title-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
   .geom-btn.active {
     background-color: rgba(212, 163, 115, 0.15);
     color: var(--amber-highlight);
     border-color: var(--amber-highlight);
-  }
-
-  .geom-btn.reset:hover {
-    color: #ff6b6b;
-    border-color: #ff6b6b;
   }
 
   /* ── AI 單項快捷按鈕 ── */

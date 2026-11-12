@@ -11,6 +11,7 @@ import { lutCatalog } from "$lib/stores/lutCatalog.svelte";
 import { darkroomState } from "$lib/stores/darkroomState.svelte";
 import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
 import type { CustomLutRecord } from "$lib/services/customLutService";
+import { hasActiveCropGeometry, renderGeometryToCanvas } from "$lib/utils/cropGeometry";
 
 export class ThumbnailRenderService {
   // 1. 目錄縮圖離屏渲染器與佇列
@@ -87,7 +88,8 @@ export class ThumbnailRenderService {
     if (plate && plate.thumbnail) {
       if (
         plate.appliedProfile === "Profile_00_StandardNatural" &&
-        !plate.tuning
+        !plate.tuning &&
+        !hasActiveCropGeometry(plate.crop)
       ) {
         if (plate.gradedThumbnail !== undefined) {
           plate.gradedThumbnail = undefined;
@@ -167,10 +169,15 @@ export class ThumbnailRenderService {
             img.naturalHeight || 300
           );
 
-          const dataUrl = this.offscreenRenderer.exportDataUrl(
-            "image/jpeg",
-            0.85
-          );
+          let dataUrl: string | undefined;
+          if (hasActiveCropGeometry(plate.crop) && this.offscreenCanvas) {
+            const geomCanvas = renderGeometryToCanvas(this.offscreenCanvas, plate.crop, 400);
+            dataUrl = geomCanvas.toDataURL("image/jpeg", 0.85);
+          } else {
+            dataUrl =
+              this.offscreenRenderer.exportDataUrl("image/jpeg", 0.85) ??
+              undefined;
+          }
           if (dataUrl && plate.gradedThumbnail !== dataUrl) {
             plate.gradedThumbnail = dataUrl;
             this.onThumbnailRendered?.(plate.id, dataUrl);

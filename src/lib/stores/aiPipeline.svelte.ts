@@ -28,6 +28,11 @@ import {
   readLocalJson,
   updateLocalJson,
 } from "$lib/utils/panelStorage";
+import {
+  computeInscribedCropForRotation,
+  isFullFrameCropBox,
+  snapCropBoxToAspectRatio,
+} from "$lib/utils/cropGeometry";
 
 export const AI_SCOPE_STORAGE_KEY = "slipknot_ai_scope_prefs";
 
@@ -732,45 +737,52 @@ export class AiPipelineStore {
       // 構圖與智慧裁切計算
       let targetCrop = photoToProcess.crop;
       // AI 回傳整幅畫面 (或缺漏時的預設值) 代表構圖已佳、無需裁切，不可誤報為「已套用」
-      const isFullFrameCrop = (b: number[]) =>
-        b[0] <= 0.01 && b[1] <= 0.01 && b[2] >= 0.99 && b[3] >= 0.99;
-      if (
-        this.aiScope.crop &&
-        (!decision.crop_box || isFullFrameCrop(decision.crop_box))
-      ) {
+      const fullFrameCrop = !decision.crop_box || isFullFrameCropBox(decision.crop_box);
+      const imageRatio = isCurrentActive ? darkroomState.activeImageAspectRatio : 1.5;
+
+      if (this.aiScope.crop && fullFrameCrop) {
         await this.appendAiLog(
           `> [AI_CROP] AI 判斷構圖已佳，未進行裁切（保留原始構圖）`,
           15,
         );
       }
-      if (
-        this.aiScope.crop &&
-        decision.crop_box &&
-        !isFullFrameCrop(decision.crop_box)
-      ) {
+      if (this.aiScope.crop && decision.crop_box && !fullFrameCrop) {
+        const resolvedRatio = this.aiScope.lockCropAspectRatio
+          ? "original"
+          : decision.aspect_ratio &&
+              ["original", "1:1", "4:5", "16:9", "9:16", "free"].includes(
+                decision.aspect_ratio,
+              )
+            ? (decision.aspect_ratio as any)
+            : (photoToProcess.crop?.aspectRatio ?? "original");
+        const nextRot =
+          this.aiScope.keystone && typeof decision.rotation_deg === "number"
+            ? decision.rotation_deg
+            : (photoToProcess.crop?.rotation ?? 0);
+        const snappedBox = snapCropBoxToAspectRatio(
+          {
+            x: decision.crop_box[1],
+            y: decision.crop_box[0],
+            width: decision.crop_box[3] - decision.crop_box[1],
+            height: decision.crop_box[2] - decision.crop_box[0],
+          },
+          resolvedRatio,
+          imageRatio,
+        );
+        const safeBox = computeInscribedCropForRotation(snappedBox, nextRot, imageRatio);
+
         targetCrop = {
-          x: decision.crop_box[1],
-          y: decision.crop_box[0],
-          width: decision.crop_box[3] - decision.crop_box[1],
-          height: decision.crop_box[2] - decision.crop_box[0],
-          rotation:
-            this.aiScope.keystone && typeof decision.rotation_deg === "number"
-              ? decision.rotation_deg
-              : (photoToProcess.crop?.rotation ?? 0),
+          x: safeBox.x,
+          y: safeBox.y,
+          width: safeBox.width,
+          height: safeBox.height,
+          rotation: nextRot,
           keystoneV:
             this.aiScope.keystone && typeof decision.keystone_v === "number"
               ? decision.keystone_v
               : (photoToProcess.crop?.keystoneV ?? 0),
           keystoneH: photoToProcess.crop?.keystoneH ?? 0,
-          aspectRatio:
-            this.aiScope.lockCropAspectRatio
-              ? "original"
-              : decision.aspect_ratio &&
-                  ["original", "1:1", "4:5", "16:9", "9:16", "free"].includes(
-                    decision.aspect_ratio,
-                  )
-                ? (decision.aspect_ratio as any)
-                : (photoToProcess.crop?.aspectRatio ?? "original"),
+          aspectRatio: resolvedRatio,
           flipH: photoToProcess.crop?.flipH ?? false,
           flipV: photoToProcess.crop?.flipV ?? false,
         };
@@ -783,15 +795,24 @@ export class AiPipelineStore {
         (typeof decision.rotation_deg === "number" ||
           typeof decision.keystone_v === "number")
       ) {
-        targetCrop = {
+        const nextRot =
+          typeof decision.rotation_deg === "number"
+            ? decision.rotation_deg
+            : (photoToProcess.crop?.rotation ?? 0);
+        const baseBox = {
           x: photoToProcess.crop?.x ?? 0,
           y: photoToProcess.crop?.y ?? 0,
           width: photoToProcess.crop?.width ?? 1,
           height: photoToProcess.crop?.height ?? 1,
-          rotation:
-            typeof decision.rotation_deg === "number"
-              ? decision.rotation_deg
-              : (photoToProcess.crop?.rotation ?? 0),
+        };
+        const safeBox = computeInscribedCropForRotation(baseBox, nextRot, imageRatio);
+
+        targetCrop = {
+          x: safeBox.x,
+          y: safeBox.y,
+          width: safeBox.width,
+          height: safeBox.height,
+          rotation: nextRot,
           keystoneV:
             typeof decision.keystone_v === "number"
               ? decision.keystone_v
@@ -1057,6 +1078,10 @@ export class AiPipelineStore {
   async quickAiCrop(): Promise<void> {
     const activePhoto = photoLibrary.activePhoto;
     if (!activePhoto || this.isAiAnalyzing) return;
+    if (!this.hasActiveApiKey()) {
+      this.onRequireApiKey?.();
+      return;
+    }
     this.isAiAnalyzing = true;
     await this.appendAiLog(
       `> [AI_CROP_SOLO] 正在分析 ${activePhoto.filename} 構圖重心與邊界...`,
@@ -1075,6 +1100,7 @@ export class AiPipelineStore {
         {
           scope: {
             crop: true,
+            lockCropAspectRatio: this.aiScope.lockCropAspectRatio,
             keystone: true,
             tone: false,
             whiteBalance: false,
@@ -1082,26 +1108,69 @@ export class AiPipelineStore {
           },
         },
       );
-      if (decision.crop_box) {
-        darkroomState.cropY = decision.crop_box[0];
-        darkroomState.cropX = decision.crop_box[1];
-        darkroomState.cropHeight = decision.crop_box[2] - decision.crop_box[0];
-        darkroomState.cropWidth = decision.crop_box[3] - decision.crop_box[1];
+
+      const isFullFrame = !decision.crop_box || isFullFrameCropBox(decision.crop_box);
+      const nextRot = typeof decision.rotation_deg === "number" ? decision.rotation_deg : 0;
+      const nextKv = typeof decision.keystone_v === "number" ? decision.keystone_v : 0;
+      const hasLevelAdjustment = Math.abs(nextRot) > 0.1 || Math.abs(nextKv) > 0.1;
+
+      if (isFullFrame) {
+        darkroomState.isCropMode = false;
+        if (hasLevelAdjustment) {
+          darkroomState.cropRotation = nextRot;
+          darkroomState.keystoneV = nextKv;
+          darkroomState.ensureRotationSafeCrop();
+          const msg = `構圖已佳（已微調水平 ${nextRot.toFixed(1)}°，無需額外裁切）`;
+          darkroomState.aiCropRationale = decision.crop_rationale || msg;
+          await this.appendAiLog(`> [AI_CROP_SOLO] ${msg} ✓`);
+          toastStore.show(`${msg} ✓`, "success");
+        } else {
+          darkroomState.aiCropRationale = decision.crop_rationale || "";
+          await this.appendAiLog(
+            `> [AI_CROP_SOLO] AI 判斷目前構圖已佳，無需裁切（保留完整畫面）✓`,
+          );
+          toastStore.show("AI 判斷目前構圖已佳，無需裁切 ✓", "info");
+        }
+        return;
       }
-      if (typeof decision.rotation_deg === "number") {
-        darkroomState.cropRotation = decision.rotation_deg;
+
+      const resolvedRatio = this.aiScope.lockCropAspectRatio
+        ? "original"
+        : decision.aspect_ratio &&
+            ["original", "1:1", "4:5", "16:9", "9:16", "free"].includes(
+              decision.aspect_ratio,
+            )
+          ? (decision.aspect_ratio as any)
+          : darkroomState.cropAspectRatio;
+
+      const snappedBox = snapCropBoxToAspectRatio(
+        {
+          x: decision.crop_box![1],
+          y: decision.crop_box![0],
+          width: decision.crop_box![3] - decision.crop_box![1],
+          height: decision.crop_box![2] - decision.crop_box![0],
+        },
+        resolvedRatio,
+        darkroomState.activeImageAspectRatio,
+      );
+      const safeBox = computeInscribedCropForRotation(
+        snappedBox,
+        nextRot,
+        darkroomState.activeImageAspectRatio,
+      );
+
+      darkroomState.cropX = safeBox.x;
+      darkroomState.cropY = safeBox.y;
+      darkroomState.cropWidth = safeBox.width;
+      darkroomState.cropHeight = safeBox.height;
+      darkroomState.cropRotation = nextRot;
+      if (Math.abs(nextKv) > 0.05) {
+        darkroomState.keystoneV = nextKv;
       }
-      if (
-        decision.aspect_ratio &&
-        ["original", "1:1", "4:5", "16:9", "9:16", "free"].includes(
-          decision.aspect_ratio,
-        )
-      ) {
-        darkroomState.cropAspectRatio = decision.aspect_ratio as any;
-      }
+      darkroomState.cropAspectRatio = resolvedRatio;
       const rationale = decision.crop_rationale || "已套用 AI 建議構圖比例。";
       darkroomState.aiCropRationale = rationale;
-      darkroomState.isCropMode = true; // 自動開啟裁切框供檢視
+      darkroomState.isCropMode = true; // 僅當實際有裁切時才開啟裁切框供檢視微調
       await this.appendAiLog(`> [SUCCESS] 智慧裁切已套用：${rationale} ✓`);
       toastStore.show(`智慧構圖已套用：${rationale} ✓`, "success");
     } catch (err: any) {
@@ -1122,6 +1191,10 @@ export class AiPipelineStore {
   async quickAiHorizon(): Promise<void> {
     const activePhoto = photoLibrary.activePhoto;
     if (!activePhoto || this.isAiAnalyzing) return;
+    if (!this.hasActiveApiKey()) {
+      this.onRequireApiKey?.();
+      return;
+    }
     this.isAiAnalyzing = true;
     await this.appendAiLog(
       `> [AI_HORIZON_SOLO] 正在偵測地平線傾角與垂直透視...`,
@@ -1153,6 +1226,7 @@ export class AiPipelineStore {
         typeof decision.keystone_v === "number" ? decision.keystone_v : 0.0;
       darkroomState.cropRotation = nextRotation;
       darkroomState.keystoneV = nextKeystoneV;
+      darkroomState.ensureRotationSafeCrop();
       await this.appendAiLog(
         `> [SUCCESS] 地平線校正 ${nextRotation.toFixed(1)}°，垂直梯形 ${nextKeystoneV.toFixed(1)}° ✓`,
       );

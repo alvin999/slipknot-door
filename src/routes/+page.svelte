@@ -478,10 +478,18 @@
         }
       } else if (e.key === "Enter") {
         e.preventDefault();
-        goToExport();
+        if (darkroomState.isCropMode) {
+          darkroomState.isCropMode = false;
+        } else {
+          goToExport();
+        }
       } else if (e.key === "Escape") {
         e.preventDefault();
-        goToCatalog();
+        if (darkroomState.isCropMode) {
+          darkroomState.isCropMode = false;
+        } else {
+          goToCatalog();
+        }
       }
     } else if (activeTab === "export") {
       // 方案 A 流水線 Step 3：按 Enter 直接觸發批次出圖，按 Esc 返回暗房精修

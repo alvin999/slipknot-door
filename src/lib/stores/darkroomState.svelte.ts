@@ -16,6 +16,10 @@ import type { PhotoPlateItem } from "./photoLibrary.svelte";
 import { lutCatalog } from "./lutCatalog.svelte";
 import { styleKeywordCatalog } from "./styleKeywordCatalog.svelte";
 import type { StyleKeywordId, StylePresetKey } from "$lib/services/ai/types";
+import {
+  computeInscribedCropForRotation,
+  getTargetAspectRatio,
+} from "$lib/utils/cropGeometry";
 
 export type DiffMode = "off" | "split" | "sideBySide";
 export type CropRatioPreset = "original" | "1:1" | "4:5" | "16:9" | "9:16" | "free";
@@ -163,6 +167,7 @@ export class DarkroomStateStore {
 
   // 幾何構圖與裁切狀態 (Crop & Keystone Geometry)
   isCropMode = $state<boolean>(false);
+  activeImageAspectRatio = $state<number>(1.5); // 當前載入影像的真實寬高比
   cropX = $state<number>(0.0); // 0.0 ~ 1.0 (左上角 X 比例)
   cropY = $state<number>(0.0); // 0.0 ~ 1.0 (左上角 Y 比例)
   cropWidth = $state<number>(1.0); // 0.0 ~ 1.0 (寬度比例)
@@ -688,6 +693,7 @@ export class DarkroomStateStore {
     } else {
       this.resetCropState();
     }
+    this.isCropMode = false;
     this.initHistory();
   }
 
@@ -810,22 +816,19 @@ export class DarkroomStateStore {
       this.cropY = 0.0;
       this.cropWidth = 1.0;
       this.cropHeight = 1.0;
+      this.ensureRotationSafeCrop();
       return;
     }
 
-    let imgRatio = 1.5; // 預設 3:2
+    let imgRatio = this.activeImageAspectRatio || 1.5;
     if (sourceImgElement && sourceImgElement.naturalWidth && sourceImgElement.naturalHeight) {
       imgRatio = sourceImgElement.naturalWidth / sourceImgElement.naturalHeight;
-    } else if (canvasContainerRef && canvasContainerRef.clientWidth && canvasContainerRef.clientHeight) {
+      this.activeImageAspectRatio = imgRatio;
+    } else if (!this.activeImageAspectRatio && canvasContainerRef && canvasContainerRef.clientWidth && canvasContainerRef.clientHeight) {
       imgRatio = canvasContainerRef.clientWidth / canvasContainerRef.clientHeight;
     }
 
-    let targetRatio = 1.0;
-    if (ratio === "1:1") targetRatio = 1.0;
-    else if (ratio === "4:5") targetRatio = 0.8;
-    else if (ratio === "16:9") targetRatio = 16 / 9;
-    else if (ratio === "9:16") targetRatio = 9 / 16;
-
+    const targetRatio = getTargetAspectRatio(ratio, imgRatio) ?? 1.0;
     const r = targetRatio / imgRatio;
 
     if (r <= 1.0) {
@@ -839,6 +842,28 @@ export class DarkroomStateStore {
       this.cropX = 0.0;
       this.cropY = parseFloat(((1.0 - this.cropHeight) / 2).toFixed(3));
     }
+    this.ensureRotationSafeCrop();
+  }
+
+  /**
+   * 依據目前旋轉角度安全內縮裁切框，防止匯出與預覽四角露出黑邊
+   */
+  ensureRotationSafeCrop(): void {
+    if (Math.abs(this.cropRotation) < 0.05) return;
+    const safe = computeInscribedCropForRotation(
+      {
+        x: this.cropX,
+        y: this.cropY,
+        width: this.cropWidth,
+        height: this.cropHeight,
+      },
+      this.cropRotation,
+      this.activeImageAspectRatio
+    );
+    this.cropX = safe.x;
+    this.cropY = safe.y;
+    this.cropWidth = safe.width;
+    this.cropHeight = safe.height;
   }
 
   /**

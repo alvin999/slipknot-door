@@ -8,6 +8,7 @@
 import { IngestionService } from './ingestionService';
 import { WebglLutRenderer } from './webglLutRenderer';
 import type { CustomLutRecord } from './customLutService';
+import { hasActiveCropGeometry, renderGeometryToCanvas } from '../utils/cropGeometry';
 
 export type ExportFormat = 'jpeg' | 'png' | 'webp';
 
@@ -275,15 +276,7 @@ export class ExportService {
       );
 
       const crop = options.photo.crop;
-      const hasGeometry = !!(crop && (
-        crop.x > 0.001 ||
-        crop.y > 0.001 ||
-        crop.width < 0.999 ||
-        crop.height < 0.999 ||
-        Math.abs(crop.rotation || 0) > 0.05 ||
-        crop.flipH ||
-        crop.flipV
-      ));
+      const hasGeometry = hasActiveCropGeometry(crop);
 
       const format: ExportFormat = options.format ?? 'jpeg';
       const mimeType = getExportMimeType(format);
@@ -294,65 +287,16 @@ export class ExportService {
         return await this.exportRenderer.exportBlob(mimeType, quality);
       }
 
-      const cropX = hasGeometry && crop ? Math.max(0, Math.min(1, crop.x || 0)) : 0;
-      const cropY = hasGeometry && crop ? Math.max(0, Math.min(1, crop.y || 0)) : 0;
-      const cropW = hasGeometry && crop ? Math.max(0.01, Math.min(1 - cropX, crop.width || 1)) : 1;
-      const cropH = hasGeometry && crop ? Math.max(0.01, Math.min(1 - cropY, crop.height || 1)) : 1;
-      const rotDeg = hasGeometry && crop ? (crop.rotation || 0) : 0;
-      const flipH = hasGeometry && crop ? !!crop.flipH : false;
-      const flipV = hasGeometry && crop ? !!crop.flipV : false;
-
-      const srcW = Math.max(1, Math.round(cropW * w));
-      const srcH = Math.max(1, Math.round(cropH * h));
-      const currentLongEdge = Math.max(srcW, srcH);
+      const cropW = hasGeometry && crop ? Math.max(0.01, Math.min(1, crop.width || 1)) : 1;
+      const cropH = hasGeometry && crop ? Math.max(0.01, Math.min(1, crop.height || 1)) : 1;
+      const currentLongEdge = Math.max(Math.round(cropW * w), Math.round(cropH * h));
       const needsResize = maxLongEdge !== null && currentLongEdge > maxLongEdge;
 
       if (!hasGeometry && !needsResize) {
         return await this.exportRenderer.exportBlob(mimeType, quality);
       }
 
-      let sourceCanvas: HTMLCanvasElement = this.exportCanvas;
-      if (Math.abs(rotDeg) > 0.05 || flipH || flipV) {
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = w;
-        tempCanvas.height = h;
-        const tempCtx = tempCanvas.getContext('2d');
-        if (!tempCtx) return await this.exportRenderer.exportBlob(mimeType, quality);
-
-        tempCtx.translate(w / 2, h / 2);
-        if (rotDeg !== 0) {
-          tempCtx.rotate((rotDeg * Math.PI) / 180);
-        }
-        if (flipH || flipV) {
-          tempCtx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
-        }
-        tempCtx.drawImage(this.exportCanvas, -w / 2, -h / 2, w, h);
-        sourceCanvas = tempCanvas;
-      }
-
-      const scale = needsResize && maxLongEdge ? maxLongEdge / currentLongEdge : 1;
-      const outW = Math.max(1, Math.round(srcW * scale));
-      const outH = Math.max(1, Math.round(srcH * scale));
-      const outCanvas = document.createElement('canvas');
-      outCanvas.width = outW;
-      outCanvas.height = outH;
-      const outCtx = outCanvas.getContext('2d');
-      if (!outCtx) return await this.exportRenderer.exportBlob(mimeType, quality);
-
-      outCtx.imageSmoothingEnabled = true;
-      outCtx.imageSmoothingQuality = 'high';
-      outCtx.drawImage(
-        sourceCanvas,
-        Math.round(cropX * w),
-        Math.round(cropY * h),
-        srcW,
-        srcH,
-        0,
-        0,
-        outW,
-        outH
-      );
-
+      const outCanvas = renderGeometryToCanvas(this.exportCanvas, crop, maxLongEdge);
       return new Promise<Blob | null>((resolve) => {
         outCanvas.toBlob((blob) => resolve(blob), mimeType, quality);
       });
