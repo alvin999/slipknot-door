@@ -9,113 +9,6 @@
   let activeSection = $state<"guide" | "workflow">("guide");
   let isMobile = $state<boolean>(false);
 
-  interface MobileGuideItem {
-    action: string;
-    title: string;
-    desc: string;
-    highlight?: boolean;
-    tone?: "amber" | "cyan" | "green";
-  }
-
-  interface MobileGuideGroup {
-    badge: string;
-    title: string;
-    items: MobileGuideItem[];
-  }
-
-  const mobileOperationGroups: MobileGuideGroup[] = [
-    {
-      badge: "STEP 01",
-      title: "膠卷目錄挑圖 (CATALOG)",
-      items: [
-        {
-          action: "輕點相片",
-          title: "進入單張暗房精修",
-          desc: "點擊任一張底片縮圖，立即開啟暗房精修工作台",
-          highlight: true,
-          tone: "amber",
-        },
-        {
-          action: "點擊書籤圖示",
-          title: "挑選 / 取消挑選底片",
-          desc: "點選卡片右上角書籤標記納入佇列，再點一次立即取消",
-          highlight: true,
-          tone: "amber",
-        },
-        {
-          action: "長按並滑動",
-          title: "多選與滑刷連選底片",
-          desc: "長按相片進入多選模式並可直接滑過連選，使用底部工具列批次挑選、排除或刪除",
-        },
-        {
-          action: "上方工具列",
-          title: "載入與追加相片來源",
-          desc: "切換「更換目錄」、「追加目錄」或「追加相片」，亦可直接載入相機記憶卡",
-        },
-      ],
-    },
-    {
-      badge: "STEP 02",
-      title: "單張暗房精修 (RETOUCH)",
-      items: [
-        {
-          action: "畫布左右滑動",
-          title: "切換上一張 / 下一張底片",
-          desc: "在非放大狀態下左右滑動預覽畫布，依序檢視相卷底片",
-        },
-        {
-          action: "雙擊畫布",
-          title: "放大檢視細節 / 恢復全幅",
-          desc: "快速點兩下畫布可局部放大確認合焦，再點兩下還原全幅檢視",
-          highlight: true,
-          tone: "amber",
-        },
-        {
-          action: "按住比對原圖",
-          title: "A/B 原始本相即時對比",
-          desc: "長按畫布浮動「比對原圖」按鈕檢視 RAW 原圖，放開即恢復調色成果",
-          highlight: true,
-          tone: "cyan",
-        },
-        {
-          action: "底部暗房操作列",
-          title: "一鍵 AI 顯影與抽屜面板",
-          desc: "直接點擊「一鍵 AI」或「批次」顯影，或開啟「風格」／「微調」抽屜調整細節",
-          highlight: true,
-          tone: "amber",
-        },
-        {
-          action: "雙擊滑桿或數值",
-          title: "單項參數快速歸零",
-          desc: "點兩下參數名稱、數值或軌道可重設為基準值；輕點數值亦可直接輸入調整",
-        },
-      ],
-    },
-    {
-      badge: "STEP 03",
-      title: "導出與社群分享 (EXPORT)",
-      items: [
-        {
-          action: "底部導航列",
-          title: "切換各階段工作視圖",
-          desc: "隨時於「挑圖」、「精修」、「導出/分享」、「風格庫」與「設定」之間切換",
-        },
-        {
-          action: "選擇輸出規格",
-          title: "社群分享 / 高畫質 / 無損原圖",
-          desc: "可依用途挑選快速預設，或自由調整 JPG / PNG / WebP 格式、畫質與長邊尺寸",
-          highlight: true,
-          tone: "green",
-        },
-        {
-          action: "生成文案與分享",
-          title: "一鍵匯出或呼叫系統分享",
-          desc: "產生 AI 策展文案後直接匯出成品，或點擊分享開啟手機原生分享面板",
-        },
-      ],
-    },
-  ];
-
   $effect(() => {
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(max-width: 768px)");
@@ -161,12 +54,12 @@
           <div>
             <h2 class="title font-headline">
               {isMobile
-                ? "大相無形 · 系統操作說明"
+                ? "大相無形 · AI 顯影與流水線指引"
                 : "大相無形 · 系統操作與快捷鍵指南"}
             </h2>
             <p class="subtitle font-mono">
               {isMobile
-                ? "CURATORIAL WORKFLOW & OPERATION GUIDE"
+                ? "AI DARKROOM WORKFLOW & VISUAL GUIDE"
                 : "CURATORIAL WORKFLOW & KEYBOARD CHEAT SHEET"}
             </p>
           </div>
@@ -176,73 +69,253 @@
           type="button"
           class="close-btn"
           onclick={onClose}
-          title={isMobile ? "關閉說明" : "關閉 (Esc 或 ?)"}
+          title={isMobile ? "關閉指引" : "關閉 (Esc 或 ?)"}
         >
           <span class="material-symbols-outlined">close</span>
         </button>
       </header>
 
-      <!-- Section Tabs -->
-      <div class="section-tabs hairline-b font-mono">
-        <button
-          type="button"
-          class="tab-btn"
-          class:active={activeSection === "guide"}
-          onclick={() => (activeSection = "guide")}
-        >
-          <span class="material-symbols-outlined tab-icon"
-            >{isMobile ? "touch_app" : "keyboard"}</span
+      <!-- Section Tabs (僅桌機版顯示雙分頁；手機版直接整合為單一流水線 × AI 實戰指引) -->
+      {#if !isMobile}
+        <div class="section-tabs hairline-b font-mono">
+          <button
+            type="button"
+            class="tab-btn"
+            class:active={activeSection === "guide"}
+            onclick={() => (activeSection = "guide")}
           >
-          <span
-            >{isMobile
-              ? "操作說明 (OPERATIONS)"
-              : "鍵盤快捷鍵速查 (SHORTCUTS)"}</span
+            <span class="material-symbols-outlined tab-icon">keyboard</span>
+            <span>鍵盤快捷鍵速查 (SHORTCUTS)</span>
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            class:active={activeSection === "workflow"}
+            onclick={() => (activeSection = "workflow")}
           >
-        </button>
-        <button
-          type="button"
-          class="tab-btn"
-          class:active={activeSection === "workflow"}
-          onclick={() => (activeSection = "workflow")}
-        >
-          <span class="material-symbols-outlined tab-icon">schema</span>
-          <span>3 步驟流水線指引 (WORKFLOW)</span>
-        </button>
-      </div>
+            <span class="material-symbols-outlined tab-icon">schema</span>
+            <span>3 步驟流水線指引 (WORKFLOW)</span>
+          </button>
+        </div>
+      {/if}
 
       <!-- Modal Body -->
       <div class="modal-body custom-scroll">
-        {#if activeSection === "guide" && isMobile}
-          <!-- 手機版操作說明 -->
-          <div class="shortcuts-container">
-            {#each mobileOperationGroups as group}
-              <div class="shortcut-group hairline-all">
-                <div class="group-header font-mono">
-                  <span class="group-badge">{group.badge}</span>
-                  <span class="group-title">{group.title}</span>
-                </div>
-                <div class="shortcut-list">
-                  {#each group.items as item}
-                    <div class="shortcut-row" class:highlight={item.highlight}>
-                      <div class="keys">
-                        <span
-                          class="op-badge font-mono"
-                          class:amber={item.tone === "amber"}
-                          class:cyan={item.tone === "cyan"}
-                          class:green={item.tone === "green"}
-                        >
-                          {item.action}
-                        </span>
-                      </div>
-                      <div class="action-desc">
-                        <span class="desc-main">{item.title}</span>
-                        <span class="desc-sub font-mono">{item.desc}</span>
-                      </div>
-                    </div>
-                  {/each}
+        {#if isMobile}
+          <!-- 手機版：流水線 × AI 實戰視覺指引（嵌入真實網頁元素樣式） -->
+          <div class="mobile-visual-workflow">
+            <!-- 00 · 金鑰配置 -->
+            <div class="workflow-step-card mobile-card hairline-all">
+              <div class="mobile-card-head">
+                <span class="step-num-badge">00</span>
+                <div>
+                  <h3 class="step-title font-headline">配置 AI 雲端金鑰（選填）</h3>
+                  <p class="mobile-step-sub font-mono">API KEY VAULT · 顯影與文案核心</p>
                 </div>
               </div>
-            {/each}
+              <p class="step-desc">
+                在挑圖頂部、暗房「風格」面板或底部「設定」頁，點擊下方任一金鑰入口即可開啟保險庫，貼上
+                <span class="highlight-text">Gemini</span>（視覺顯影調色）或
+                <span class="highlight-text">Groq</span>（社群文案）API Key。
+              </p>
+              <div class="ui-preview-stage" aria-hidden="true">
+                <div class="ui-preview-row">
+                  <span class="ui-vault-pill">
+                    <span class="material-symbols-outlined" style="font-size: 13px;">vpn_key</span>
+                    <span>未配置金鑰 / 設定金鑰</span>
+                  </span>
+                  <span class="ui-preview-arrow font-mono">➔</span>
+                  <span class="ui-vault-pill ready">
+                    <span class="material-symbols-outlined" style="font-size: 13px;">verified_user</span>
+                    <span>金鑰就緒</span>
+                  </span>
+                </div>
+                <p class="ui-preview-caption font-mono">
+                  支援「透明加密」（本機免密碼即存）或「主密碼保護」；未設金鑰仍可使用在地光學降級。
+                </p>
+              </div>
+            </div>
+
+            <div class="workflow-arrow mobile-arrow">↓</div>
+
+            <!-- 01 · 挑圖與手勢 -->
+            <div class="workflow-step-card mobile-card hairline-all">
+              <div class="mobile-card-head">
+                <span class="step-num-badge">01</span>
+                <div>
+                  <h3 class="step-title font-headline">膠卷目錄挑圖 (Catalog)</h3>
+                  <p class="mobile-step-sub font-mono">INGESTION & CURATION</p>
+                </div>
+              </div>
+              <p class="step-desc">
+                載入記憶卡或資料夾後，點卡片右上角書籤加入精修佇列，或輕點縮圖直接進暗房。
+                <span class="highlight-text">長按相片並滑動</span> 可開啟多選滑刷連選，一次批次挑選或排除。
+              </p>
+            </div>
+
+            <div class="workflow-arrow mobile-arrow">↓</div>
+
+            <!-- 02 · AI 關鍵字與顯影 -->
+            <div class="workflow-step-card mobile-card hairline-all">
+              <div class="mobile-card-head">
+                <span class="step-num-badge">02</span>
+                <div>
+                  <h3 class="step-title font-headline">AI 關鍵字設定與顯影 (AI Retouch)</h3>
+                  <p class="mobile-step-sub font-mono">STYLE LUT × VIBE KEYWORDS × 1-TAP AI</p>
+                </div>
+              </div>
+
+              <div class="mobile-sub-block">
+                <div class="sub-step-label font-mono">① 設定風格、意境關鍵字或自訂描述</div>
+                <p class="step-desc">
+                  點擊底部暗房列「風格」開啟 AI 抽屜，挑選 3D LUT、點選意境標籤或輸入描述（也可按「試試範例」或「編輯Prompt」微調）。
+                </p>
+                <div class="ui-preview-stage" aria-hidden="true">
+                  <div class="ui-preview-row">
+                    <span class="ui-action-pill compact active">
+                      <span class="material-symbols-outlined" style="font-size: 14px;">palette</span>
+                      <span>風格</span>
+                    </span>
+                    <span class="ui-preview-arrow font-mono">➔</span>
+                    <span class="ui-vibe-chip active">
+                      <span class="ui-vibe-dot"></span>
+                      <span>日系空氣感</span>
+                    </span>
+                    <span class="ui-vibe-chip">
+                      <span class="ui-vibe-dot"></span>
+                      <span>Film Like</span>
+                    </span>
+                    <span class="ui-vibe-chip">
+                      <span class="ui-vibe-dot"></span>
+                      <span>電影感</span>
+                    </span>
+                  </div>
+                  <div class="ui-custom-prompt-box font-body">
+                    <span class="ui-prompt-placeholder">輸入自訂調色想法，如：微過曝通透日光...</span>
+                    <span class="ui-sample-btn font-mono">
+                      <span class="material-symbols-outlined" style="font-size: 11px;">casino</span>
+                      <span>試試範例</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mobile-sub-block">
+                <div class="sub-step-label font-mono">② 不開抽屜直接顯影，點膠囊看理念</div>
+                <p class="step-desc">
+                  設定會自動保留；回到畫布直接點底部操作列即可執行單張或批次 AI（有設關鍵字會顯示為「依意境 AI」）。顯影後點擊畫布下方狀態膠囊，就能展開完整調色理念與裁切診斷。
+                </p>
+                <div class="ui-preview-stage" aria-hidden="true">
+                  <div class="ui-preview-row">
+                    <span class="ui-action-pill primary-ai">
+                      <span class="material-symbols-outlined" style="font-size: 15px;">auto_awesome</span>
+                      <span>一鍵 AI / 依意境 AI</span>
+                    </span>
+                    <span class="ui-action-pill secondary-batch">
+                      <span class="material-symbols-outlined" style="font-size: 14px;">auto_mode</span>
+                      <span>批次 (N)</span>
+                    </span>
+                  </div>
+                  <div class="ui-ai-status-pill font-mono">
+                    <span class="ui-status-left">
+                      <span class="material-symbols-outlined" style="font-size: 13px; color: var(--amber-highlight);">auto_awesome</span>
+                      <span>日系空氣感 · AI 調色完成（點我看報告）</span>
+                    </span>
+                    <span class="material-symbols-outlined" style="font-size: 14px; color: var(--parchment-dim);">chevron_right</span>
+                  </div>
+                </div>
+              </div>
+
+              <p class="mobile-gesture-note font-mono">
+                手勢提示：畫布左右滑動切換底片 · 雙擊畫布局部放大檢視合焦
+              </p>
+            </div>
+
+            <div class="workflow-arrow mobile-arrow">↓</div>
+
+            <!-- 02.5 · 四種還原與對比 -->
+            <div class="workflow-step-card mobile-card hairline-all">
+              <div class="mobile-card-head">
+                <span class="step-num-badge cyan">↺</span>
+                <div>
+                  <h3 class="step-title font-headline">對比原圖與各種「還原」怎麼分？</h3>
+                  <p class="mobile-step-sub font-mono">COMPARE · RESTORE AI · UNDO · RESET</p>
+                </div>
+              </div>
+              <div class="restore-matrix" aria-label="還原功能對照">
+                <div class="restore-item">
+                  <div class="restore-badge-slot" aria-hidden="true">
+                    <span class="ui-ab-btn font-mono">
+                      <span class="material-symbols-outlined" style="font-size: 13px;">compare</span>
+                      <span>按住比對原圖</span>
+                    </span>
+                  </div>
+                  <p class="restore-desc">
+                    <strong>僅暫時預覽</strong>：長按畫布浮動鈕看 RAW 原圖，放開即恢復目前調色。
+                  </p>
+                </div>
+
+                <div class="restore-item">
+                  <div class="restore-badge-slot" aria-hidden="true">
+                    <span class="ui-restore-ai-btn font-mono">
+                      <span class="material-symbols-outlined" style="font-size: 12px;">settings_backup_restore</span>
+                      <span>還原 AI</span>
+                    </span>
+                  </div>
+                  <p class="restore-desc">
+                    <strong>退回 AI 基準</strong>：手動微調跑偏後，點狀態膠囊或「微調」抽屜內的此鈕，一鍵回到 AI 顯影結果。
+                  </p>
+                </div>
+
+                <div class="restore-item">
+                  <div class="restore-badge-slot" aria-hidden="true">
+                    <span class="ui-toolbar-btn font-mono">
+                      <span class="material-symbols-outlined" style="font-size: 12px;">undo</span>
+                      <span>復原</span>
+                    </span>
+                    <span class="ui-toolbar-btn font-mono">
+                      <span class="material-symbols-outlined" style="font-size: 12px;">redo</span>
+                      <span>重做</span>
+                    </span>
+                  </div>
+                  <p class="restore-desc">
+                    <strong>單步撤銷／單項歸零</strong>：在「微調」抽屜頂部撤銷上一步；<strong>雙擊滑桿名稱或數值</strong>可單項歸零。
+                  </p>
+                </div>
+
+                <div class="restore-item">
+                  <div class="restore-badge-slot" aria-hidden="true">
+                    <span class="ui-toolbar-btn font-mono">
+                      <span class="material-symbols-outlined" style="font-size: 12px;">photo_camera</span>
+                      <span>相機原值</span>
+                    </span>
+                    <span class="ui-toolbar-btn danger font-mono">
+                      <span class="material-symbols-outlined" style="font-size: 12px;">restart_alt</span>
+                      <span>全重設</span>
+                    </span>
+                  </div>
+                  <p class="restore-desc">
+                    <strong>徹底還原</strong>：「相機原值」回到拍攝色溫曝光；「全重設」會清除所有調色、風格與裁切。
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="workflow-arrow mobile-arrow">↓</div>
+
+            <!-- 03 · 導出與分享 -->
+            <div class="workflow-step-card mobile-card hairline-all">
+              <div class="mobile-card-head">
+                <span class="step-num-badge green">03</span>
+                <div>
+                  <h3 class="step-title font-headline">AI 文案與導出分享 (Export)</h3>
+                  <p class="mobile-step-sub font-mono">PRESETS · AI CAPTION · SYSTEM SHARE</p>
+                </div>
+              </div>
+              <p class="step-desc">
+                切換底部「導出/分享」，挑選 <span class="highlight-text">社群分享、高畫質或無損原圖</span> 預設（支援 JPG / PNG / WebP）。產生 AI 策展文案後，可直接匯出或呼叫手機原生分享面板發出成品。
+              </p>
+            </div>
           </div>
         {:else if activeSection === "guide"}
           <!-- 快捷鍵對照表 -->
@@ -654,7 +727,7 @@
             </div>
           </div>
         {:else}
-          <!-- 3 步驟流水線指引 -->
+          <!-- 桌機版：3 步驟流水線指引 -->
           <div class="workflow-container font-mono">
             <div class="workflow-step-card hairline-all">
               <div class="step-num-badge">01</div>
@@ -662,26 +735,17 @@
                 <h3 class="step-title font-headline">
                   相機連線與膠卷挑圖 (Ingestion & Curation)
                 </h3>
-                {#if isMobile}
-                  <p class="step-desc">
-                    載入相機記憶卡或本機相片資料夾後，於膠卷目錄中瀏覽底片縮圖。
-                    點擊卡片右上角 <span class="highlight-text">書籤圖示</span>
-                    加入挑選清單，或
-                    <span class="highlight-text">長按並滑動</span> 進行批次選取；輕點任一相片即可直接進入暗房精修。
-                  </p>
-                {:else}
-                  <p class="step-desc">
-                    插入相機記憶卡或連接傳輸線，系統即插即讀自動探測 DCIM 目錄與
-                    RAW 檔案。 在目錄矩陣中，利用右手 <span
-                      class="highlight-text">HJKL</span
-                    >
-                    瀏覽底片， 按下 <span class="highlight-text">Space</span>
-                    叫出 Quick Look 審視合焦細節， 左手按下
-                    <span class="highlight-text">P</span>
-                    鍵加入挑選清單。挑選完畢後按
-                    <span class="highlight-text">Enter</span> 順暢進入暗房。
-                  </p>
-                {/if}
+                <p class="step-desc">
+                  插入相機記憶卡或連接傳輸線，系統即插即讀自動探測 DCIM 目錄與
+                  RAW 檔案。 在目錄矩陣中，利用右手 <span
+                    class="highlight-text">HJKL</span
+                  >
+                  瀏覽底片， 按下 <span class="highlight-text">Space</span>
+                  叫出 Quick Look 審視合焦細節， 左手按下
+                  <span class="highlight-text">P</span>
+                  鍵加入挑選清單。挑選完畢後按
+                  <span class="highlight-text">Enter</span> 順暢進入暗房。
+                </p>
               </div>
             </div>
 
@@ -693,29 +757,15 @@
                 <h3 class="step-title font-headline">
                   單張暗房精修 (Darkroom Retouch)
                 </h3>
-                {#if isMobile}
-                  <p class="step-desc">
-                    暗房工作台具備 60FPS WebGL 2.0 即時 3D LUT
-                    色彩模擬，可透過底部操作列執行 <span class="highlight-text"
-                      >一鍵 AI</span
-                    >
-                    或
-                    <span class="highlight-text">批次顯影</span
-                    >，並隨時展開「風格」與「微調」抽屜。
-                    左右滑動畫布可切換底片、雙擊可放大檢視，按住
-                    <span class="highlight-text">比對原圖</span> 即可檢視 A/B 原始本相效果。
-                  </p>
-                {:else}
-                  <p class="step-desc">
-                    暗房工作台載入挑選底片，具備 60FPS WebGL 2.0 即時 3D LUT
-                    色彩模擬。 支援多模態 AI 智慧顯影調色與獨立微型快捷動作（AI
-                    裁切、AI 拉平、AI 白平衡、AI 光比）。 修圖過程中長按或按一下 <span
-                      class="highlight-text">Space</span
-                    >
-                    進行 A/B 原始本相對比。滿意後按
-                    <span class="highlight-text">Enter</span> 推進至導出。
-                  </p>
-                {/if}
+                <p class="step-desc">
+                  暗房工作台載入挑選底片，具備 60FPS WebGL 2.0 即時 3D LUT
+                  色彩模擬。 支援多模態 AI 智慧顯影調色與獨立微型快捷動作（AI
+                  裁切、AI 拉平、AI 白平衡、AI 光比）。 修圖過程中長按或按一下 <span
+                    class="highlight-text">Space</span
+                  >
+                  進行 A/B 原始本相對比。滿意後按
+                  <span class="highlight-text">Enter</span> 推進至導出。
+                </p>
               </div>
             </div>
 
@@ -727,25 +777,15 @@
                 <h3 class="step-title font-headline">
                   智慧分類與批次匯出 (Export & Archive)
                 </h3>
-                {#if isMobile}
-                  <p class="step-desc">
-                    點選底部導航切換至「導出/分享」，自由挑選 <span
-                      class="highlight-text"
-                      >社群分享、高畫質相片或無損典藏</span
-                    > 預設，亦可自訂格式（JPG / PNG / WebP）、畫質與長邊尺寸。 內建
-                    AI 策展文案與資料夾自動分類，確認設定後點擊匯出或使用系統分享面板即可完成。
-                  </p>
-                {:else}
-                  <p class="step-desc">
-                    自由挑選 <span class="highlight-text"
-                      >社群分享、高畫質相片或無損典藏</span
-                    >
-                    用途預設，亦可自訂格式（JPG / PNG /
-                    WebP）、畫質百分比與長邊像素限制。 支援 AI 場景資料夾分類與
-                    RAW 備份，確認後按下
-                    <span class="highlight-text">Enter</span> 立即開始匯出。
-                  </p>
-                {/if}
+                <p class="step-desc">
+                  自由挑選 <span class="highlight-text"
+                    >社群分享、高畫質相片或無損典藏</span
+                  >
+                  用途預設，亦可自訂格式（JPG / PNG /
+                  WebP）、畫質百分比與長邊像素限制。 支援 AI 場景資料夾分類與
+                  RAW 備份，確認後按下
+                  <span class="highlight-text">Enter</span> 立即開始匯出。
+                </p>
               </div>
             </div>
           </div>
@@ -759,7 +799,7 @@
             >tips_and_updates</span
           >
           {#if isMobile}
-            <span>提示：點擊右上角「?」圖示可隨時開啟或關閉此操作說明。</span>
+            <span>提示：點擊右上角「?」圖示可隨時開啟或關閉此指引。</span>
           {:else}
             <span
               >提示：在任何介面隨時按下 <kbd class="kbd-chip">?</kbd> 鍵即可快速叫出或關閉此說明視窗。</span
@@ -1127,33 +1167,332 @@
     background-color: var(--primary-hover);
   }
 
-  .op-badge {
-    display: inline-block;
-    padding: 3px 10px;
+  /* 手機版視覺化流水線 × 嵌入網頁元素預覽 */
+  .mobile-visual-workflow {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .mobile-card {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .mobile-card-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .mobile-card-head .step-title {
+    margin-bottom: 2px;
+  }
+
+  .mobile-step-sub {
+    font-size: 10px;
+    color: var(--parchment-dim);
+    letter-spacing: 0.06em;
+  }
+
+  .step-num-badge.cyan {
+    color: #5ce1e6;
+    background: rgba(92, 225, 230, 0.1);
+    border-color: rgba(92, 225, 230, 0.35);
+  }
+
+  .step-num-badge.green {
+    color: var(--success-green);
+    background: rgba(86, 143, 107, 0.12);
+    border-color: rgba(86, 143, 107, 0.4);
+  }
+
+  .mobile-arrow {
+    line-height: 1;
+  }
+
+  .mobile-sub-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  }
+
+  .sub-step-label {
     font-size: 11px;
-    color: var(--parchment-bright);
-    background-color: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    font-weight: 600;
+    color: var(--amber-highlight);
+  }
+
+  .mobile-gesture-note {
+    font-size: 10.5px;
+    color: var(--parchment-dim);
+    padding-top: 6px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  }
+
+  /* 擬真網頁元件展示舞台 */
+  .ui-preview-stage {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
     border-radius: var(--radius-xs);
+    background-color: rgba(12, 13, 17, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .ui-preview-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ui-preview-arrow {
+    font-size: 11px;
+    color: var(--parchment-dim);
+  }
+
+  .ui-preview-caption {
+    font-size: 10.5px;
+    color: var(--parchment-dim);
+    line-height: 1.45;
+  }
+
+  /* 金鑰膠囊預覽 (對應 AiAssistPanel .vault-pill-btn) */
+  .ui-vault-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(226, 157, 82, 0.45);
+    background: rgba(226, 157, 82, 0.1);
+    color: var(--amber-highlight);
+    font-size: 10.5px;
+    font-family: var(--font-mono);
+  }
+
+  .ui-vault-pill.ready {
+    border-color: var(--hairline-slate);
+    background: var(--surface-elevated);
+    color: var(--parchment-muted);
+  }
+
+  /* 行動暗房操作列按鈕預覽 (對應 MobileRetouchBar .retouch-action-pill) */
+  .ui-action-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 5px 11px;
+    border-radius: 20px;
+    border: 1px solid var(--hairline-slate);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--parchment-bright);
+    font-size: 11px;
+    font-family: var(--font-mono);
     white-space: nowrap;
   }
 
-  .op-badge.amber {
+  .ui-action-pill.compact {
+    padding: 5px 9px;
+  }
+
+  .ui-action-pill.active {
+    background: rgba(212, 163, 115, 0.15);
+    border-color: var(--amber-highlight);
     color: var(--amber-highlight);
-    border-color: rgba(212, 163, 115, 0.5);
-    background-color: rgba(212, 163, 115, 0.12);
   }
 
-  .op-badge.cyan {
+  .ui-action-pill.primary-ai {
+    background: linear-gradient(
+      135deg,
+      rgba(226, 157, 82, 0.24),
+      rgba(212, 163, 115, 0.12)
+    );
+    border-color: rgba(226, 157, 82, 0.65);
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+
+  .ui-action-pill.secondary-batch {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+
+  /* 意境關鍵字標籤預覽 (對應 AiAssistPanel .vibe-keyword-chip) */
+  .ui-vibe-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    font-size: 10.5px;
+    color: var(--parchment-muted);
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-sm);
+  }
+
+  .ui-vibe-chip.active {
+    background: rgba(226, 157, 82, 0.18);
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+
+  .ui-vibe-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+  }
+
+  .ui-vibe-chip.active .ui-vibe-dot {
+    background: var(--amber-highlight);
+    box-shadow: 0 0 6px var(--amber-highlight);
+  }
+
+  /* 自訂意境描述框預覽 */
+  .ui-custom-prompt-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--radius-xs);
+    background: rgba(20, 22, 27, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 10.5px;
+  }
+
+  .ui-prompt-placeholder {
+    color: var(--parchment-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ui-sample-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+    border: 1px solid rgba(226, 157, 82, 0.35);
+    background: rgba(226, 157, 82, 0.08);
+    color: var(--amber-highlight);
+    font-size: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* 畫布下方 AI 狀態小膠囊預覽 (對應 DarkroomViewport .mobile-ai-status-pill) */
+  .ui-ai-status-pill {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background-color: rgba(16, 17, 21, 0.92);
+    border: 1px solid rgba(212, 163, 115, 0.35);
+    font-size: 10.5px;
+    color: var(--parchment-bright);
+  }
+
+  .ui-status-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 四種還原對照表 */
+  .restore-matrix {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .restore-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 9px 10px;
+    border-radius: var(--radius-xs);
+    background-color: rgba(12, 13, 17, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .restore-badge-slot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .restore-desc {
+    font-size: 11.5px;
+    color: var(--parchment-muted);
+    line-height: 1.5;
+  }
+
+  .restore-desc strong {
+    color: var(--parchment-bright);
+    font-weight: 600;
+  }
+
+  .ui-ab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(16, 18, 23, 0.88);
+    border: 1px solid rgba(92, 225, 230, 0.45);
     color: #5ce1e6;
-    border-color: rgba(92, 225, 230, 0.5);
-    background-color: rgba(92, 225, 230, 0.12);
+    font-size: 10.5px;
   }
 
-  .op-badge.green {
-    color: var(--success-green);
-    border-color: rgba(86, 143, 107, 0.5);
-    background-color: rgba(86, 143, 107, 0.12);
+  .ui-restore-ai-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(226, 157, 82, 0.45);
+    background: rgba(226, 157, 82, 0.14);
+    color: var(--amber-highlight);
+    font-size: 10.5px;
+  }
+
+  .ui-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 7px;
+    border-radius: var(--radius-xs);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-hairline);
+    color: var(--parchment-muted);
+    font-size: 10.5px;
+  }
+
+  .ui-toolbar-btn.danger {
+    border-color: rgba(255, 107, 107, 0.4);
+    color: #ff8787;
   }
 
   @media (max-width: 768px) {
@@ -1170,38 +1509,8 @@
       font-size: 15px;
     }
 
-    .section-tabs {
-      padding: 0 12px;
-      gap: 6px;
-    }
-
-    .tab-btn {
-      padding: 10px 10px;
-      font-size: 11px;
-      gap: 6px;
-    }
-
     .modal-body {
       padding: 14px;
-    }
-
-    .shortcut-row {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 6px;
-      padding: 12px 14px;
-    }
-
-    .keys {
-      min-width: 0;
-    }
-
-    .action-desc {
-      align-items: flex-start;
-    }
-
-    .desc-sub {
-      line-height: 1.5;
     }
 
     .workflow-step-card {
@@ -1210,9 +1519,9 @@
     }
 
     .step-num-badge {
-      width: 36px;
-      height: 36px;
-      font-size: 16px;
+      width: 34px;
+      height: 34px;
+      font-size: 15px;
     }
 
     .modal-footer {
