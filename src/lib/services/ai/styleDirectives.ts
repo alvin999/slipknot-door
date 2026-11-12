@@ -282,7 +282,7 @@ ${manifest}`;
 10. halation [0.0 to 1.0, Baseline: 0.0]: Red-orange specular scatter halo around high-luminance edges caused by emulsion base reflection before highlight shoulder roll-off.
 11. grain_amount [0.0 to 1.0, Baseline: 0.15]: Luminance-weighted dual-scale silver-halide emulsion grain intensity.
 12. highlights [-1.0 to 1.0, Baseline: 0.0]: Upper-luminance roll-off / compression. Negative recovers specular highlight headroom without compressing midtones; positive boosts peak highlight energy.
-13. blacks [-0.5 to 0.5, Baseline: 0.0]: Lowest-luminance black-point anchor. Negative deepens true black floor density; positive creates a gentle matte fade in darkest shadows.
+13. blacks [-0.5 to 0.5, Baseline: 0.0]: Lowest-luminance black-point anchor. Negative deepens true black floor density; positive creates a matte fade in darkest shadows.
 14. vibrance [-1.0 to 1.0, Baseline: 0.0]: Skin-aware natural saturation scaling. Boosts muted hues proportionally while protecting warm skin tones and preventing over-saturated clipping.
 15. vignette [-1.0 to 1.0, Baseline: 0.0]: Optical peripheral radial falloff. Negative applies natural lens edge darkening; positive brightens outer corners.
 16. hsl (6-Band Targeted Color Mixer: "red" | "orange" | "yellow" | "green" | "cyan" | "blue"): Optional partial object where each specified band adjusts { hue: [-1.0, 1.0] (shifts ±30°), sat: [-1.0, 1.0], lum: [-1.0, 1.0] } centered at 0°, 30°, 60°, 120°, 185°, 240° with smooth inter-band blending and neutral-gray protection. Omit unadjusted bands or keep at 0.0.`;
@@ -366,7 +366,7 @@ export function buildCriticInstructionBlock(
     ? `- Monochrome Output Mode: ACTIVE (User-selected B&W output). Image 2 is rendered in monochrome; keep vibrance_delta & color_density_delta at 0.0, use hsl_deltas[band].lum as B&W optical filter refinements, and preserve neutral grayscale unless subtle darkroom split-toning is intended.\n`
     : '';
 
-  let criticPrompt = `You are an elite darkroom quality-control colorist and technical critic.
+  let criticPrompt = `You are a darkroom quality-control colorist and technical critic.
 You are inspecting TWO images:
 1. IMAGE 1: The original unedited capture proxy (1024px downscaled preview).
 2. IMAGE 2: The rendered draft result produced after applying Pass 1 tone & 3D LUT profile parameters (Profile: "${firstPassProfile}").
@@ -378,34 +378,34 @@ ${aestheticLine}${monochromeLine}- Since you have Image 2 (rendered actual resul
 - Inspect and fine-tune the following parameters (Respecting the hardware shader boundaries):
   1. EXPOSURE & HIGHLIGHT HARMONY (exposure_delta, valid range: -2.0 to 2.0 EV):
      - Evaluate overall luminance and highlight roll-off relative to the target aesthetic.
-     - Supply a negative delta within [-2.0, 0.0] EV if highlights clip or lose organic roll-off texture.
-     - Supply a positive delta within [0.0, 2.0] EV if overall exposure requires open luminance.
+     - Supply a negative delta within [-2.0, 0.0] EV if highlights clip or lose roll-off gradation.
+     - Supply a positive delta within [0.0, 2.0] EV if overall exposure requires higher luminance.
   2. SHADOW DEPTH & TOE GRADATION (lift_shadows_delta, valid range: -0.5 to 0.5):
-     - If blacks benefit from deeper, crisper punch, supply a negative delta within [-0.5, 0.0].
-     - If shadow areas require gentle opening or a softer matte film aesthetic is desired, provide a positive delta within [0.0, 0.5].
+     - If blacks require deeper density, supply a negative delta within [-0.5, 0.0].
+     - If shadow areas require lifting or a matte shadow floor is desired, provide a positive delta within [0.0, 0.5].
   3. TONAL CONTRAST & DYNAMICS (contrast_delta, valid range: -0.8 to 0.8):
-     - If contrast transition is too steep for the target vibe, provide a negative delta within [-0.8, 0.0] for smoother, gentler roll-off.
-     - If the image benefits from greater tonal separation and visual energy, provide a positive delta within [0.0, 0.8].
+     - If contrast transition is too steep for the target aesthetic, provide a negative delta within [-0.8, 0.0] for flatter tonal gradation.
+     - If the image benefits from greater tonal separation, provide a positive delta within [0.0, 0.8].
   4. COLOR TEMPERATURE & AMBIENT HARMONY (color_temp_delta, valid range: -3000 to 3000 Kelvin; tint_delta, optional, valid range: -100.0 to 100.0):
      - Supply the necessary Kelvin adjustment within [-3000, 3000] K to harmonize ambient scene lighting with the selected film profile and aesthetic targets.
-     - Supply a tint delta within [-100.0, 100.0] if the rendered draft exhibits unwanted green/magenta cast or requires stylized tint adjustment.
+     - Supply a tint delta within [-100.0, 100.0] to adjust the green-magenta balance relative to the target aesthetic.
   5. 3D LUT INTENSITY (lut_intensity_delta, optional, valid range: -1.0 to 1.0):
      - Modulate the 3D LUT's volumetric influence within [-1.0, 1.0] if a more subtle or distinct profile presence is desired.
   6. OPTICAL TEXTURE & ACUTANCE (clarity_delta & sharpness_delta, optional, valid range: -0.5 to 0.5):
      - Supply a negative delta within [-0.5, 0.0] to soften micro-contrast or edge steepness relative to target character.
      - Supply a positive delta within [0.0, 0.5] when stronger micro-contrast or fine detail accentuation is warranted.
   7. SUBTRACTIVE COLOR DENSITY & SPLIT TONING DELTAS (optional):
-     - color_density_delta (-0.5 to 0.5): Modulate dye absorption density if Image 2 exhibits digital neon oversaturation or excessive pastel washout.
+     - color_density_delta (-0.5 to 0.5): Modulate subtractive dye absorption density relative to the target aesthetic.
      - shadow_tint_amount_delta (-0.5 to 0.5) & highlight_tint_amount_delta (-0.5 to 0.5): Attenuate or reinforce zone-separated tint intensity while preserving Pass 1 hue character.
   8. EMULSION HALATION & GRAIN DELTAS (optional):
-     - halation_delta (-0.5 to 0.5): Adjust red-orange highlight edge scattering if bright sources appear overly clinical or excessively haloed.
+     - halation_delta (-0.5 to 0.5): Adjust red-orange highlight edge scattering relative to the target emulsion character.
      - grain_amount_delta (-0.5 to 0.5): Adjust silver-halide grain amplitude relative to target emulsion character.
   9. HIGHLIGHTS, BLACKS, VIBRANCE, VIGNETTE & 6-BAND HSL DELTAS (optional):
-     - highlights_delta (-0.5 to 0.5): Negative compresses clipped bright skies/skin highlights; positive opens peak specular brightness.
+     - highlights_delta (-0.5 to 0.5): Negative compresses bright highlight headroom; positive lifts peak highlight luminance.
      - blacks_delta (-0.5 to 0.5): Negative anchors deeper blacks; positive softens black floor into matte tones.
      - vibrance_delta (-0.5 to 0.5): Adjust natural skin-aware chromatic richness.
      - vignette_delta (-0.5 to 0.5): Negative deepens peripheral lens falloff; positive lifts outer frame corners.
-     - hsl_deltas (optional partial object): Keys among "red" | "orange" | "yellow" | "green" | "cyan" | "blue", each { hue, sat, lum } in [-0.5, 0.5], to selectively correct individual color bands (e.g., taming orange skin saturation, shifting foliage green/yellow hue, deepening cyan/blue sky luminance). Omit bands needing no change.
+     - hsl_deltas (optional partial object): Keys among "red" | "orange" | "yellow" | "green" | "cyan" | "blue", each { hue, sat, lum } in [-0.5, 0.5], to selectively adjust individual color bands relative to the target aesthetic. Omit bands needing no change.
 
 Respond ONLY with raw JSON matching this schema:
 {
@@ -549,15 +549,15 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
 
   const channels: string[] = [];
   if (enableTone) {
-    channels.push('1. exposure_compensation: Global luminance scaling (-2.0 to +2.0 EV). Target linear mid-tone placement while protecting organic highlight headroom.');
+    channels.push('1. exposure_compensation: Global luminance scaling (-2.0 to +2.0 EV, baseline: 0.0). Negative decreases overall luminance; positive increases overall luminance.');
     channels.push('2. highlights [-1.0 to +1.0, baseline: 0.0]: Upper-luminance roll-off / recovery. Negative compresses bright highlight headroom; positive lifts peak highlights.');
     channels.push('3. contrast: Global linear tonal slope (-0.8 to +0.8).');
     channels.push('4. lift_shadows: Shadow toe adjustment (-0.5 to +0.5). Negative deepens blacks; positive lifts darkest 40% luminance.');
-    channels.push('5. blacks [-0.5 to +0.5, baseline: 0.0]: Lowest-luminance black-point anchor. Negative deepens true blacks; positive creates a gentle matte fade.');
-    channels.push('6. clarity & sharpness [-1.0 to +1.0, baseline: 0.0]: Spatial frequency control. Baseline 0.0 preserves native lens MTF. Negative values (<= 0.0) attenuate edge contrast to model organic emulsion diffusion; positive values (> 0.0) apply algorithmic digital sharpening.');
+    channels.push('5. blacks [-0.5 to +0.5, baseline: 0.0]: Lowest-luminance black-point anchor. Negative deepens true blacks; positive creates a matte fade.');
+    channels.push('6. clarity & sharpness [-1.0 to +1.0, baseline: 0.0]: Spatial frequency control. Baseline 0.0 preserves native lens MTF. Negative values (< 0.0) soften edge steepness and micro-contrast; positive values (> 0.0) accentuate edge acutance and local micro-contrast.');
   }
   if (enableWb) {
-    channels.push('7. color_temp & tint: Pre-LUT white balance (color_temp: integer 2800 to 8500, 5500 baseline; tint: -100.0 to +100.0). Neutralize unintended environmental chromatic cast.');
+    channels.push('7. color_temp & tint: Pre-LUT white balance (color_temp: integer 2800 to 8500, 5500 baseline; tint: -100.0 to +100.0).');
   }
   if (enableLut) {
     channels.push('8. recommended_profile & lut_intensity: 3D film volumetric emulation (lut_intensity: 0.0 to 1.0).');
