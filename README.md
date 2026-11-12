@@ -6,6 +6,9 @@
 [![Platform: Desktop & Mobile](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows%20%7C%20Android%20%7C%20iOS-6082b6.svg)](#)
 [![Core: Tauri v2 + Rust](https://img.shields.io/badge/Core-Tauri%20v2%20%2B%20Rust-d4a373.svg)](#)
 [![Design: Alexandria Darkroom](https://img.shields.io/badge/Design-Alexandria%20Darkroom-4b6b94.svg)](#)
+[![Live Demo: Cloudflare Pages](https://img.shields.io/badge/Live%20Demo-Cloudflare%20Pages-F38020.svg)](https://slipknot-door.pages.dev/)
+
+> 🌐 **線上預覽（Cloudflare Pages）**：[https://slipknot-door.pages.dev/](https://slipknot-door.pages.dev/)
 
 **跨平台 AI 智慧暗房**——專為省去繁瑣後製流程打造的本機優先（Local-first）RAW 相片工作站。
 將「匯入 ➔ 挑圖 ➔ 調色 ➔ 歸檔」濃縮成最直覺的 3 個步驟：
