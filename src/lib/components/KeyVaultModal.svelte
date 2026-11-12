@@ -3,6 +3,7 @@
   import { KeyVaultService, type KeyEncryptionMode } from '$lib/services/keyVaultService';
   import { ModelDiscoveryService, type DiscoveredModel } from '$lib/services/modelDiscoveryService';
   import { AiEngineFactory } from '$lib/services/ai/engineFactory';
+  import { aiPipeline } from '$lib/stores/aiPipeline.svelte';
   import { toastStore } from '$lib/stores/toastStore.svelte';
 
   interface Props {
@@ -83,11 +84,48 @@
 
   // 任務職責指派狀態 (Task Roles: 只需指定負責服務，模型採用該服務已選定之模型)
   let roleVisionProvider = $state<string>('gemini');
+  let roleVisionTemp = $state<number>(0.4);
+  let roleTuningStrength = $state<number>(1.0);
   let roleCopywritingProvider = $state<string>('groq');
+  let roleCopywritingTemp = $state<number>(0.7);
   let roleCriticEnabled = $state<boolean>(false);
   let roleCriticUseCustom = $state<boolean>(false);
   let roleCriticProvider = $state<string>('gemini');
   let roleCriticModelId = $state<string>('');
+  let roleCriticTemp = $state<number>(0.2);
+
+  // 各家金鑰即時就緒狀態（供分頁燈號與儲存邏輯判定）
+  let providerReadyMap = $state<{ gemini: boolean; groq: boolean }>({
+    gemini: false,
+    groq: false,
+  });
+
+  const ENCRYPTION_TIER_META: {
+    id: KeyEncryptionMode;
+    shortLabel: string;
+    badge?: string;
+    desc: string;
+  }[] = [
+    {
+      id: 'plain',
+      shortLabel: '1. 無加密',
+      desc: '明文儲存於本機安全區段，免除加解密負載，適合個人信任設備與測試。',
+    },
+    {
+      id: 'transparent',
+      shortLabel: '2. 透明加密',
+      badge: '建議',
+      desc: '透過本機設備指紋動態派生 AES-256-GCM 金鑰，無須密碼且跨機無法解讀。',
+    },
+    {
+      id: 'password',
+      shortLabel: '3. 主密碼保護',
+      desc: '以主密碼經 PBKDF2（100,000 次雜湊）派生密鑰，密碼不落盤，每次啟動需解鎖。',
+    },
+  ];
+  let activeTierDesc = $derived(
+    ENCRYPTION_TIER_META.find((t) => t.id === currentMode)?.desc || ''
+  );
 
   function onCriticProviderChange(newProv: string) {
     roleCriticProvider = newProv;
@@ -129,16 +167,24 @@
 
   function refreshStatus() {
     vaultStatus = KeyVaultService.getKeyStatus(selectedProvider);
+    providerReadyMap = {
+      gemini: KeyVaultService.getKeyStatus('gemini').exists,
+      groq: KeyVaultService.getKeyStatus('groq').exists,
+    };
   }
 
   function loadTaskRoles() {
     const roles = AiEngineFactory.getTaskRoles();
     roleVisionProvider = roles.vision.provider || 'gemini';
+    roleVisionTemp = roles.vision.temperature ?? 0.4;
+    roleTuningStrength = roles.tuningStrength ?? 1.0;
     roleCopywritingProvider = roles.copywriting.provider || 'groq';
+    roleCopywritingTemp = roles.copywriting.temperature ?? 0.7;
     roleCriticEnabled = roles.critic?.enabled ?? false;
     roleCriticUseCustom = roles.critic?.useCustomModel ?? false;
     roleCriticProvider = roles.critic?.provider || 'gemini';
     roleCriticModelId = roles.critic?.modelId || '';
+    roleCriticTemp = roles.critic?.temperature ?? 0.2;
     if (!roleCriticModelId) {
       const models = getDynamicModelsForProvider(roleCriticProvider);
       roleCriticModelId = models[0]?.id || getAssignedModelDisplay(roleCriticProvider);
@@ -346,29 +392,42 @@
     isSaving = true;
     let keyToSave = apiKeyInput.trim();
 
-    // 持久化儲存任務職責指派 (Task Roles)
+    // 持久化儲存任務職責指派 (Task Roles) 與溫度/強度參數
     AiEngineFactory.setTaskRoles({
-      vision: { provider: roleVisionProvider, modelId: getAssignedModelDisplay(roleVisionProvider) },
-      copywriting: { provider: roleCopywritingProvider, modelId: getAssignedModelDisplay(roleCopywritingProvider) },
+      vision: {
+        provider: roleVisionProvider,
+        modelId: getAssignedModelDisplay(roleVisionProvider),
+        temperature: roleVisionTemp,
+      },
+      copywriting: {
+        provider: roleCopywritingProvider,
+        modelId: getAssignedModelDisplay(roleCopywritingProvider),
+        temperature: roleCopywritingTemp,
+      },
       critic: {
         enabled: roleCriticEnabled,
         useCustomModel: roleCriticUseCustom,
         provider: roleCriticProvider,
         modelId: roleCriticUseCustom
           ? (roleCriticModelId || getAssignedModelDisplay(roleCriticProvider))
-          : getAssignedModelDisplay(roleVisionProvider)
-      }
+          : getAssignedModelDisplay(roleVisionProvider),
+        temperature: roleCriticTemp,
+      },
+      tuningStrength: roleTuningStrength,
     });
+    aiPipeline.reloadEngineSettings();
 
-    // If apiKeyInput is empty but already exists and user is just changing model or role selection
-    if (!keyToSave && vaultStatus.exists) {
+    // If apiKeyInput is empty and at least one key exists, save model/role/temp changes cleanly
+    if (!keyToSave && (vaultStatus.exists || providerReadyMap.gemini || providerReadyMap.groq)) {
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('slipknot_active_provider', selectedProvider);
+        if (vaultStatus.exists) {
+          localStorage.setItem('slipknot_active_provider', selectedProvider);
+        }
         if (selectedModelId) {
           localStorage.setItem(`slipknot_model_${selectedProvider}`, selectedModelId);
         }
       }
-      toastStore.show('AI 任務職責與模型設定已更新成功', 'success');
+      toastStore.show('AI 任務職責、模型與溫度設定已更新', 'success');
       isSaving = false;
       if (autoClose) {
         forceClose();
@@ -396,6 +455,7 @@
         }
       }
       refreshStatus();
+      aiPipeline.reloadEngineSettings();
       toastStore.show(`金鑰已成功安全儲存（${getModeLabel(currentMode)}）· 任務模型已生效`, 'success');
       apiKeyInput = '';
       masterPassword = '';
@@ -497,7 +557,8 @@
               class:active={selectedProvider === prov.id}
               onclick={() => handleTabClick(prov.id)}
             >
-              {prov.tabLabel}
+              <span class="dot" class:green={providerReadyMap[prov.id]} class:gray={!providerReadyMap[prov.id]}></span>
+              <span>{prov.tabLabel}</span>
             </button>
           {/each}
         </div>
@@ -526,37 +587,27 @@
           {/if}
         </div>
 
-        <!-- Encryption Tier Selector (User Request) -->
+        <!-- Encryption Tier Selector (Compact Segmented Control) -->
         <div class="section-block">
-          <div class="section-label font-mono">選擇金鑰防護架構 (ENCRYPTION TIER)</div>
-          <div class="tiers-container">
-            <!-- Tier 1: Plain -->
-            <label class="tier-card hairline-all" class:active={currentMode === 'plain'}>
-              <input type="radio" name="enc_mode" value="plain" bind:group={currentMode} />
-              <div class="tier-content">
-                <div class="tier-title font-mono">1. 無加密 (Plain)</div>
-                <div class="tier-desc font-body">明文儲存於本機安全區段，免除加解密負載，適合個人信任設備與本機開發測試。</div>
-              </div>
-            </label>
-
-            <!-- Tier 2: Transparent -->
-            <label class="tier-card hairline-all" class:active={currentMode === 'transparent'}>
-              <input type="radio" name="enc_mode" value="transparent" bind:group={currentMode} />
-              <div class="tier-content">
-                <div class="tier-title font-mono">2. 透明加密 (Transparent · 建議)</div>
-                <div class="tier-desc font-body">透過本機設備指紋動態派生 AES-256-GCM 金鑰，日常使用無須密碼，檔案被拷貝至外機則無法解讀。</div>
-              </div>
-            </label>
-
-            <!-- Tier 3: Password Protected -->
-            <label class="tier-card hairline-all" class:active={currentMode === 'password'}>
-              <input type="radio" name="enc_mode" value="password" bind:group={currentMode} />
-              <div class="tier-content">
-                <div class="tier-title font-mono">3. 密碼加密 (Password-Protected)</div>
-                <div class="tier-desc font-body">以主密碼經 PBKDF2（100,000 次雜湊）派生密鑰，極致防護。密碼不落盤，每次啟動需主密碼解鎖。</div>
-              </div>
-            </label>
+          <div class="section-label font-mono">
+            <span>金鑰防護架構 (ENCRYPTION TIER)</span>
           </div>
+          <div class="tier-segmented hairline-all">
+            {#each ENCRYPTION_TIER_META as tier}
+              <button
+                type="button"
+                class="tier-seg-btn font-mono"
+                class:active={currentMode === tier.id}
+                onclick={() => (currentMode = tier.id)}
+              >
+                <span>{tier.shortLabel}</span>
+                {#if tier.badge}
+                  <span class="tier-rec-badge">{tier.badge}</span>
+                {/if}
+              </button>
+            {/each}
+          </div>
+          <p class="tier-inline-desc font-body">{activeTierDesc}</p>
         </div>
 
         <!-- Key Input Field -->
@@ -657,6 +708,22 @@
                   <span class="badge-text">{getAssignedModelDisplay(roleVisionProvider)}</span>
                 </div>
               </div>
+              <div class="role-params-grid">
+                <div class="param-slider-item">
+                  <div class="param-head font-mono">
+                    <span>創意溫度 (Temp)</span>
+                    <span class="param-val">{roleVisionTemp.toFixed(2)}</span>
+                  </div>
+                  <input type="range" min="0" max="1.2" step="0.05" bind:value={roleVisionTemp} class="param-range" />
+                </div>
+                <div class="param-slider-item">
+                  <div class="param-head font-mono">
+                    <span>調色干預強度</span>
+                    <span class="param-val">{Math.round(roleTuningStrength * 100)}%</span>
+                  </div>
+                  <input type="range" min="0.5" max="1.5" step="0.05" bind:value={roleTuningStrength} class="param-range" />
+                </div>
+              </div>
             </div>
 
             <!-- 任務 2: 文字社群文案 -->
@@ -674,6 +741,13 @@
                   <span class="material-symbols-outlined" style="font-size: 12px; color: var(--amber-highlight);">verified</span>
                   <span class="badge-text">{getAssignedModelDisplay(roleCopywritingProvider)}</span>
                 </div>
+              </div>
+              <div class="param-slider-item" style="margin-top: 2px;">
+                <div class="param-head font-mono">
+                  <span>文案創意溫度 (Temp · 建議 0.6~0.9)</span>
+                  <span class="param-val">{roleCopywritingTemp.toFixed(2)}</span>
+                </div>
+                <input type="range" min="0" max="1.2" step="0.05" bind:value={roleCopywritingTemp} class="param-range" />
               </div>
             </div>
 
@@ -739,6 +813,13 @@
                       <span class="badge-text">自動沿用影像視覺模型：{getAssignedModelDisplay(roleVisionProvider)}</span>
                     </div>
                   {/if}
+                  <div class="param-slider-item">
+                    <div class="param-head font-mono">
+                      <span>覆審品控溫度 (Critic Temp · 建議 0.1~0.3)</span>
+                      <span class="param-val">{roleCriticTemp.toFixed(2)}</span>
+                    </div>
+                    <input type="range" min="0" max="0.8" step="0.05" bind:value={roleCriticTemp} class="param-range" />
+                  </div>
                   <p style="font-size: 11px; color: var(--text-muted); margin: 0; line-height: 1.4;">
                     說明：第一階段起草完成後，本地 WebGL 著色器即時渲染出成品，與原圖一同回傳 AI 比對，專門修正 Shadow Lift 浮灰死黑與色溫偏差。
                   </p>
@@ -941,12 +1022,16 @@
     flex: 1;
     background: transparent;
     border: none;
-    padding: 8px 12px;
+    padding: 8px 10px;
     font-size: 11px;
     color: var(--parchment-muted);
     cursor: pointer;
     border-radius: var(--radius-xs);
     transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
   }
   .prov-btn.active {
     background-color: var(--surface-overlay);
@@ -1026,46 +1111,50 @@
     font-size: 9px;
   }
 
-  .tiers-container {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .tier-card {
+  .tier-segmented {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 3px;
     background-color: var(--surface-elevated);
-    padding: 10px 12px;
     border-radius: var(--radius-sm);
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
+  }
+  .tier-seg-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--parchment-muted);
+    padding: 7px 6px;
+    border-radius: var(--radius-xs);
+    font-size: 11px;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
     transition: all 0.15s ease;
   }
-  .tier-card:hover {
-    background-color: var(--surface-overlay);
-  }
-  .tier-card.active {
-    border-color: var(--amber-highlight);
-    background-color: var(--surface-overlay);
-  }
-  .tier-card input[type="radio"] {
-    margin-top: 3px;
-    accent-color: var(--amber-highlight);
-  }
-  .tier-content {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .tier-title {
-    font-size: 12px;
-    font-weight: 600;
+  .tier-seg-btn:hover {
     color: var(--parchment-bright);
+    background: rgba(255, 255, 255, 0.04);
   }
-  .tier-desc {
-    font-size: 10px;
+  .tier-seg-btn.active {
+    background-color: var(--surface-overlay);
+    border-color: var(--amber-highlight);
+    color: var(--parchment-bright);
+    font-weight: 600;
+  }
+  .tier-rec-badge {
+    font-size: 9px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(212, 163, 115, 0.18);
+    color: var(--amber-highlight);
+  }
+  .tier-inline-desc {
+    margin: 0;
+    font-size: 11px;
     color: var(--parchment-muted);
-    line-height: 1.35;
+    line-height: 1.4;
   }
 
   .input-wrap {
@@ -1282,6 +1371,38 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .role-params-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 2px;
+  }
+  .param-slider-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-xs);
+    padding: 6px 8px;
+  }
+  .param-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--parchment-muted);
+  }
+  .param-val {
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+  .param-range {
+    width: 100%;
+    accent-color: var(--amber-highlight);
+    cursor: pointer;
+    height: 4px;
+  }
 
   .status-banner {
     padding: 8px 12px;
@@ -1371,5 +1492,37 @@
     align-items: center;
     gap: 8px;
     margin-top: 4px;
+  }
+
+  @media (max-width: 768px) {
+    .modal-backdrop {
+      align-items: flex-end;
+    }
+    .modal-card {
+      width: 100%;
+      max-width: 100%;
+      max-height: 92dvh;
+      border-radius: 16px 16px 0 0;
+    }
+    .modal-body {
+      max-height: calc(92dvh - 125px);
+      padding: 14px;
+      gap: 12px;
+    }
+    .provider-switch {
+      flex-direction: column;
+    }
+    .tier-seg-btn {
+      font-size: 10px;
+      padding: 7px 4px;
+    }
+    .role-fields,
+    .role-params-grid {
+      grid-template-columns: 1fr;
+    }
+    .modal-footer {
+      flex-wrap: wrap;
+      padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    }
   }
 </style>

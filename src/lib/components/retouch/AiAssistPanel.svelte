@@ -84,6 +84,7 @@
   let isReportExpanded = $state<boolean>(true);
   let isKeywordDirectivesOpen = $state<boolean>(false);
   let isKeywordManagerOpen = $state<boolean>(false);
+  let isQuickEngineOpen = $state<boolean>(false);
   let keywordManagerMode = $state<"list" | "create">("list");
   let keywordPrefillPrompt = $state<string>("");
   let isExpandedStyles = $state<boolean>(
@@ -138,7 +139,9 @@
     { key: "lutProfile", label: "3D LUT 風格推薦", short: "LUT", icon: "palette" },
     { key: "tone", label: "基礎光影與動態", short: "光影", icon: "tonality" },
     { key: "whiteBalance", label: "自動色溫與色偏", short: "白平衡", icon: "thermostat" },
-    { key: "filmPhysics", label: "分區調色與質感", short: "底片質感", icon: "grain" },
+    { key: "filmPhysics", label: "色彩科學與 HSL", short: "色彩HSL", icon: "color_lens" },
+    { key: "splitToning", label: "冷暖分區色調", short: "分區調色", icon: "gradient" },
+    { key: "filmTexture", label: "顆粒光暈與暗角", short: "底片質感", icon: "grain" },
     { key: "crop", label: "智慧構圖與裁切", short: "構圖裁切", icon: "crop" },
     { key: "keystone", label: "梯形與水平校正", short: "水平透視", icon: "straighten" },
   ];
@@ -146,8 +149,23 @@
   function isScopeEnabled(key: string): boolean {
     if (!currentAiScope) return true;
     if (key === "filmPhysics") return currentAiScope.filmPhysics !== false;
+    if (key === "splitToning") {
+      return currentAiScope.splitToning !== undefined
+        ? Boolean(currentAiScope.splitToning)
+        : currentAiScope.filmPhysics !== false;
+    }
+    if (key === "filmTexture") {
+      return currentAiScope.filmTexture !== undefined
+        ? Boolean(currentAiScope.filmTexture)
+        : currentAiScope.filmPhysics !== false;
+    }
     return Boolean(currentAiScope[key]);
   }
+
+  const visionModelShortName = $derived.by(() => {
+    const raw = aiPipeline.visionModelId || (aiPipeline.visionProvider === "groq" ? "Llama Vision" : "Gemini Flash");
+    return raw.replace(/^models\//, "").replace(/-preview.*$/, "");
+  });
 
   // 當前選中的風格預設物件（置於動態 Scope 摘要前以利衍生）
   const selectedPresetObj = $derived(
@@ -188,7 +206,13 @@
         : "保留目前 3D LUT 風格與濃度不變";
     }
     if (item.key === "filmPhysics") {
-      return "分區調色與底片質感（自然飽和度、色彩密度、分區色調、光暈、微粒、暗角與 HSL）";
+      return "色彩科學與 6 段 HSL（自然飽和度、減色密度與分色調校）";
+    }
+    if (item.key === "splitToning") {
+      return "冷暖分區色調（暗部與亮部 Split Toning 色偏）";
+    }
+    if (item.key === "filmTexture") {
+      return "底片物理質感（Halation 光暈、銀鹽微粒與光學暗角）";
     }
     return item.label;
   }
@@ -350,6 +374,153 @@
     <p class="ai-subtitle">
       選取風格與意境，一鍵執行光學判讀與暗房調校
     </p>
+
+    <!-- 推論引擎與 Temp 快速狀態膠囊 -->
+    <button
+      type="button"
+      class="quick-engine-pill font-mono"
+      class:open={isQuickEngineOpen}
+      onclick={() => (isQuickEngineOpen = !isQuickEngineOpen)}
+      aria-expanded={isQuickEngineOpen}
+      title="點擊快速調整 AI 溫度 (Temp)、調色干預強度與雙圖覆審開關"
+    >
+      <span class="engine-pill-left">
+        <span class="engine-dot" class:critic={aiPipeline.criticEnabled}></span>
+        <span class="engine-name">{visionModelShortName}</span>
+        <span class="engine-sep">·</span>
+        <span>Temp {aiPipeline.visionTemperature.toFixed(1)}</span>
+        <span class="engine-sep">·</span>
+        <span>強度 {Math.round(aiPipeline.aiTuningStrength * 100)}%</span>
+        {#if aiPipeline.criticEnabled}
+          <span class="critic-mini-tag">覆審</span>
+        {/if}
+      </span>
+      <span
+        class="material-symbols-outlined"
+        style="font-size: 14px; transition: transform 0.2s;"
+        style:transform={isQuickEngineOpen ? "rotate(180deg)" : "none"}
+      >
+        tune
+      </span>
+    </button>
+
+    {#if isQuickEngineOpen}
+      <div class="quick-engine-drawer hairline-all">
+        <div class="qe-row">
+          <div class="qe-head font-mono">
+            <span>視覺創意溫度 (Temp)</span>
+            <span class="qe-val">{aiPipeline.visionTemperature.toFixed(2)}</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="1.2"
+            step="0.05"
+            class="qe-slider"
+            value={aiPipeline.visionTemperature}
+            oninput={(e) =>
+              aiPipeline.setVisionTemperature(
+                parseFloat((e.target as HTMLInputElement).value),
+              )}
+          />
+          <div class="qe-presets font-mono">
+            <button
+              type="button"
+              class="qe-preset-btn"
+              class:active={Math.abs(aiPipeline.visionTemperature - 0.1) < 0.03}
+              onclick={() => aiPipeline.setVisionTemperature(0.1)}
+            >
+              0.1 嚴謹復刻
+            </button>
+            <button
+              type="button"
+              class="qe-preset-btn"
+              class:active={Math.abs(aiPipeline.visionTemperature - 0.4) < 0.03}
+              onclick={() => aiPipeline.setVisionTemperature(0.4)}
+            >
+              0.4 自然平衡
+            </button>
+            <button
+              type="button"
+              class="qe-preset-btn"
+              class:active={Math.abs(aiPipeline.visionTemperature - 0.8) < 0.03}
+              onclick={() => aiPipeline.setVisionTemperature(0.8)}
+            >
+              0.8 創意奔放
+            </button>
+          </div>
+        </div>
+
+        <div class="qe-row">
+          <div class="qe-head font-mono">
+            <span>AI 調色干預強度</span>
+            <span class="qe-val">{Math.round(aiPipeline.aiTuningStrength * 100)}%</span>
+          </div>
+          <input
+            type="range"
+            min="0.5"
+            max="1.5"
+            step="0.05"
+            class="qe-slider"
+            value={aiPipeline.aiTuningStrength}
+            oninput={(e) =>
+              aiPipeline.setAiTuningStrength(
+                parseFloat((e.target as HTMLInputElement).value),
+              )}
+          />
+          <div class="qe-presets font-mono">
+            <button
+              type="button"
+              class="qe-preset-btn"
+              class:active={Math.abs(aiPipeline.aiTuningStrength - 0.7) < 0.03}
+              onclick={() => aiPipeline.setAiTuningStrength(0.7)}
+            >
+              70% 輕柔
+            </button>
+            <button
+              type="button"
+              class="qe-preset-btn"
+              class:active={Math.abs(aiPipeline.aiTuningStrength - 1.0) < 0.03}
+              onclick={() => aiPipeline.setAiTuningStrength(1.0)}
+            >
+              100% 標準
+            </button>
+            <button
+              type="button"
+              class="qe-preset-btn"
+              class:active={Math.abs(aiPipeline.aiTuningStrength - 1.3) < 0.03}
+              onclick={() => aiPipeline.setAiTuningStrength(1.3)}
+            >
+              130% 濃烈
+            </button>
+          </div>
+        </div>
+
+        <div class="qe-critic-row font-mono">
+          <label class="qe-critic-toggle">
+            <input
+              type="checkbox"
+              checked={aiPipeline.criticEnabled}
+              onchange={(e) =>
+                aiPipeline.setCriticEnabled((e.target as HTMLInputElement).checked)}
+            />
+            <span>雙圖閉環覆審 (Pass 2 品控)</span>
+          </label>
+          {#if onOpenVault}
+            <button
+              type="button"
+              class="qe-vault-link"
+              onclick={() => {
+                isQuickEngineOpen = false;
+                onOpenVault?.();
+              }}
+            >
+              模型與金鑰 →
+            </button>
+          {/if}
+        </div>
+      </div>
+    {/if}
   </header>
 
   <!-- 中央可捲動設定與判讀內容區 -->
@@ -964,7 +1135,7 @@
         <div class="step-title-group">
           <span class="step-badge font-mono">STEP 3</span>
           <span class="section-title">AI 自動調整項目</span>
-          <span class="scope-count-pill font-mono">{aiScopeActiveCount}/6</span>
+          <span class="scope-count-pill font-mono">{aiScopeActiveCount}/{SCOPE_ITEMS.length}</span>
         </div>
         <span
           class="material-symbols-outlined scope-chevron"
@@ -1017,6 +1188,26 @@
             </button>
           {/each}
         </div>
+        {#if isScopeEnabled("crop")}
+          <button
+            type="button"
+            class="scope-sub-option font-mono"
+            class:active={Boolean(currentAiScope?.lockCropAspectRatio)}
+            onclick={() =>
+              onToggleAiScope
+                ? onToggleAiScope("lockCropAspectRatio")
+                : aiPipeline.toggleAiScope("lockCropAspectRatio")}
+            title="啟用後，AI 智慧裁切只會縮緊邊框構圖，不會將比例改為 1:1 或 4:5"
+          >
+            <span class="material-symbols-outlined" style="font-size: 13px;">
+              {currentAiScope?.lockCropAspectRatio ? "lock" : "aspect_ratio"}
+            </span>
+            <span>裁切時鎖定原始長寬比</span>
+            <span class="sub-opt-state">
+              {currentAiScope?.lockCropAspectRatio ? "已鎖定" : "自動"}
+            </span>
+          </button>
+        {/if}
       {/if}
     </section>
 
@@ -1206,6 +1397,154 @@
     font-size: 11.5px;
     color: var(--parchment-muted);
     line-height: 1.4;
+  }
+
+  /* 快速推論引擎膠囊與快調抽屜 */
+  .quick-engine-pill {
+    margin-top: 7px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 5px 8px;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-muted);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .quick-engine-pill:hover,
+  .quick-engine-pill.open {
+    border-color: rgba(212, 163, 115, 0.45);
+    color: var(--parchment-bright);
+    background: rgba(212, 163, 115, 0.08);
+  }
+  .engine-pill-left {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .engine-name {
+    color: var(--parchment-bright);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 110px;
+  }
+  .engine-sep {
+    color: var(--parchment-dim);
+  }
+  .engine-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--amber-highlight);
+    flex-shrink: 0;
+  }
+  .engine-dot.critic {
+    background: #4ade80;
+    box-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
+  }
+  .critic-mini-tag {
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(74, 222, 128, 0.14);
+    color: #4ade80;
+    font-size: 9px;
+  }
+
+  .quick-engine-drawer {
+    margin-top: 6px;
+    padding: 9px 10px;
+    background: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .qe-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .qe-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10.5px;
+    color: var(--parchment-muted);
+  }
+  .qe-val {
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+  .qe-slider {
+    width: 100%;
+    accent-color: var(--amber-highlight);
+    cursor: pointer;
+    height: 4px;
+  }
+  .qe-presets {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+  }
+  .qe-preset-btn {
+    padding: 3px 4px;
+    font-size: 9.5px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    color: var(--parchment-dim);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.14s ease;
+  }
+  .qe-preset-btn:hover {
+    color: var(--parchment-bright);
+    border-color: rgba(212, 163, 115, 0.4);
+  }
+  .qe-preset-btn.active {
+    background: rgba(212, 163, 115, 0.16);
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+    font-weight: 600;
+  }
+  .qe-critic-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    font-size: 10px;
+  }
+  .qe-critic-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--parchment-muted);
+    cursor: pointer;
+  }
+  .qe-critic-toggle input {
+    accent-color: var(--amber-highlight);
+    cursor: pointer;
+  }
+  .qe-vault-link {
+    background: none;
+    border: none;
+    color: var(--amber-highlight);
+    font-size: 10px;
+    cursor: pointer;
+    padding: 0;
+  }
+  .qe-vault-link:hover {
+    text-decoration: underline;
   }
   .ai-batch-badge {
     font-size: 9px;
@@ -2119,6 +2458,36 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .scope-sub-option {
+    margin-top: 4px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-muted);
+    font-size: 10.5px;
+    cursor: pointer;
+    transition: all 0.14s ease;
+  }
+  .scope-sub-option:hover {
+    border-color: rgba(212, 163, 115, 0.45);
+    color: var(--parchment-bright);
+  }
+  .scope-sub-option.active {
+    background: rgba(212, 163, 115, 0.12);
+    border-style: solid;
+    border-color: rgba(212, 163, 115, 0.5);
+    color: var(--amber-highlight);
+  }
+  .sub-opt-state {
+    margin-left: auto;
+    font-size: 9.5px;
+    opacity: 0.85;
   }
 
   /* ── 底部常駐執行列 (Sticky Action Footer) ── */
