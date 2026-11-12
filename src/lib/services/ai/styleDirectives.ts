@@ -395,6 +395,22 @@ export function buildCriticInstructionBlock(
     ? `- Monochrome Output Mode: ACTIVE (User-selected B&W output). Image 2 is rendered in monochrome; keep vibrance_delta & color_density_delta at 0.0, use hsl_deltas[band].lum as B&W optical filter refinements, and preserve neutral grayscale unless subtle darkroom split-toning is intended.\n`
     : '';
   const enableLutIntensity = !scope || scope.lutProfile;
+  const enableTone = !scope || scope.tone;
+  const enableWb = !scope || scope.whiteBalance;
+  const enableColorMixer = !scope || scope.filmPhysics !== false;
+  const enableSplitToning = !scope || (scope.splitToning !== undefined ? scope.splitToning : scope.filmPhysics !== false);
+  const enableFilmTexture = !scope || (scope.filmTexture !== undefined ? scope.filmTexture : scope.filmPhysics !== false);
+
+  const lockedChannels: string[] = [];
+  if (!enableTone) lockedChannels.push('tone/exposure/contrast/highlights/shadows/blacks/clarity/sharpness');
+  if (!enableWb) lockedChannels.push('color_temp/tint');
+  if (!enableLutIntensity) lockedChannels.push('lut_intensity');
+  if (!enableColorMixer) lockedChannels.push('vibrance/color_density/hsl');
+  if (!enableSplitToning) lockedChannels.push('shadow_tint_amount/highlight_tint_amount');
+  if (!enableFilmTexture) lockedChannels.push('halation/grain_amount/vignette');
+  const scopeLockLine = lockedChannels.length > 0
+    ? `- User Scope Locks: Keep [${lockedChannels.join(', ')}] strictly unchanged (omit or set deltas to 0).\n`
+    : '';
 
   let criticPrompt = `You are a darkroom quality-control colorist and technical critic.
 You are inspecting TWO images:
@@ -404,7 +420,7 @@ Note: Do not supply positive clarity/sharpness deltas to compensate for proxy re
 
 ${baselineParamsBlock}YOUR MISSION & GUIDELINES:
 - Baseline Film Aesthetic: The designated 3D film profile is "${firstPassProfile}". Maintain and respect this baseline film aesthetic.
-${aestheticLine}${monochromeLine}- Since you have Image 2 (rendered actual result) as concrete ground truth, supply the necessary Delta adjustments to harmonize exposure, dynamic range, and tonal balance toward the intended aesthetic.
+${aestheticLine}${monochromeLine}${scopeLockLine}- Since you have Image 2 (rendered actual result) as concrete ground truth, supply the necessary Delta adjustments to harmonize exposure, dynamic range, and tonal balance toward the intended aesthetic.
 - Inspect and fine-tune the following parameters (Respecting the hardware shader boundaries):
   1. EXPOSURE & HIGHLIGHT HARMONY (exposure_delta, valid range: -2.0 to 2.0 EV):
      - Evaluate overall luminance and highlight roll-off relative to the target aesthetic.
@@ -533,7 +549,18 @@ export function parsePartialHslFromAi(
 /**
  * 構建 Stage 1: 空間幾何與構圖分析之客觀中性 Prompt
  */
-export function buildGeometryInstructionPrompt(exif: ExifOpticalData): string {
+export function buildGeometryInstructionPrompt(
+  exif: ExifOpticalData,
+  lockAspectRatio = false
+): string {
+  const aspectRule = lockAspectRatio
+    ? `4. aspect_ratio: LOCKED to "original" by user preference. Preserve the original image aspect ratio in crop_box and always output "original".`
+    : `4. aspect_ratio: Framing ratio ("original" | "1:1" | "4:5" | "16:9" | "9:16" | "free").`;
+
+  const aspectSchema = lockAspectRatio
+    ? `"aspect_ratio": "original",`
+    : `"aspect_ratio": "original | 1:1 | 4:5 | 16:9 | 9:16 | free",`;
+
   return `You are an optical geometry and spatial composition analyzer.
 Analyze this photographic image and optical EXIF (Lens/Focal: ${exif.focalLength || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}).
 
@@ -545,14 +572,14 @@ Physical Geometric Channel Specifications:
    - Maintain [0.0, 0.0, 1.0, 1.0] when contextual breathing room or environmental scale reinforces the subject.
 2. rotation_deg: Roll axis tilt compensation in degrees (-45.0 to +45.0). 0.0 denotes perfectly level.
 3. keystone_v: Vertical perspective convergence compensation (-45.0 to +45.0). 0.0 denotes parallel verticals.
-4. aspect_ratio: Framing ratio ("original" | "1:1" | "4:5" | "16:9" | "9:16" | "free").
+${aspectRule}
 
 Respond ONLY with raw JSON matching this schema:
 {
   "crop_box": [ymin, xmin, ymax, xmax],
   "rotation_deg": number between -45.0 and +45.0,
   "keystone_v": number between -45.0 and +45.0,
-  "aspect_ratio": "original | 1:1 | 4:5 | 16:9 | 9:16 | free",
+  ${aspectSchema}
   "crop_rationale": "string (Concise technical rationale in Traditional Chinese, or empty string if unchanged)"
 }`;
 }
@@ -577,7 +604,9 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
   const enableWb = !scope || scope.whiteBalance;
   const enableLutIntensity = !scope || scope.lutProfile;
   const enableProfileSelection = enableLutIntensity && !isProfileLocked;
-  const enableFilmPhysics = !scope || scope.filmPhysics !== false;
+  const enableColorMixer = !scope || scope.filmPhysics !== false;
+  const enableSplitToning = !scope || (scope.splitToning !== undefined ? scope.splitToning : scope.filmPhysics !== false);
+  const enableFilmTexture = !scope || (scope.filmTexture !== undefined ? scope.filmTexture : scope.filmPhysics !== false);
 
   const channels: string[] = [];
   if (enableTone) {
@@ -596,15 +625,19 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
   } else if (enableLutIntensity) {
     channels.push('8. lut_intensity: 3D film LUT volumetric strength (0.0 to 1.0) for the user-locked 3D LUT profile.');
   }
-  if (enableFilmPhysics) {
+  if (enableColorMixer) {
     channels.push('9. vibrance [-1.0 to +1.0, baseline: 0.0]: Post-LUT skin-aware natural saturation scaling. Modulates muted chromatic regions proportionally while protecting skin tones.');
     channels.push('10. color_density [-1.0 to +1.0, baseline: 0.0]: Post-LUT subtractive dye density. Positive values increase chroma while proportionally attenuating luminance of high-chroma regions (emulsion dye light absorption); negative values yield softer pastel tonality.');
-    channels.push('11. shadow_hue & shadow_tint_amount (shadow_hue: 0 to 360 deg, shadow_tint_amount: 0.0 to 1.0): Post-LUT chromatic bias in mid-shadows with black-point anchor. Hue reference: 0=Red, 45=Amber, 120=Green, 180=Cyan, 210=Teal-Blue, 240=Blue, 300=Magenta.');
-    channels.push('12. highlight_hue & highlight_tint_amount (highlight_hue: 0 to 360 deg, highlight_tint_amount: 0.0 to 1.0): Post-LUT chromatic bias in upper midtone highlights with white-point anchor. Uses the same 0-360 hue reference.');
-    channels.push('13. halation [0.0 to 1.0, baseline: 0.0]: Red-orange specular light scattering halo around high-luminance edges caused by emulsion base reflection.');
-    channels.push('14. grain_amount [0.0 to 1.0, baseline: 0.15]: Luminance-weighted dual-scale organic silver-halide emulsion grain intensity.');
-    channels.push('15. vignette [-1.0 to +1.0, baseline: 0.0]: Optical radial peripheral falloff. Negative darkens outer corners; positive brightens outer corners.');
-    channels.push('16. hsl (optional partial 6-band color mixer): Adjust targeted hue (±30° normalized to -1.0..1.0), saturation (-1.0..1.0), and luminance (-1.0..1.0) per band ("red" | "orange" | "yellow" | "green" | "cyan" | "blue"). Omit bands that remain 0.0.');
+    channels.push('11. hsl (optional partial 6-band color mixer): Adjust targeted hue (±30° normalized to -1.0..1.0), saturation (-1.0..1.0), and luminance (-1.0..1.0) per band ("red" | "orange" | "yellow" | "green" | "cyan" | "blue"). Omit bands that remain 0.0.');
+  }
+  if (enableSplitToning) {
+    channels.push('12. shadow_hue & shadow_tint_amount (shadow_hue: 0 to 360 deg, shadow_tint_amount: 0.0 to 1.0): Post-LUT chromatic bias in mid-shadows with black-point anchor. Hue reference: 0=Red, 45=Amber, 120=Green, 180=Cyan, 210=Teal-Blue, 240=Blue, 300=Magenta.');
+    channels.push('13. highlight_hue & highlight_tint_amount (highlight_hue: 0 to 360 deg, highlight_tint_amount: 0.0 to 1.0): Post-LUT chromatic bias in upper midtone highlights with white-point anchor. Uses the same 0-360 hue reference.');
+  }
+  if (enableFilmTexture) {
+    channels.push('14. halation [0.0 to 1.0, baseline: 0.0]: Red-orange specular light scattering halo around high-luminance edges caused by emulsion base reflection.');
+    channels.push('15. grain_amount [0.0 to 1.0, baseline: 0.15]: Luminance-weighted dual-scale organic silver-halide emulsion grain intensity.');
+    channels.push('16. vignette [-1.0 to +1.0, baseline: 0.0]: Optical radial peripheral falloff. Negative darkens outer corners; positive brightens outer corners.');
   }
 
   const lutSchemaFields = enableProfileSelection
@@ -630,6 +663,6 @@ Respond ONLY with raw JSON matching this schema:
   "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
   "style_insight": "string (1-2 sentences in Traditional Chinese)",
   "recommended_mood": "string (short mood label in Traditional Chinese)",
-  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${lutSchemaFields}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "highlights": "number between -1.0 and +1.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "blacks": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}${enableFilmPhysics ? `,\n  "vibrance": "number between -1.0 and +1.0",\n  "color_density": "number between -1.0 and +1.0",\n  "shadow_hue": "number between 0 and 360",\n  "shadow_tint_amount": "number between 0.0 and 1.0",\n  "highlight_hue": "number between 0 and 360",\n  "highlight_tint_amount": "number between 0.0 and 1.0",\n  "halation": "number between 0.0 and 1.0",\n  "grain_amount": "number between 0.0 and 1.0",\n  "vignette": "number between -1.0 and +1.0",\n  "hsl": "optional partial object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-1.0, +1.0]"` : ''}
+  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${lutSchemaFields}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "highlights": "number between -1.0 and +1.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "blacks": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}${enableColorMixer ? `,\n  "vibrance": "number between -1.0 and +1.0",\n  "color_density": "number between -1.0 and +1.0",\n  "hsl": "optional partial object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-1.0, +1.0]"` : ''}${enableSplitToning ? `,\n  "shadow_hue": "number between 0 and 360",\n  "shadow_tint_amount": "number between 0.0 and 1.0",\n  "highlight_hue": "number between 0 and 360",\n  "highlight_tint_amount": "number between 0.0 and 1.0"` : ''}${enableFilmTexture ? `,\n  "halation": "number between 0.0 and 1.0",\n  "grain_amount": "number between 0.0 and 1.0",\n  "vignette": "number between -1.0 and +1.0"` : ''}
 }`;
 }

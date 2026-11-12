@@ -16,12 +16,27 @@ export class AiEngineFactory {
 
   private static STORAGE_KEY_VISION_PROV = 'slipknot_role_vision_provider';
   private static STORAGE_KEY_VISION_MODEL = 'slipknot_role_vision_model';
+  private static STORAGE_KEY_VISION_TEMP = 'slipknot_role_vision_temp';
   private static STORAGE_KEY_TEXT_PROV = 'slipknot_role_copywriting_provider';
   private static STORAGE_KEY_TEXT_MODEL = 'slipknot_role_copywriting_model';
+  private static STORAGE_KEY_TEXT_TEMP = 'slipknot_role_copywriting_temp';
   private static STORAGE_KEY_CRITIC_ENABLED = 'slipknot_critic_enabled';
   private static STORAGE_KEY_CRITIC_USE_CUSTOM = 'slipknot_critic_use_custom';
   private static STORAGE_KEY_CRITIC_PROV = 'slipknot_role_critic_provider';
   private static STORAGE_KEY_CRITIC_MODEL = 'slipknot_role_critic_model';
+  private static STORAGE_KEY_CRITIC_TEMP = 'slipknot_role_critic_temp';
+  private static STORAGE_KEY_TUNING_STRENGTH = 'slipknot_ai_tuning_strength';
+
+  private static parseClampedNumber(
+    raw: string | number | null | undefined,
+    fallback: number,
+    min: number,
+    max: number
+  ): number {
+    const parsed = typeof raw === 'number' ? raw : raw !== null && raw !== undefined ? parseFloat(raw) : NaN;
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.round(Math.max(min, Math.min(max, parsed)) * 100) / 100;
+  }
 
   // Static initialization of default registered adapters
   static {
@@ -96,6 +111,10 @@ export class AiEngineFactory {
     let criticUseCustom = false;
     let criticProv = 'gemini';
     let criticModel = '';
+    let visionTemp = 0.4;
+    let copyTemp = 0.7;
+    let criticTemp = 0.2;
+    let tuningStrength = 1.0;
 
     if (typeof localStorage !== 'undefined') {
       criticEnabled = localStorage.getItem(this.STORAGE_KEY_CRITIC_ENABLED) === 'true';
@@ -104,23 +123,32 @@ export class AiEngineFactory {
       if (ctp) criticProv = ctp;
       const ctm = localStorage.getItem(this.STORAGE_KEY_CRITIC_MODEL) || localStorage.getItem(`slipknot_model_${criticProv}`);
       if (ctm) criticModel = ctm;
+
+      visionTemp = this.parseClampedNumber(localStorage.getItem(this.STORAGE_KEY_VISION_TEMP), 0.4, 0.0, 1.5);
+      copyTemp = this.parseClampedNumber(localStorage.getItem(this.STORAGE_KEY_TEXT_TEMP), 0.7, 0.0, 1.5);
+      criticTemp = this.parseClampedNumber(localStorage.getItem(this.STORAGE_KEY_CRITIC_TEMP), 0.2, 0.0, 1.0);
+      tuningStrength = this.parseClampedNumber(localStorage.getItem(this.STORAGE_KEY_TUNING_STRENGTH), 1.0, 0.5, 1.5);
     }
 
     return {
       vision: {
         provider: visionProv,
-        modelId: visionModel
+        modelId: visionModel,
+        temperature: visionTemp,
       },
       copywriting: {
         provider: copyProv,
-        modelId: copyModel
+        modelId: copyModel,
+        temperature: copyTemp,
       },
       critic: {
         enabled: criticEnabled,
         useCustomModel: criticUseCustom,
         provider: criticProv,
-        modelId: criticModel
-      }
+        modelId: criticModel,
+        temperature: criticTemp,
+      },
+      tuningStrength,
     };
   }
 
@@ -137,6 +165,12 @@ export class AiEngineFactory {
       if (roles.vision.modelId !== undefined) {
         localStorage.setItem(this.STORAGE_KEY_VISION_MODEL, roles.vision.modelId.trim());
       }
+      if (typeof roles.vision.temperature === 'number') {
+        localStorage.setItem(
+          this.STORAGE_KEY_VISION_TEMP,
+          String(this.parseClampedNumber(roles.vision.temperature, 0.4, 0.0, 1.5))
+        );
+      }
     }
 
     if (roles.copywriting) {
@@ -145,6 +179,12 @@ export class AiEngineFactory {
       }
       if (roles.copywriting.modelId !== undefined) {
         localStorage.setItem(this.STORAGE_KEY_TEXT_MODEL, roles.copywriting.modelId.trim());
+      }
+      if (typeof roles.copywriting.temperature === 'number') {
+        localStorage.setItem(
+          this.STORAGE_KEY_TEXT_TEMP,
+          String(this.parseClampedNumber(roles.copywriting.temperature, 0.7, 0.0, 1.5))
+        );
       }
     }
 
@@ -161,6 +201,19 @@ export class AiEngineFactory {
       if (roles.critic.modelId !== undefined) {
         localStorage.setItem(this.STORAGE_KEY_CRITIC_MODEL, roles.critic.modelId.trim());
       }
+      if (typeof roles.critic.temperature === 'number') {
+        localStorage.setItem(
+          this.STORAGE_KEY_CRITIC_TEMP,
+          String(this.parseClampedNumber(roles.critic.temperature, 0.2, 0.0, 1.0))
+        );
+      }
+    }
+
+    if (typeof roles.tuningStrength === 'number') {
+      localStorage.setItem(
+        this.STORAGE_KEY_TUNING_STRENGTH,
+        String(this.parseClampedNumber(roles.tuningStrength, 1.0, 0.5, 1.5))
+      );
     }
   }
 
@@ -172,10 +225,12 @@ export class AiEngineFactory {
     modelId: string;
     apiKey: string;
     enabled: boolean;
+    temperature: number;
   }> {
     const roles = this.getTaskRoles();
+    const criticTemp = roles.critic.temperature ?? 0.2;
     if (!roles.critic.enabled) {
-      return { strategy: null, modelId: '', apiKey: '', enabled: false };
+      return { strategy: null, modelId: '', apiKey: '', enabled: false, temperature: criticTemp };
     }
 
     if (!roles.critic.useCustomModel) {
@@ -184,7 +239,8 @@ export class AiEngineFactory {
         strategy: visionEngine.strategy,
         modelId: visionEngine.modelId,
         apiKey: visionEngine.apiKey,
-        enabled: true
+        enabled: true,
+        temperature: criticTemp,
       };
     }
 
@@ -198,7 +254,8 @@ export class AiEngineFactory {
       strategy,
       modelId: roles.critic.modelId,
       apiKey: loaded.apiKey || '',
-      enabled: true
+      enabled: true,
+      temperature: criticTemp,
     };
   }
 
@@ -209,6 +266,7 @@ export class AiEngineFactory {
     strategy: IVisionStrategy;
     modelId: string;
     apiKey: string;
+    temperature: number;
   }> {
     const roles = this.getTaskRoles();
     const assignedProvider = roles.vision.provider;
@@ -228,7 +286,8 @@ export class AiEngineFactory {
     return {
       strategy,
       modelId: assignedModel,
-      apiKey
+      apiKey,
+      temperature: roles.vision.temperature ?? 0.4,
     };
   }
 
@@ -239,6 +298,7 @@ export class AiEngineFactory {
     strategy: ITextStrategy;
     modelId: string;
     apiKey: string;
+    temperature: number;
   }> {
     const roles = this.getTaskRoles();
     const assignedProvider = roles.copywriting.provider;
@@ -255,7 +315,8 @@ export class AiEngineFactory {
     return {
       strategy,
       modelId: assignedModel,
-      apiKey
+      apiKey,
+      temperature: roles.copywriting.temperature ?? 0.7,
     };
   }
 }

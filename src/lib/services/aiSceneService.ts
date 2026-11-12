@@ -251,7 +251,7 @@ export class AiSceneService {
     const startTime = Date.now();
 
     // 檢查當前視覺引擎是否具備金鑰
-    const { strategy, modelId, apiKey } = await AiEngineFactory.getVisionEngine();
+    const { strategy, modelId, apiKey, temperature: visionTemp } = await AiEngineFactory.getVisionEngine();
     const hasValidKey = !!(apiKey && apiKey.trim() !== '');
 
     if (!hasValidKey) {
@@ -281,7 +281,10 @@ export class AiSceneService {
         let decision: AiSceneDecision;
         const scope = options?.scope;
         const needGeometry = !scope || scope.crop || scope.keystone;
-        const needColor = !scope || scope.tone || scope.whiteBalance || scope.lutProfile || scope.filmPhysics !== false;
+        const allowColorMixer = !scope || scope.filmPhysics !== false;
+        const allowSplitToning = !scope || (scope.splitToning !== undefined ? scope.splitToning : scope.filmPhysics !== false);
+        const allowFilmTexture = !scope || (scope.filmTexture !== undefined ? scope.filmTexture : scope.filmPhysics !== false);
+        const needColor = !scope || scope.tone || scope.whiteBalance || scope.lutProfile || allowColorMixer || allowSplitToning || allowFilmTexture;
         const lockedProfileId = resolveLockedProfileId(options?.stylePreset, options?.customLuts);
         const allowAiLutIntensity = !scope || scope.lutProfile;
         const frozenLutIntensity =
@@ -302,6 +305,7 @@ export class AiSceneService {
             imagePayload1024pxBase64: cleanBase64,
             exif,
             signal: options?.signal,
+            temperature: visionTemp,
             scope,
             stage: 'geometry',
           });
@@ -339,6 +343,7 @@ export class AiSceneService {
             imagePayload1024pxBase64: colorInputBase64,
             exif,
             signal: options?.signal,
+            temperature: visionTemp,
             stylePreset: options?.stylePreset,
             styleKeywords: options?.styleKeywords,
             customStylePrompt: options?.customStylePrompt,
@@ -395,6 +400,7 @@ export class AiSceneService {
             imagePayload1024pxBase64: cleanBase64,
             exif,
             signal: options?.signal,
+            temperature: visionTemp,
             scope,
             stage: 'geometry',
           });
@@ -426,6 +432,7 @@ export class AiSceneService {
             imagePayload1024pxBase64: cleanBase64,
             exif,
             signal: options?.signal,
+            temperature: visionTemp,
             stylePreset: options?.stylePreset,
             styleKeywords: options?.styleKeywords,
             customStylePrompt: options?.customStylePrompt,
@@ -478,6 +485,7 @@ export class AiSceneService {
             imagePayload1024pxBase64: cleanBase64,
             exif,
             signal: options?.signal,
+            temperature: visionTemp,
             stylePreset: options?.stylePreset,
             styleKeywords: options?.styleKeywords,
             customStylePrompt: options?.customStylePrompt,
@@ -537,6 +545,7 @@ export class AiSceneService {
                 firstPassDecision: decision,
                 exif,
                 signal: options.signal,
+                temperature: criticEngine.temperature,
                 stylePreset: options.stylePreset,
                 styleKeywords: options.styleKeywords,
                 customStylePrompt: options.customStylePrompt,
@@ -563,53 +572,65 @@ export class AiSceneService {
               const prevVibrance = decision.vibrance ?? 0.0;
               const prevVignette = decision.vignette ?? 0.0;
 
-              // 數值安全融合：Delta 本身不設微小限幅，僅約束總體結果於 UI 滑桿與著色器物理有效範圍內
+              // 數值安全融合：Delta 本身不設微小限幅，僅約束總體結果於 UI 滑桿與著色器物理有效範圍內，並嚴格遵守 AiScope 權限鎖定
+              const allowTone = !scope || scope.tone;
+              const allowWb = !scope || scope.whiteBalance;
               const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
-              decision.exposure_compensation = parseFloat(clamp(prevExposure + refinement.exposure_delta, -2.0, 2.0).toFixed(2));
-              if (typeof refinement.highlights_delta === 'number') {
-                decision.highlights = parseFloat(clamp(prevHighlights + refinement.highlights_delta, -1.0, 1.0).toFixed(2));
+              if (allowTone) {
+                decision.exposure_compensation = parseFloat(clamp(prevExposure + refinement.exposure_delta, -2.0, 2.0).toFixed(2));
+                if (typeof refinement.highlights_delta === 'number') {
+                  decision.highlights = parseFloat(clamp(prevHighlights + refinement.highlights_delta, -1.0, 1.0).toFixed(2));
+                }
+                decision.lift_shadows = parseFloat(clamp(prevShadow + refinement.lift_shadows_delta, -0.5, 0.5).toFixed(2));
+                if (typeof refinement.blacks_delta === 'number') {
+                  decision.blacks = parseFloat(clamp(prevBlacks + refinement.blacks_delta, -0.5, 0.5).toFixed(2));
+                }
+                decision.contrast = parseFloat(clamp(prevContrast + refinement.contrast_delta, -0.8, 0.8).toFixed(2));
+                if (typeof refinement.clarity_delta === 'number') {
+                  decision.clarity = parseFloat(clamp(prevClarity + refinement.clarity_delta, -1.0, 1.0).toFixed(2));
+                }
+                if (typeof refinement.sharpness_delta === 'number') {
+                  decision.sharpness = parseFloat(clamp(prevSharpness + refinement.sharpness_delta, -1.0, 1.0).toFixed(2));
+                }
               }
-              decision.lift_shadows = parseFloat(clamp(prevShadow + refinement.lift_shadows_delta, -0.5, 0.5).toFixed(2));
-              if (typeof refinement.blacks_delta === 'number') {
-                decision.blacks = parseFloat(clamp(prevBlacks + refinement.blacks_delta, -0.5, 0.5).toFixed(2));
-              }
-              decision.color_temp = Math.round(clamp(prevTemp + refinement.color_temp_delta, 2800, 8500));
-              decision.contrast = parseFloat(clamp(prevContrast + refinement.contrast_delta, -0.8, 0.8).toFixed(2));
-              if (typeof refinement.tint_delta === 'number') {
-                decision.tint = parseFloat(clamp(prevTint + refinement.tint_delta, -100.0, 100.0).toFixed(1));
+              if (allowWb) {
+                decision.color_temp = Math.round(clamp(prevTemp + refinement.color_temp_delta, 2800, 8500));
+                if (typeof refinement.tint_delta === 'number') {
+                  decision.tint = parseFloat(clamp(prevTint + refinement.tint_delta, -100.0, 100.0).toFixed(1));
+                }
               }
               if (allowAiLutIntensity && typeof refinement.lut_intensity_delta === 'number') {
                 decision.lut_intensity = parseFloat(clamp(prevLut + refinement.lut_intensity_delta, 0.0, 1.0).toFixed(2));
               }
-              if (typeof refinement.clarity_delta === 'number') {
-                decision.clarity = parseFloat(clamp(prevClarity + refinement.clarity_delta, -1.0, 1.0).toFixed(2));
+              if (allowColorMixer) {
+                if (typeof refinement.vibrance_delta === 'number') {
+                  decision.vibrance = parseFloat(clamp(prevVibrance + refinement.vibrance_delta, -1.0, 1.0).toFixed(2));
+                }
+                if (typeof refinement.color_density_delta === 'number') {
+                  decision.color_density = parseFloat(clamp(prevColorDensity + refinement.color_density_delta, -1.0, 1.0).toFixed(2));
+                }
               }
-              if (typeof refinement.sharpness_delta === 'number') {
-                decision.sharpness = parseFloat(clamp(prevSharpness + refinement.sharpness_delta, -1.0, 1.0).toFixed(2));
+              if (allowSplitToning) {
+                if (typeof refinement.shadow_tint_amount_delta === 'number') {
+                  decision.shadow_tint_amount = parseFloat(clamp(prevShadowTintAmount + refinement.shadow_tint_amount_delta, 0.0, 1.0).toFixed(2));
+                }
+                if (typeof refinement.highlight_tint_amount_delta === 'number') {
+                  decision.highlight_tint_amount = parseFloat(clamp(prevHighlightTintAmount + refinement.highlight_tint_amount_delta, 0.0, 1.0).toFixed(2));
+                }
               }
-              if (typeof refinement.vibrance_delta === 'number') {
-                decision.vibrance = parseFloat(clamp(prevVibrance + refinement.vibrance_delta, -1.0, 1.0).toFixed(2));
-              }
-              if (typeof refinement.color_density_delta === 'number') {
-                decision.color_density = parseFloat(clamp(prevColorDensity + refinement.color_density_delta, -1.0, 1.0).toFixed(2));
-              }
-              if (typeof refinement.shadow_tint_amount_delta === 'number') {
-                decision.shadow_tint_amount = parseFloat(clamp(prevShadowTintAmount + refinement.shadow_tint_amount_delta, 0.0, 1.0).toFixed(2));
-              }
-              if (typeof refinement.highlight_tint_amount_delta === 'number') {
-                decision.highlight_tint_amount = parseFloat(clamp(prevHighlightTintAmount + refinement.highlight_tint_amount_delta, 0.0, 1.0).toFixed(2));
-              }
-              if (typeof refinement.halation_delta === 'number') {
-                decision.halation = parseFloat(clamp(prevHalation + refinement.halation_delta, 0.0, 1.0).toFixed(2));
-              }
-              if (typeof refinement.grain_amount_delta === 'number') {
-                decision.grain_amount = parseFloat(clamp(prevGrainAmount + refinement.grain_amount_delta, 0.0, 1.0).toFixed(2));
-              }
-              if (typeof refinement.vignette_delta === 'number') {
-                decision.vignette = parseFloat(clamp(prevVignette + refinement.vignette_delta, -1.0, 1.0).toFixed(2));
+              if (allowFilmTexture) {
+                if (typeof refinement.halation_delta === 'number') {
+                  decision.halation = parseFloat(clamp(prevHalation + refinement.halation_delta, 0.0, 1.0).toFixed(2));
+                }
+                if (typeof refinement.grain_amount_delta === 'number') {
+                  decision.grain_amount = parseFloat(clamp(prevGrainAmount + refinement.grain_amount_delta, 0.0, 1.0).toFixed(2));
+                }
+                if (typeof refinement.vignette_delta === 'number') {
+                  decision.vignette = parseFloat(clamp(prevVignette + refinement.vignette_delta, -1.0, 1.0).toFixed(2));
+                }
               }
               const hslChangeLogs: string[] = [];
-              if (refinement.hsl_deltas) {
+              if (allowColorMixer && refinement.hsl_deltas) {
                 const nextHsl = cloneHslAdjustments(decision.hsl);
                 for (const band of HSL_BAND_KEYS) {
                   const deltaBand = refinement.hsl_deltas[band];
@@ -645,66 +666,66 @@ export class AiSceneService {
                   return `${sign}${delta.toFixed(decimals)}${unit}`;
                 };
 
-                if (Math.abs(refinement.exposure_delta) >= 0.05) {
+                if (allowTone && Math.abs(refinement.exposure_delta) >= 0.05) {
                   diffLogs.push(`  • 曝光: ${formatDelta(refinement.exposure_delta, ' EV')} (${prevExposure.toFixed(2)} → ${decision.exposure_compensation.toFixed(2)})`);
                 }
-                if (Math.abs(refinement.lift_shadows_delta) >= 0.05) {
+                if (allowTone && Math.abs(refinement.lift_shadows_delta) >= 0.05) {
                   diffLogs.push(`  • 暗部: ${formatDelta(refinement.lift_shadows_delta)} (${prevShadow.toFixed(2)} → ${decision.lift_shadows.toFixed(2)})`);
                 }
-                if (Math.abs(refinement.contrast_delta) >= 0.05) {
-                  diffLogs.push(`  • 對比: ${formatDelta(refinement.contrast_delta)} (${prevContrast.toFixed(2)} → ${decision.contrast.toFixed(2)})`);
+                if (allowTone && Math.abs(refinement.contrast_delta) >= 0.05) {
+                  diffLogs.push(`  • 對比: ${formatDelta(refinement.contrast_delta)} (${prevContrast.toFixed(2)} → ${(decision.contrast ?? prevContrast).toFixed(2)})`);
                 }
-                if (Math.abs(refinement.color_temp_delta) >= 10) {
-                  diffLogs.push(`  • 色溫: ${refinement.color_temp_delta > 0 ? '+' : ''}${refinement.color_temp_delta} K (${prevTemp}K → ${decision.color_temp}K)`);
+                if (allowWb && Math.abs(refinement.color_temp_delta) >= 10) {
+                  diffLogs.push(`  • 色溫: ${refinement.color_temp_delta > 0 ? '+' : ''}${refinement.color_temp_delta} K (${prevTemp}K → ${decision.color_temp ?? prevTemp}K)`);
                 }
-                if (typeof refinement.tint_delta === 'number' && Math.abs(refinement.tint_delta) >= 0.5) {
+                if (allowWb && typeof refinement.tint_delta === 'number' && Math.abs(refinement.tint_delta) >= 0.5) {
                   const newTint = decision.tint ?? 0.0;
                   diffLogs.push(`  • 色調 (Tint): ${refinement.tint_delta > 0 ? '+' : ''}${refinement.tint_delta.toFixed(1)} (${prevTint >= 0 ? '+' : ''}${prevTint.toFixed(1)} → ${newTint >= 0 ? '+' : ''}${newTint.toFixed(1)})`);
                 }
                 if (allowAiLutIntensity && typeof refinement.lut_intensity_delta === 'number' && Math.abs(refinement.lut_intensity_delta) >= 0.01) {
                   diffLogs.push(`  • LUT 濃度: ${formatDelta(refinement.lut_intensity_delta)} (${prevLut.toFixed(2)} → ${decision.lut_intensity.toFixed(2)})`);
                 }
-                if (typeof refinement.clarity_delta === 'number' && Math.abs(refinement.clarity_delta) >= 0.01) {
+                if (allowTone && typeof refinement.clarity_delta === 'number' && Math.abs(refinement.clarity_delta) >= 0.01) {
                   const newClarity = decision.clarity ?? 0.0;
                   diffLogs.push(`  • 清晰度: ${formatDelta(refinement.clarity_delta)} (${prevClarity >= 0 ? '+' : ''}${prevClarity.toFixed(2)} → ${newClarity >= 0 ? '+' : ''}${newClarity.toFixed(2)})`);
                 }
-                if (typeof refinement.sharpness_delta === 'number' && Math.abs(refinement.sharpness_delta) >= 0.01) {
+                if (allowTone && typeof refinement.sharpness_delta === 'number' && Math.abs(refinement.sharpness_delta) >= 0.01) {
                   const newSharpness = decision.sharpness ?? 0.0;
                   diffLogs.push(`  • 銳利度: ${formatDelta(refinement.sharpness_delta)} (${prevSharpness >= 0 ? '+' : ''}${prevSharpness.toFixed(2)} → ${newSharpness >= 0 ? '+' : ''}${newSharpness.toFixed(2)})`);
                 }
-                if (typeof refinement.color_density_delta === 'number' && Math.abs(refinement.color_density_delta) >= 0.01) {
+                if (allowColorMixer && typeof refinement.color_density_delta === 'number' && Math.abs(refinement.color_density_delta) >= 0.01) {
                   const newDensity = decision.color_density ?? 0.0;
                   diffLogs.push(`  • 色彩密度: ${formatDelta(refinement.color_density_delta)} (${prevColorDensity >= 0 ? '+' : ''}${prevColorDensity.toFixed(2)} → ${newDensity >= 0 ? '+' : ''}${newDensity.toFixed(2)})`);
                 }
-                if (typeof refinement.shadow_tint_amount_delta === 'number' && Math.abs(refinement.shadow_tint_amount_delta) >= 0.01) {
+                if (allowSplitToning && typeof refinement.shadow_tint_amount_delta === 'number' && Math.abs(refinement.shadow_tint_amount_delta) >= 0.01) {
                   const newSh = decision.shadow_tint_amount ?? 0.0;
                   diffLogs.push(`  • 暗部色調: ${formatDelta(refinement.shadow_tint_amount_delta)} (${prevShadowTintAmount.toFixed(2)} → ${newSh.toFixed(2)})`);
                 }
-                if (typeof refinement.highlight_tint_amount_delta === 'number' && Math.abs(refinement.highlight_tint_amount_delta) >= 0.01) {
+                if (allowSplitToning && typeof refinement.highlight_tint_amount_delta === 'number' && Math.abs(refinement.highlight_tint_amount_delta) >= 0.01) {
                   const newHi = decision.highlight_tint_amount ?? 0.0;
                   diffLogs.push(`  • 亮部色調: ${formatDelta(refinement.highlight_tint_amount_delta)} (${prevHighlightTintAmount.toFixed(2)} → ${newHi.toFixed(2)})`);
                 }
-                if (typeof refinement.halation_delta === 'number' && Math.abs(refinement.halation_delta) >= 0.01) {
+                if (allowFilmTexture && typeof refinement.halation_delta === 'number' && Math.abs(refinement.halation_delta) >= 0.01) {
                   const newHal = decision.halation ?? 0.0;
                   diffLogs.push(`  • Halation 暈染: ${formatDelta(refinement.halation_delta)} (${prevHalation.toFixed(2)} → ${newHal.toFixed(2)})`);
                 }
-                if (typeof refinement.grain_amount_delta === 'number' && Math.abs(refinement.grain_amount_delta) >= 0.01) {
+                if (allowFilmTexture && typeof refinement.grain_amount_delta === 'number' && Math.abs(refinement.grain_amount_delta) >= 0.01) {
                   const newGr = decision.grain_amount ?? 0.15;
                   diffLogs.push(`  • 銀鹽微粒: ${formatDelta(refinement.grain_amount_delta)} (${prevGrainAmount.toFixed(2)} → ${newGr.toFixed(2)})`);
                 }
-                if (typeof refinement.highlights_delta === 'number' && Math.abs(refinement.highlights_delta) >= 0.02) {
+                if (allowTone && typeof refinement.highlights_delta === 'number' && Math.abs(refinement.highlights_delta) >= 0.02) {
                   const newHi = decision.highlights ?? 0.0;
                   diffLogs.push(`  • 高光抑揚: ${formatDelta(refinement.highlights_delta)} (${prevHighlights.toFixed(2)} → ${newHi.toFixed(2)})`);
                 }
-                if (typeof refinement.blacks_delta === 'number' && Math.abs(refinement.blacks_delta) >= 0.02) {
+                if (allowTone && typeof refinement.blacks_delta === 'number' && Math.abs(refinement.blacks_delta) >= 0.02) {
                   const newBlk = decision.blacks ?? 0.0;
                   diffLogs.push(`  • 黑階錨點: ${formatDelta(refinement.blacks_delta)} (${prevBlacks.toFixed(2)} → ${newBlk.toFixed(2)})`);
                 }
-                if (typeof refinement.vibrance_delta === 'number' && Math.abs(refinement.vibrance_delta) >= 0.02) {
+                if (allowColorMixer && typeof refinement.vibrance_delta === 'number' && Math.abs(refinement.vibrance_delta) >= 0.02) {
                   const newVib = decision.vibrance ?? 0.0;
                   diffLogs.push(`  • 自然飽和度: ${formatDelta(refinement.vibrance_delta)} (${prevVibrance.toFixed(2)} → ${newVib.toFixed(2)})`);
                 }
-                if (typeof refinement.vignette_delta === 'number' && Math.abs(refinement.vignette_delta) >= 0.02) {
+                if (allowFilmTexture && typeof refinement.vignette_delta === 'number' && Math.abs(refinement.vignette_delta) >= 0.02) {
                   const newVig = decision.vignette ?? 0.0;
                   diffLogs.push(`  • 光學暗角: ${formatDelta(refinement.vignette_delta)} (${prevVignette.toFixed(2)} → ${newVig.toFixed(2)})`);
                 }
@@ -778,12 +799,13 @@ export class AiSceneService {
    * 依據使用者指派之文字策略執行極速社群文案與 IPTC 標籤生成 (Strategy Pattern)
    */
   public static async generateGroqCopywriting(payload: CopywritingPayload): Promise<CopywritingResult> {
-    const { strategy, modelId, apiKey } = await AiEngineFactory.getCopywritingEngine();
+    const { strategy, modelId, apiKey, temperature } = await AiEngineFactory.getCopywritingEngine();
     return await strategy.generateCopywriting({
       apiKey,
       modelId,
       payload,
       timeoutMs: 15000,
+      temperature,
     });
   }
 

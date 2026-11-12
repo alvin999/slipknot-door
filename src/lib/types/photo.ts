@@ -80,12 +80,15 @@ export interface CropGeometry {
 }
 
 export interface AiScopePreferences {
-  lutProfile: boolean;     // 3D LUT 風格推薦
-  crop: boolean;           // 構圖與智慧裁切
-  keystone: boolean;       // 梯形與水平校正
-  tone: boolean;           // 基礎光影 (曝光/對比/陰影)
-  whiteBalance: boolean;   // 自動色溫與色偏 (Kelvin / Tint)
-  filmPhysics?: boolean;   // 底片物理通道 (減色密度/分區色偏/Halation/微粒)
+  lutProfile: boolean;          // 3D LUT 風格推薦
+  crop: boolean;                // 構圖與智慧裁切
+  lockCropAspectRatio?: boolean;// 智慧裁切時鎖定原始長寬比 (不改為 1:1 / 4:5 等)
+  keystone: boolean;            // 梯形與水平校正
+  tone: boolean;                // 基礎光影 (曝光/對比/陰影)
+  whiteBalance: boolean;        // 自動色溫與色偏 (Kelvin / Tint)
+  filmPhysics?: boolean;        // 色彩科學與 HSL (自然飽和度/色彩密度/6段HSL)
+  splitToning?: boolean;        // 冷暖分區色調 (暗部/亮部 Split Toning)
+  filmTexture?: boolean;        // 底片質感特效 (Halation/銀鹽微粒/光學暗角)
 }
 
 export type HslBandKey = 'red' | 'orange' | 'yellow' | 'green' | 'cyan' | 'blue';

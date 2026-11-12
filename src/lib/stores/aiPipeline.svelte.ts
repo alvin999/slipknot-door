@@ -6,6 +6,7 @@
  */
 
 import { AiSceneService } from "$lib/services/aiSceneService";
+import { AiEngineFactory } from "$lib/services/ai/engineFactory";
 import { KeyVaultService } from "$lib/services/keyVaultService";
 import { thumbnailRenderService } from "$lib/services/thumbnailRenderService.svelte";
 import { darkroomState } from "$lib/stores/darkroomState.svelte";
@@ -35,14 +36,19 @@ export function loadInitialAiScope(): AiScopePreferences {
     const raw = localStorage.getItem(AI_SCOPE_STORAGE_KEY);
     if (raw) {
       try {
+        const parsed = JSON.parse(raw);
+        const legacyFilmPhysics = parsed.filmPhysics !== false;
         return {
           lutProfile: true,
           crop: true,
+          lockCropAspectRatio: false,
           keystone: true,
           tone: true,
           whiteBalance: true,
           filmPhysics: true,
-          ...JSON.parse(raw),
+          splitToning: legacyFilmPhysics,
+          filmTexture: legacyFilmPhysics,
+          ...parsed,
         };
       } catch {
         // 解析失敗時回傳預設值
@@ -52,10 +58,13 @@ export function loadInitialAiScope(): AiScopePreferences {
   return {
     lutProfile: true,
     crop: true,
+    lockCropAspectRatio: false,
     keystone: true,
     tone: true,
     whiteBalance: true,
     filmPhysics: true,
+    splitToning: true,
+    filmTexture: true,
   };
 }
 
@@ -68,6 +77,119 @@ export class AiPipelineStore {
         .isAiScopeOpen,
     ),
   );
+
+  // AI 推論細部參數與任務引擎設定（與 AiEngineFactory / LocalStorage 雙向同步）
+  private initialRoles = AiEngineFactory.getTaskRoles();
+  visionProvider = $state<string>(this.initialRoles.vision.provider || "gemini");
+  visionModelId = $state<string>(this.initialRoles.vision.modelId || "");
+  visionTemperature = $state<number>(this.initialRoles.vision.temperature ?? 0.4);
+  copywritingProvider = $state<string>(this.initialRoles.copywriting.provider || "groq");
+  copywritingModelId = $state<string>(this.initialRoles.copywriting.modelId || "");
+  copywritingTemperature = $state<number>(this.initialRoles.copywriting.temperature ?? 0.7);
+  criticEnabled = $state<boolean>(this.initialRoles.critic.enabled);
+  criticTemperature = $state<number>(this.initialRoles.critic.temperature ?? 0.2);
+  aiTuningStrength = $state<number>(this.initialRoles.tuningStrength ?? 1.0);
+
+  /**
+   * 從 AiEngineFactory 重新載入最新模型與溫度設定（例如關閉 KeyVaultModal 後同步）
+   */
+  reloadEngineSettings(): void {
+    const roles = AiEngineFactory.getTaskRoles();
+    this.visionProvider = roles.vision.provider || "gemini";
+    this.visionModelId = roles.vision.modelId || "";
+    this.visionTemperature = roles.vision.temperature ?? 0.4;
+    this.copywritingProvider = roles.copywriting.provider || "groq";
+    this.copywritingModelId = roles.copywriting.modelId || "";
+    this.copywritingTemperature = roles.copywriting.temperature ?? 0.7;
+    this.criticEnabled = roles.critic.enabled;
+    this.criticTemperature = roles.critic.temperature ?? 0.2;
+    this.aiTuningStrength = roles.tuningStrength ?? 1.0;
+  }
+
+  setVisionTemperature(temp: number): void {
+    const clamped = Math.round(Math.max(0.0, Math.min(1.5, temp)) * 100) / 100;
+    this.visionTemperature = clamped;
+    AiEngineFactory.setTaskRoles({
+      vision: {
+        provider: this.visionProvider,
+        modelId: this.visionModelId,
+        temperature: clamped,
+      },
+    });
+  }
+
+  setCopywritingTemperature(temp: number): void {
+    const clamped = Math.round(Math.max(0.0, Math.min(1.5, temp)) * 100) / 100;
+    this.copywritingTemperature = clamped;
+    AiEngineFactory.setTaskRoles({
+      copywriting: {
+        provider: this.copywritingProvider,
+        modelId: this.copywritingModelId,
+        temperature: clamped,
+      },
+    });
+  }
+
+  setCriticTemperature(temp: number): void {
+    const clamped = Math.round(Math.max(0.0, Math.min(1.0, temp)) * 100) / 100;
+    this.criticTemperature = clamped;
+    AiEngineFactory.setTaskRoles({
+      critic: {
+        enabled: this.criticEnabled,
+        useCustomModel: AiEngineFactory.getTaskRoles().critic.useCustomModel,
+        provider: AiEngineFactory.getTaskRoles().critic.provider,
+        modelId: AiEngineFactory.getTaskRoles().critic.modelId,
+        temperature: clamped,
+      },
+    });
+  }
+
+  setCriticEnabled(enabled: boolean): void {
+    this.criticEnabled = enabled;
+    const current = AiEngineFactory.getTaskRoles().critic;
+    AiEngineFactory.setTaskRoles({
+      critic: {
+        ...current,
+        enabled,
+      },
+    });
+  }
+
+  setAiTuningStrength(strength: number): void {
+    const clamped = Math.round(Math.max(0.5, Math.min(1.5, strength)) * 100) / 100;
+    this.aiTuningStrength = clamped;
+    AiEngineFactory.setTaskRoles({ tuningStrength: clamped });
+  }
+
+  setVisionEngineSelection(provider: string, modelId: string): void {
+    this.visionProvider = provider;
+    this.visionModelId = modelId;
+    if (typeof localStorage !== "undefined") {
+      if (modelId) localStorage.setItem(`slipknot_model_${provider}`, modelId);
+    }
+    AiEngineFactory.setTaskRoles({
+      vision: {
+        provider,
+        modelId,
+        temperature: this.visionTemperature,
+      },
+    });
+  }
+
+  setCopywritingEngineSelection(provider: string, modelId: string): void {
+    this.copywritingProvider = provider;
+    this.copywritingModelId = modelId;
+    if (typeof localStorage !== "undefined") {
+      if (modelId) localStorage.setItem(`slipknot_model_${provider}`, modelId);
+    }
+    AiEngineFactory.setTaskRoles({
+      copywriting: {
+        provider,
+        modelId,
+        temperature: this.copywritingTemperature,
+      },
+    });
+  }
 
   // AI 推論與批次排程狀態
   isAiAnalyzing = $state<boolean>(false);
@@ -318,7 +440,7 @@ export class AiPipelineStore {
     );
     const activeModelInfo = AiSceneService.getActiveModelInfo();
     await this.appendAiLog(
-      `> [STREAM] 傳輸 1024px 縮圖至 ${activeModelInfo.provider === "gemini" ? "Google Gemini" : "Groq Vision"} (${activeModelInfo.modelId})...`,
+      `> [STREAM] 傳輸 1024px 縮圖至 ${activeModelInfo.provider === "gemini" ? "Google Gemini" : "Groq Vision"} (${activeModelInfo.modelId} · Temp ${this.visionTemperature.toFixed(2)} · 強度 ${Math.round(this.aiTuningStrength * 100)}%)...`,
       40,
     );
     const activeDirectives = darkroomState.getActiveDirectives();
@@ -439,26 +561,35 @@ export class AiPipelineStore {
         (pr) => pr.id === targetProfile,
       );
 
+      const clampVal = (v: number, min: number, max: number) =>
+        Math.max(min, Math.min(max, v));
+      const strength = this.aiTuningStrength;
+      const scaleCentered = (val: number, center: number, min: number, max: number, decimals = 2) => {
+        if (Math.abs(strength - 1.0) <= 0.01) return clampVal(val, min, max);
+        const scaled = center + (val - center) * strength;
+        return parseFloat(clampVal(scaled, min, max).toFixed(decimals));
+      };
+
       const baseEv = this.aiScope.tone
-        ? decision.exposure_compensation
+        ? scaleCentered(decision.exposure_compensation, 0.0, -2.0, 2.0)
         : (photoToProcess.tuning?.exposure ??
           (foundProfile
             ? foundProfile.evDefault
             : (photoToProcess.asShotExposure ?? 0.0)));
       const baseContrast = this.aiScope.tone
-        ? (decision.contrast ?? 0.0)
+        ? scaleCentered(decision.contrast ?? 0.0, 0.0, -0.8, 0.8)
         : (photoToProcess.tuning?.contrast ?? 0.0);
       const baseShadows = this.aiScope.tone
-        ? (decision.lift_shadows ?? 0.0)
+        ? scaleCentered(decision.lift_shadows ?? 0.0, 0.0, -0.5, 0.5)
         : (photoToProcess.tuning?.shadows ??
           (foundProfile ? (foundProfile.shadowsDefault ?? 0.0) : 0.0));
       const baseTemp = this.aiScope.whiteBalance
-        ? (decision.color_temp ?? 5500)
+        ? Math.round(scaleCentered(decision.color_temp ?? 5500, 5500, 2800, 8500, 0))
         : (photoToProcess.tuning?.colorTemp ??
           photoToProcess.asShotTemp ??
           5500);
       const baseTint = this.aiScope.whiteBalance
-        ? (decision.tint ?? 0.0)
+        ? scaleCentered(decision.tint ?? 0.0, 0.0, -100, 100, 1)
         : (photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0);
       const preservedLutIntensity =
         photoToProcess.appliedProfile === targetProfile
@@ -468,51 +599,67 @@ export class AiPipelineStore {
               ? foundProfile.lutIntensityDefault
               : (photoToProcess.tuning?.lutIntensity ?? 1.0));
       const baseLut = applyLutIntensity
-        ? decision.lut_intensity
+        ? scaleCentered(decision.lut_intensity, 0.0, 0.0, 1.0)
         : preservedLutIntensity;
       const baseClarity = this.aiScope.tone
-        ? (decision.clarity ?? 0.0)
+        ? scaleCentered(decision.clarity ?? 0.0, 0.0, -1.0, 1.0)
         : (photoToProcess.tuning?.clarity ?? 0.0);
       const baseSharpness = this.aiScope.tone
-        ? (decision.sharpness ?? 0.0)
+        ? scaleCentered(decision.sharpness ?? 0.0, 0.0, -1.0, 1.0)
         : (photoToProcess.tuning?.sharpness ?? 0.0);
-      const applyFilmPhysics = this.aiScope.filmPhysics !== false;
-      const baseColorDensity = applyFilmPhysics
-        ? (decision.color_density ?? 0.0)
+      const applyColorMixer = this.aiScope.filmPhysics !== false;
+      const applySplitToning =
+        this.aiScope.splitToning !== undefined
+          ? this.aiScope.splitToning
+          : applyColorMixer;
+      const applyFilmTexture =
+        this.aiScope.filmTexture !== undefined
+          ? this.aiScope.filmTexture
+          : applyColorMixer;
+      const baseColorDensity = applyColorMixer
+        ? scaleCentered(decision.color_density ?? 0.0, 0.0, -1.0, 1.0)
         : (photoToProcess.tuning?.colorDensity ?? 0.0);
-      const baseShadowHue = applyFilmPhysics
+      const baseShadowHue = applySplitToning
         ? (decision.shadow_hue ?? 200)
         : (photoToProcess.tuning?.shadowHue ?? 200);
-      const baseShadowTintAmount = applyFilmPhysics
-        ? (decision.shadow_tint_amount ?? 0.0)
+      const baseShadowTintAmount = applySplitToning
+        ? scaleCentered(decision.shadow_tint_amount ?? 0.0, 0.0, 0.0, 1.0)
         : (photoToProcess.tuning?.shadowTintAmount ?? 0.0);
-      const baseHighlightHue = applyFilmPhysics
+      const baseHighlightHue = applySplitToning
         ? (decision.highlight_hue ?? 40)
         : (photoToProcess.tuning?.highlightHue ?? 40);
-      const baseHighlightTintAmount = applyFilmPhysics
-        ? (decision.highlight_tint_amount ?? 0.0)
+      const baseHighlightTintAmount = applySplitToning
+        ? scaleCentered(decision.highlight_tint_amount ?? 0.0, 0.0, 0.0, 1.0)
         : (photoToProcess.tuning?.highlightTintAmount ?? 0.0);
-      const baseHalation = applyFilmPhysics
-        ? (decision.halation ?? 0.0)
+      const baseHalation = applyFilmTexture
+        ? scaleCentered(decision.halation ?? 0.0, 0.0, 0.0, 1.0)
         : (photoToProcess.tuning?.halation ?? 0.0);
-      const baseGrainAmount = applyFilmPhysics
-        ? (decision.grain_amount ?? 0.15)
+      const baseGrainAmount = applyFilmTexture
+        ? scaleCentered(decision.grain_amount ?? 0.15, 0.15, 0.0, 1.0)
         : (photoToProcess.tuning?.grainAmount ?? 0.15);
       const baseHighlights = this.aiScope.tone
-        ? (decision.highlights ?? 0.0)
+        ? scaleCentered(decision.highlights ?? 0.0, 0.0, -1.0, 1.0)
         : (photoToProcess.tuning?.highlights ?? 0.0);
       const baseBlacks = this.aiScope.tone
-        ? (decision.blacks ?? 0.0)
+        ? scaleCentered(decision.blacks ?? 0.0, 0.0, -0.5, 0.5)
         : (photoToProcess.tuning?.blacks ?? 0.0);
-      const baseVibrance = applyFilmPhysics
-        ? (decision.vibrance ?? 0.0)
+      const baseVibrance = applyColorMixer
+        ? scaleCentered(decision.vibrance ?? 0.0, 0.0, -1.0, 1.0)
         : (photoToProcess.tuning?.vibrance ?? 0.0);
-      const baseVignette = applyFilmPhysics
-        ? (decision.vignette ?? 0.0)
+      const baseVignette = applyFilmTexture
+        ? scaleCentered(decision.vignette ?? 0.0, 0.0, -1.0, 1.0)
         : (photoToProcess.tuning?.vignette ?? 0.0);
-      const baseHsl = applyFilmPhysics
+      const rawHsl = applyColorMixer
         ? cloneHslAdjustments(decision.hsl)
         : cloneHslAdjustments(photoToProcess.tuning?.hsl);
+      if (applyColorMixer && Math.abs(strength - 1.0) > 0.01) {
+        for (const bandKey of Object.keys(rawHsl) as Array<keyof HslAdjustments>) {
+          rawHsl[bandKey].hue = scaleCentered(rawHsl[bandKey].hue, 0.0, -1.0, 1.0);
+          rawHsl[bandKey].sat = scaleCentered(rawHsl[bandKey].sat, 0.0, -1.0, 1.0);
+          rawHsl[bandKey].lum = scaleCentered(rawHsl[bandKey].lum, 0.0, -1.0, 1.0);
+        }
+      }
+      const baseHsl = rawHsl;
       // 黑白模式完全由使用者獨立切換，AI 僅調光影與 6 段光學濾鏡權重，不擅自更改輸出模式
       const baseMonochrome = targetMonochrome;
 
@@ -565,9 +712,9 @@ export class AiPipelineStore {
           15,
         );
       }
-      if (applyFilmPhysics) {
+      if (applyColorMixer || applySplitToning || applyFilmTexture) {
         await this.appendAiLog(
-          `> [AI_TONING] 分區調色與底片質感：\n  • 自然飽和度: ${fmt(baseVibrance)} | 減色密度: ${fmt(baseColorDensity)} | 暗角: ${fmt(baseVignette)} | Halation: ${baseHalation.toFixed(2)} | 微粒: ${baseGrainAmount.toFixed(2)}\n  • 分區色調: 暗部 ${Math.round(baseShadowHue)}° (${baseShadowTintAmount.toFixed(2)}) | 亮部 ${Math.round(baseHighlightHue)}° (${baseHighlightTintAmount.toFixed(2)})`,
+          `> [AI_TONING] 色彩科學與底片質感：\n  • 自然飽和度: ${fmt(baseVibrance)} | 減色密度: ${fmt(baseColorDensity)} | 暗角: ${fmt(baseVignette)} | Halation: ${baseHalation.toFixed(2)} | 微粒: ${baseGrainAmount.toFixed(2)}\n  • 分區色調: 暗部 ${Math.round(baseShadowHue)}° (${baseShadowTintAmount.toFixed(2)}) | 亮部 ${Math.round(baseHighlightHue)}° (${baseHighlightTintAmount.toFixed(2)})`,
           15,
         );
       }
@@ -606,12 +753,14 @@ export class AiPipelineStore {
               : (photoToProcess.crop?.keystoneV ?? 0),
           keystoneH: photoToProcess.crop?.keystoneH ?? 0,
           aspectRatio:
-            decision.aspect_ratio &&
-            ["original", "1:1", "4:5", "16:9", "9:16", "free"].includes(
-              decision.aspect_ratio,
-            )
-              ? (decision.aspect_ratio as any)
-              : (photoToProcess.crop?.aspectRatio ?? "original"),
+            this.aiScope.lockCropAspectRatio
+              ? "original"
+              : decision.aspect_ratio &&
+                  ["original", "1:1", "4:5", "16:9", "9:16", "free"].includes(
+                    decision.aspect_ratio,
+                  )
+                ? (decision.aspect_ratio as any)
+                : (photoToProcess.crop?.aspectRatio ?? "original"),
           flipH: photoToProcess.crop?.flipH ?? false,
           flipV: photoToProcess.crop?.flipV ?? false,
         };
@@ -754,34 +903,42 @@ export class AiPipelineStore {
           } else {
             darkroomState.lutIntensity = baseLut;
           }
-          if (applyFilmPhysics) {
+          if (applyColorMixer) {
             targetAnim.vibrance = baseVibrance;
             targetAnim.colorDensity = baseColorDensity;
+            targetAnim.hsl = cloneHslAdjustments(baseHsl);
+          }
+          if (applySplitToning) {
             targetAnim.shadowHue = baseShadowHue;
             targetAnim.shadowTintAmount = baseShadowTintAmount;
             targetAnim.highlightHue = baseHighlightHue;
             targetAnim.highlightTintAmount = baseHighlightTintAmount;
+          }
+          if (applyFilmTexture) {
             targetAnim.halation = baseHalation;
             targetAnim.grainAmount = baseGrainAmount;
             targetAnim.vignette = baseVignette;
-            targetAnim.hsl = cloneHslAdjustments(baseHsl);
           }
           darkroomState.highlights = baseHighlights;
           darkroomState.blacks = baseBlacks;
           darkroomState.clarity = baseClarity;
           darkroomState.sharpness = baseSharpness;
           darkroomState.monochrome = baseMonochrome;
-          if (applyFilmPhysics) {
+          if (applyColorMixer) {
             darkroomState.vibrance = baseVibrance;
             darkroomState.colorDensity = baseColorDensity;
+            darkroomState.hsl = cloneHslAdjustments(baseHsl);
+          }
+          if (applySplitToning) {
             darkroomState.shadowHue = baseShadowHue;
             darkroomState.shadowTintAmount = baseShadowTintAmount;
             darkroomState.highlightHue = baseHighlightHue;
             darkroomState.highlightTintAmount = baseHighlightTintAmount;
+          }
+          if (applyFilmTexture) {
             darkroomState.halation = baseHalation;
             darkroomState.grainAmount = baseGrainAmount;
             darkroomState.vignette = baseVignette;
-            darkroomState.hsl = cloneHslAdjustments(baseHsl);
           }
           if (Object.keys(targetAnim).length > 0) {
             this.animateAndSync(targetAnim, 650);

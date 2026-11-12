@@ -50,7 +50,8 @@ export class GroqAdapter implements IVisionStrategy, ITextStrategy {
     modelId: string,
     promptText: string,
     imagePayload1024pxBase64: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    temperature?: number
   ): Promise<{ parsed: any; activeModel: string }> {
     if (!apiKey || apiKey.trim() === '') {
       throw new Error('未配置 Groq API 金鑰');
@@ -68,6 +69,26 @@ export class GroqAdapter implements IVisionStrategy, ITextStrategy {
 
     const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
 
+    const payloadBody: Record<string, any> = {
+      model: activeModel,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: promptText },
+            {
+              type: 'image_url',
+              image_url: { url: `data:image/jpeg;base64,${cleanBase64}` },
+            },
+          ],
+        },
+      ],
+      response_format: { type: 'json_object' },
+    };
+    if (typeof temperature === 'number' && Number.isFinite(temperature)) {
+      payloadBody.temperature = temperature;
+    }
+
     let response: Response;
     try {
       response = await fetch(endpoint, {
@@ -76,22 +97,7 @@ export class GroqAdapter implements IVisionStrategy, ITextStrategy {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-          model: activeModel,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: promptText },
-                {
-                  type: 'image_url',
-                  image_url: { url: `data:image/jpeg;base64,${cleanBase64}` },
-                },
-              ],
-            },
-          ],
-          response_format: { type: 'json_object' },
-        }),
+        body: JSON.stringify(payloadBody),
         signal,
       });
     } catch (err: any) {
@@ -120,20 +126,24 @@ export class GroqAdapter implements IVisionStrategy, ITextStrategy {
    * Stage 1: 空間幾何與構圖分析 (Geometry Analysis)
    */
   public async analyzeGeometry(options: VisionInferenceOptions): Promise<GeometryDecision> {
-    const promptText = buildGeometryInstructionPrompt(options.exif);
+    const promptText = buildGeometryInstructionPrompt(
+      options.exif,
+      Boolean(options.scope?.lockCropAspectRatio)
+    );
     const { parsed } = await this.executeGroqVisionRequest(
       options.apiKey,
       options.modelId,
       promptText,
       options.imagePayload1024pxBase64,
-      options.signal
+      options.signal,
+      options.temperature
     );
 
     return {
       crop_box: Array.isArray(parsed.crop_box) && parsed.crop_box.length === 4 ? parsed.crop_box : [0.0, 0.0, 1.0, 1.0],
       rotation_deg: typeof parsed.rotation_deg === 'number' ? parsed.rotation_deg : 0.0,
       keystone_v: typeof parsed.keystone_v === 'number' ? parsed.keystone_v : 0.0,
-      aspect_ratio: parsed.aspect_ratio || 'original',
+      aspect_ratio: options.scope?.lockCropAspectRatio ? 'original' : (parsed.aspect_ratio || 'original'),
       crop_rationale: parsed.crop_rationale || '',
     };
   }
@@ -148,7 +158,8 @@ export class GroqAdapter implements IVisionStrategy, ITextStrategy {
       options.modelId,
       promptText,
       options.imagePayload1024pxBase64,
-      options.signal
+      options.signal,
+      options.temperature
     );
 
     return {
@@ -243,7 +254,8 @@ Respond ONLY with raw JSON matching this schema:
       modelId,
       promptText,
       options.imagePayload1024pxBase64,
-      options.signal
+      options.signal,
+      options.temperature
     );
 
     return {
@@ -346,7 +358,10 @@ Respond ONLY with raw JSON matching this schema:
           ],
           response_format: { type: 'json_object' },
           max_tokens: 512,
-          temperature: 0.2,
+          temperature:
+            typeof options.temperature === 'number' && Number.isFinite(options.temperature)
+              ? options.temperature
+              : 0.2,
         }),
         signal: options.signal,
       });
@@ -433,6 +448,9 @@ ${userPromptSection}
         model: activeModel,
         messages: [{ role: 'user', content: systemPrompt }],
         response_format: { type: 'json_object' },
+        ...(typeof options.temperature === 'number' && Number.isFinite(options.temperature)
+          ? { temperature: options.temperature }
+          : {}),
       }),
     });
 

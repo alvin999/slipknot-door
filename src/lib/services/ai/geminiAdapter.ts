@@ -47,7 +47,8 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
     modelId: string,
     promptText: string,
     imagePayload1024pxBase64: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    temperature?: number
   ): Promise<any> {
     if (!apiKey || apiKey.trim() === '') {
       throw new Error('未配置 Gemini API 金鑰');
@@ -64,6 +65,13 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
 
+    const generationConfig: Record<string, any> = {
+      responseMimeType: 'application/json',
+    };
+    if (typeof temperature === 'number' && Number.isFinite(temperature)) {
+      generationConfig.temperature = temperature;
+    }
+
     const requestBody = JSON.stringify({
       contents: [
         {
@@ -78,9 +86,7 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
           ],
         },
       ],
-      generationConfig: {
-        responseMimeType: 'application/json',
-      },
+      generationConfig,
     });
 
     let response: Response;
@@ -117,20 +123,24 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
    * Stage 1: 空間幾何與構圖分析 (Geometry Analysis)
    */
   public async analyzeGeometry(options: VisionInferenceOptions): Promise<GeometryDecision> {
-    const promptText = buildGeometryInstructionPrompt(options.exif);
+    const promptText = buildGeometryInstructionPrompt(
+      options.exif,
+      Boolean(options.scope?.lockCropAspectRatio)
+    );
     const parsed = await this.executeGeminiVisionRequest(
       options.apiKey,
       options.modelId,
       promptText,
       options.imagePayload1024pxBase64,
-      options.signal
+      options.signal,
+      options.temperature
     );
 
     return {
       crop_box: Array.isArray(parsed.crop_box) && parsed.crop_box.length === 4 ? parsed.crop_box : [0.0, 0.0, 1.0, 1.0],
       rotation_deg: typeof parsed.rotation_deg === 'number' ? parsed.rotation_deg : 0.0,
       keystone_v: typeof parsed.keystone_v === 'number' ? parsed.keystone_v : 0.0,
-      aspect_ratio: parsed.aspect_ratio || 'original',
+      aspect_ratio: options.scope?.lockCropAspectRatio ? 'original' : (parsed.aspect_ratio || 'original'),
       crop_rationale: parsed.crop_rationale || '',
     };
   }
@@ -145,7 +155,8 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
       options.modelId,
       promptText,
       options.imagePayload1024pxBase64,
-      options.signal
+      options.signal,
+      options.temperature
     );
 
     return {
@@ -240,7 +251,8 @@ Respond ONLY with raw JSON matching this schema:
       modelId,
       promptText,
       options.imagePayload1024pxBase64,
-      options.signal
+      options.signal,
+      options.temperature
     );
 
     const cleanModel = (modelId && modelId.trim()) ? modelId.trim().replace(/^models\//, '') : '';
@@ -338,7 +350,10 @@ Respond ONLY with raw JSON matching this schema:
       generationConfig: {
         responseMimeType: 'application/json',
         maxOutputTokens: 512,
-        temperature: 0.2,
+        temperature:
+          typeof options.temperature === 'number' && Number.isFinite(options.temperature)
+            ? options.temperature
+            : 0.2,
       },
     });
 
@@ -426,12 +441,19 @@ ${userPromptSection}
   "iptc_keywords": ["Street", "Night", "WarmToned", "Portrait", ...約 8-12 個中英雙語搜尋關鍵字，用於檔案搜尋與 Spotlight 檢索]
 }`;
 
+    const copyGenerationConfig: Record<string, any> = {
+      responseMimeType: 'application/json',
+    };
+    if (typeof options.temperature === 'number' && Number.isFinite(options.temperature)) {
+      copyGenerationConfig.temperature = options.temperature;
+    }
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: systemPrompt }] }],
-        generationConfig: { responseMimeType: 'application/json' },
+        generationConfig: copyGenerationConfig,
       }),
     });
 

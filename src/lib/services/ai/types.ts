@@ -40,6 +40,7 @@ export interface VisionInferenceOptions {
   exif: ExifOpticalData;
   timeoutMs?: number;
   signal?: AbortSignal;
+  temperature?: number;
   stylePreset?: StylePresetKey;
   styleKeywords?: StyleKeywordId[];
   customStylePrompt?: string;
@@ -92,6 +93,7 @@ export interface TextInferenceOptions {
   payload: CopywritingPayload;
   timeoutMs?: number;
   signal?: AbortSignal;
+  temperature?: number;
 }
 
 /**
@@ -140,6 +142,7 @@ export interface DirectoryPlanOptions {
   payload: DirectoryPlanPayload;
   timeoutMs?: number;
   signal?: AbortSignal;
+  temperature?: number;
 }
 
 export interface RefinementInferenceOptions {
@@ -151,6 +154,7 @@ export interface RefinementInferenceOptions {
   exif: ExifOpticalData;
   timeoutMs?: number;
   signal?: AbortSignal;
+  temperature?: number;
   stylePreset?: StylePresetKey;
   styleKeywords?: StyleKeywordId[];
   customStylePrompt?: string;
@@ -212,19 +216,23 @@ export interface CriticRoleConfig {
   useCustomModel: boolean;
   provider: 'gemini' | 'groq' | string;
   modelId: string;
+  temperature?: number;
 }
 
 /**
- * 任務職責配置（由使用者在保險庫自由指派文字、影像起草與雙圖覆審各自負責的模型）
+ * 任務職責配置（由使用者在保險庫自由指派文字、影像起草與雙圖覆審各自負責的模型與參數）
  */
 export interface AiTaskRolesConfig {
   vision: {
     provider: 'gemini' | 'groq' | string;
     modelId: string;
+    temperature?: number;
   };
   copywriting: {
     provider: 'groq' | 'gemini' | string;
     modelId: string;
+    temperature?: number;
   };
   critic: CriticRoleConfig;
+  tuningStrength?: number;
 }
