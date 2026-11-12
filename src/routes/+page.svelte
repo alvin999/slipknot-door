@@ -45,6 +45,7 @@
   // Mobile Bottom Drawer State (行動端抽屜狀態)
   type MobileDrawer = "none" | "ai" | "tuning";
   let activeMobileDrawer = $state<MobileDrawer>("none");
+  let isMobileDrawerExpanded = $state<boolean>(false);
 
   // Key Vault & Help Modal State
   let isVaultOpen = $state<boolean>(false);
@@ -52,6 +53,10 @@
   let isQuickExportOpen = $state<boolean>(false);
   let isKeyPromptModalOpen = $state<boolean>(false);
   let geminiKeyStatus = $state<{ exists: boolean; mode: string | null }>({
+    exists: false,
+    mode: null,
+  });
+  let groqKeyStatus = $state<{ exists: boolean; mode: string | null }>({
     exists: false,
     mode: null,
   });
@@ -127,9 +132,12 @@
   });
 
   function refreshKeyStatus() {
-    const s = KeyVaultService.getKeyStatus("gemini");
-    geminiKeyStatus = { exists: s.exists, mode: s.mode };
+    const sGemini = KeyVaultService.getKeyStatus("gemini");
+    const sGroq = KeyVaultService.getKeyStatus("groq");
+    geminiKeyStatus = { exists: sGemini.exists, mode: sGemini.mode };
+    groqKeyStatus = { exists: sGroq.exists, mode: sGroq.mode };
     hasKey = hasActiveApiKey();
+    aiPipeline.reloadEngineSettings();
   }
 
   function hasActiveApiKey(): boolean {
@@ -910,6 +918,9 @@
   class="workspace-container"
   class:mobile-retouch-split={activeTab === "retouch" &&
     activeMobileDrawer !== "none"}
+  class:mobile-drawer-expanded={activeTab === "retouch" &&
+    activeMobileDrawer !== "none" &&
+    isMobileDrawerExpanded}
 >
   <!-- 去識別化 3D 膠卷風格濾鏡著色矩陣定義 (De-identified Film Emulation Matrices) -->
   <svg
@@ -1025,8 +1036,14 @@
         <MobileDrawerHandle
           variant="split"
           {activeMobileDrawer}
+          isExpanded={isMobileDrawerExpanded}
           onSelectDrawer={(drawer) => (activeMobileDrawer = drawer)}
-          onClose={() => (activeMobileDrawer = "none")}
+          onToggleExpand={() =>
+            (isMobileDrawerExpanded = !isMobileDrawerExpanded)}
+          onClose={() => {
+            activeMobileDrawer = "none";
+            isMobileDrawerExpanded = false;
+          }}
         />
 
         <!-- AI Scene Assistant (100% 垂直高度專屬呈現，免去冗長捲動) -->
@@ -1167,6 +1184,7 @@
           {cameraMounts}
           {isScanningMounts}
           {geminiKeyStatus}
+          {groqKeyStatus}
           onRefreshMounts={refreshCameraMounts}
           onOpenVault={() => (isVaultOpen = true)}
           onLoadMount={(m: CameraMountInfo) => handleLoadCameraMount(m)}
@@ -1186,8 +1204,15 @@
         <MobileDrawerHandle
           variant={activeTab === "retouch" ? "split" : "drag"}
           {activeMobileDrawer}
+          isExpanded={isMobileDrawerExpanded}
           onSelectDrawer={(drawer) => (activeMobileDrawer = drawer)}
-          onClose={() => (activeMobileDrawer = "none")}
+          onToggleExpand={activeTab === "retouch"
+            ? () => (isMobileDrawerExpanded = !isMobileDrawerExpanded)
+            : undefined}
+          onClose={() => {
+            activeMobileDrawer = "none";
+            isMobileDrawerExpanded = false;
+          }}
         />
         {#if activeTab === "retouch"}
           <TuningPanel
@@ -1265,6 +1290,7 @@
     onSelectTab={(tab) => {
       activeTab = tab;
       activeMobileDrawer = "none";
+      isMobileDrawerExpanded = false;
     }}
   />
 
@@ -1423,6 +1449,16 @@
       padding: 0 12px calc(12px + env(safe-area-inset-bottom, 0px));
       box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.75);
       z-index: 20;
+      transition: flex-basis 0.2s ease, height 0.2s ease, max-height 0.2s ease;
+    }
+
+    .workspace-container.mobile-retouch-split.mobile-drawer-expanded
+      .left-sidebar.drawer-open,
+    .workspace-container.mobile-retouch-split.mobile-drawer-expanded
+      .right-telemetry.drawer-open {
+      flex: 0 0 74dvh;
+      height: 74dvh;
+      max-height: 74dvh;
     }
 
     /* 抽屜全螢幕暗色遮罩 */

@@ -4,14 +4,18 @@
   interface Props {
     variant?: "split" | "drag";
     activeMobileDrawer?: MobileDrawer;
+    isExpanded?: boolean;
     onSelectDrawer?: (drawer: MobileDrawer) => void;
+    onToggleExpand?: () => void;
     onClose: () => void;
   }
 
   let {
     variant = "drag",
     activeMobileDrawer = "none",
+    isExpanded = false,
     onSelectDrawer,
+    onToggleExpand,
     onClose,
   }: Props = $props();
 </script>
@@ -43,12 +47,28 @@
         <span>微調</span>
       </button>
     </div>
-    <button type="button" class="drawer-close-btn font-mono" onclick={onClose}>
-      <span>收合</span>
-      <span class="material-symbols-outlined" style="font-size: 15px;"
-        >keyboard_arrow_down</span
-      >
-    </button>
+    <div class="mobile-drawer-right-actions">
+      {#if onToggleExpand}
+        <button
+          type="button"
+          class="drawer-expand-btn font-mono"
+          class:active={isExpanded}
+          onclick={onToggleExpand}
+          title={isExpanded ? "切換回半高預覽" : "展開較高面板"}
+        >
+          <span class="material-symbols-outlined" style="font-size: 13px;">
+            {isExpanded ? "close_fullscreen" : "open_in_full"}
+          </span>
+          <span>{isExpanded ? "半高" : "展開"}</span>
+        </button>
+      {/if}
+      <button type="button" class="drawer-close-btn font-mono" onclick={onClose}>
+        <span>收合</span>
+        <span class="material-symbols-outlined" style="font-size: 15px;"
+          >keyboard_arrow_down</span
+        >
+      </button>
+    </div>
   </div>
 {:else}
   <div class="mobile-drawer-handle-bar">
@@ -142,6 +162,33 @@
       border-color: var(--amber-highlight);
       color: var(--amber-highlight);
       font-weight: 600;
+    }
+
+    .mobile-drawer-right-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .drawer-expand-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--parchment-dim);
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .drawer-expand-btn.active,
+    .drawer-expand-btn:hover {
+      border-color: var(--amber-highlight);
+      color: var(--amber-highlight);
+      background: rgba(212, 163, 115, 0.1);
     }
   }
 </style>

@@ -411,10 +411,10 @@
         class="help-trigger-btn hairline-all font-mono mobile-hide-shortcut"
         class:active={activeTab === 'devices'}
         onclick={onGoToDevices}
-        title="設備與儲存設定"
-        aria-label="設備與儲存設定"
+        title="系統、AI 與設備設定"
+        aria-label="系統、AI 與設備設定"
       >
-        <span class="material-symbols-outlined icon">settings_input_component</span>
+        <span class="material-symbols-outlined icon">settings</span>
       </button>
     {/if}
 
