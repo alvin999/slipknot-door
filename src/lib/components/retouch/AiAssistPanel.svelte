@@ -41,6 +41,7 @@
     onToggleIsAiScopeOpen?: () => void;
     onCopyTerminalLogs?: () => void;
     onRunAiAnalysis?: () => void;
+    onIterateAiTuning?: (prompt?: string) => void;
     onRequestBatchAi?: () => void;
     onCancelBatchAi?: () => void;
     onOpenVault?: () => void;
@@ -74,6 +75,7 @@
     onToggleIsAiScopeOpen,
     onCopyTerminalLogs,
     onRunAiAnalysis,
+    onIterateAiTuning,
     onRequestBatchAi,
     onCancelBatchAi,
     onOpenVault,
@@ -87,6 +89,7 @@
   let isKeywordDirectivesOpen = $state<boolean>(false);
   let isKeywordManagerOpen = $state<boolean>(false);
   let isQuickEngineOpen = $state<boolean>(false);
+  let isIterateHistoryOpen = $state<boolean>(false);
   let keywordManagerMode = $state<"list" | "create">("list");
   let keywordPrefillPrompt = $state<string>("");
   let isExpandedStyles = $state<boolean>(
@@ -108,6 +111,33 @@
   const currentIsAiAnalyzing = $derived(
     propsIsAiAnalyzing ?? aiPipeline.isAiAnalyzing,
   );
+  const currentIsIterating = $derived(aiPipeline.isIteratingRefine);
+  const manualDiffs = $derived.by(() =>
+    hasAiBaseline && activePhoto
+      ? darkroomState.getTuningDiffsFromBaseline(activePhoto)
+      : [],
+  );
+  const iterationHistory = $derived(activePhoto?.aiIterationHistory || []);
+  const hasIterateIntent = $derived(
+    manualDiffs.length > 0 || aiPipeline.iterativeFeedbackPrompt.trim().length > 0,
+  );
+  const QUICK_ITERATE_CHIPS = [
+    "壓低高光細節",
+    "提亮暗部不死黑",
+    "膚色更自然通透",
+    "降低過濃飽和度",
+    "對比柔和電影感",
+    "整體稍微再暗一點",
+  ];
+
+  function applyQuickIterateChip(chipText: string) {
+    const curr = aiPipeline.iterativeFeedbackPrompt.trim();
+    if (!curr) {
+      aiPipeline.iterativeFeedbackPrompt = chipText;
+    } else if (!curr.includes(chipText)) {
+      aiPipeline.iterativeFeedbackPrompt = `${curr}，${chipText}`;
+    }
+  }
   const currentIsBatchRunning = $derived(
     propsIsBatchAiRunning ?? aiPipeline.isBatchAiRunning,
   );
@@ -657,6 +687,105 @@
     {/if}
 
     <!-- ══════════════════════════════════════════════════════════════════
+         區塊 B：AI 接力微調（滑桿修改錨點 + 自然語言微調雙軌並用）
+         ══════════════════════════════════════════════════════════════════ -->
+    {#if hasAiBaseline && !currentIsBatchRunning}
+      <section class="workflow-section iterate-section hairline-all">
+        <div class="section-header">
+          <div class="step-title-group">
+            <span class="step-badge font-mono">接力</span>
+            <span class="section-title">AI 接著微調</span>
+          </div>
+          {#if iterationHistory.length > 0}
+            <button
+              type="button"
+              class="expand-toggle-btn font-mono"
+              onclick={() => (isIterateHistoryOpen = !isIterateHistoryOpen)}
+              title="查看前幾輪微調紀錄"
+            >
+              <span>紀錄 ({iterationHistory.length})</span>
+              <span class="material-symbols-outlined" style="font-size: 14px;">
+                {isIterateHistoryOpen ? "expand_less" : "expand_more"}
+              </span>
+            </button>
+          {/if}
+        </div>
+
+        {#if manualDiffs.length > 0}
+          <label class="iterate-lock-toggle font-mono">
+            <input
+              type="checkbox"
+              bind:checked={aiPipeline.lockManualAdjustments}
+            />
+            <span>
+              鎖定手調參數（{manualDiffs.map((d) => d.label).join("、")}）
+            </span>
+          </label>
+        {/if}
+
+        <div class="iterate-quick-chips">
+          {#each QUICK_ITERATE_CHIPS as chip}
+            <button
+              type="button"
+              class="iterate-quick-chip font-mono"
+              onclick={() => applyQuickIterateChip(chip)}
+            >
+              + {chip}
+            </button>
+          {/each}
+        </div>
+
+        <div class="iterate-input-box">
+          <textarea
+            class="vibe-custom-input font-body"
+            rows="2"
+            placeholder="想再怎麼調整？"
+            bind:value={aiPipeline.iterativeFeedbackPrompt}
+            onkeydown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                onIterateAiTuning?.();
+              }
+            }}
+          ></textarea>
+          {#if aiPipeline.iterativeFeedbackPrompt.trim().length > 0}
+            <div class="iterate-input-actions font-mono">
+              <button
+                type="button"
+                class="iterate-clear-btn"
+                onclick={() => (aiPipeline.iterativeFeedbackPrompt = "")}
+                title="清空微調文字"
+              >
+                清除
+              </button>
+            </div>
+          {/if}
+        </div>
+
+        {#if isIterateHistoryOpen && iterationHistory.length > 0}
+          <div class="iterate-history-list font-mono">
+            {#each [...iterationHistory].reverse() as rec (rec.round)}
+              <div class="iterate-history-item">
+                <div class="ih-top">
+                  <span class="ih-round">Round {rec.round}</span>
+                  {#if rec.deltasSummary.length > 0}
+                    <span class="ih-deltas">{rec.deltasSummary.join(" · ")}</span>
+                  {/if}
+                </div>
+                {#if rec.userPrompt}
+                  <div class="ih-user">「{rec.userPrompt}」</div>
+                {/if}
+                {#if rec.aiRationale}
+                  <div class="ih-ai">{rec.aiRationale}</div>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </section>
+    {/if}
+
+    <!-- ══════════════════════════════════════════════════════════════════
          STEP 1：選擇顯影風格與輸出色彩 (3D LUT & Output Mode)
          ══════════════════════════════════════════════════════════════════ -->
     <section class="workflow-section hairline-all">
@@ -1031,19 +1160,13 @@
           <textarea
             class="vibe-custom-input font-body"
             rows="2"
-            placeholder={`輸入自訂調色想法，如：${activeCustomSample}`}
+            placeholder="輸入自訂調色想法..."
             bind:value={darkroomState.customStylePrompt}
             onfocus={() => (isCustomInputFocused = true)}
             onblur={() => (isCustomInputFocused = false)}
           ></textarea>
           <div class="vibe-command-footer font-mono">
-            <span class="vibe-intent-status" class:active={hasCustomPrompt}>
-              {#if hasCustomPrompt}
-                ✦ 已啟用自訂意境指令
-              {:else}
-                可自由描述光影、色溫或氛圍偏好
-              {/if}
-            </span>
+            <span class="vibe-intent-status"></span>
             <div class="vibe-footer-actions">
               {#if hasCustomPrompt}
                 <button
@@ -1252,7 +1375,34 @@
       </button>
     {:else}
       <div class="cta-buttons-row">
-        {#if onRunAiAnalysis}
+        {#if hasAiBaseline && onIterateAiTuning && hasIterateIntent}
+          <button
+            type="button"
+            class="archival-btn-primary ai-main-btn"
+            onclick={() => onIterateAiTuning?.()}
+            disabled={currentIsAiAnalyzing || !activePhoto}
+            title={aiPipeline.lockManualAdjustments
+              ? "保留手調參數，讓 AI 觀看目前畫面與指令補齊其餘參數"
+              : "參考目前畫面與指令，讓 AI 全面微調所有參數"}
+          >
+            <span
+              class="material-symbols-outlined"
+              class:spin={currentIsAiAnalyzing}
+              style="font-size: 17px;"
+            >
+              {currentIsAiAnalyzing ? "progress_activity" : "auto_fix_high"}
+            </span>
+            <span>
+              {currentIsIterating
+                ? "AI 微調中..."
+                : manualDiffs.length > 0 && aiPipeline.lockManualAdjustments
+                  ? `保留手調，AI 補齊其餘 (${manualDiffs.length} 項)`
+                  : manualDiffs.length > 0
+                    ? "依現況全面微調"
+                    : "依指令接著微調"}
+            </span>
+          </button>
+        {:else if onRunAiAnalysis}
           <button
             type="button"
             class="archival-btn-primary ai-main-btn"
@@ -1275,11 +1425,13 @@
             <span>
               {currentIsAiAnalyzing
                 ? "正在顯影調校..."
-                : hasCustomPrompt
-                  ? "依自訂意境 AI 顯影"
-                  : darkroomState.activeStylePreset === "auto"
-                    ? "AI 智慧顯影調色"
-                    : `以 ${selectedPresetObj?.shortLabel || "選定風格"} AI 顯影`}
+                : hasAiBaseline
+                  ? "重新 AI 顯影"
+                  : hasCustomPrompt
+                    ? "依自訂意境 AI 顯影"
+                    : darkroomState.activeStylePreset === "auto"
+                      ? "AI 智慧顯影調色"
+                      : `以 ${selectedPresetObj?.shortLabel || "選定風格"} AI 顯影`}
             </span>
           </button>
         {/if}
@@ -2284,10 +2436,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .vibe-intent-status.active {
-    color: var(--amber-highlight);
-    font-weight: 600;
-  }
   .vibe-footer-actions {
     display: flex;
     align-items: center;
@@ -2551,6 +2699,119 @@
   .spin {
     animation: iconSpin 1.1s linear infinite;
   }
+
+  /* ── AI 協同迭代微調區塊樣式 ── */
+  .iterate-section {
+    border-color: rgba(212, 163, 115, 0.35);
+    background: rgba(212, 163, 115, 0.04);
+  }
+  .iterate-lock-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding: 5px 8px;
+    border-radius: var(--radius-xs);
+    background: var(--surface-elevated);
+    border: 1px solid var(--hairline-slate);
+    font-size: 11px;
+    color: var(--parchment-bright);
+    cursor: pointer;
+    user-select: none;
+  }
+  .iterate-lock-toggle input {
+    accent-color: var(--amber-highlight);
+    cursor: pointer;
+  }
+  .iterate-quick-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .iterate-quick-chip {
+    padding: 2px 7px;
+    font-size: 10px;
+    border-radius: 999px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--hairline-slate);
+    color: var(--parchment-muted);
+    cursor: pointer;
+    transition: all 0.14s ease;
+  }
+  .iterate-quick-chip:hover {
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+  }
+  .iterate-input-box {
+    background: var(--surface-elevated);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    padding: 6px 8px;
+  }
+  .iterate-input-box:focus-within {
+    border-color: var(--amber-highlight);
+  }
+  .iterate-input-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+  .iterate-clear-btn {
+    padding: 1px 6px;
+    font-size: 10px;
+    background: transparent;
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    color: var(--parchment-muted);
+    cursor: pointer;
+    transition: all 0.14s ease;
+  }
+  .iterate-clear-btn:hover {
+    border-color: var(--amber-highlight);
+    color: var(--amber-highlight);
+  }
+  .iterate-history-list {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+  .iterate-history-item {
+    padding: 6px 8px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--hairline-slate);
+    border-radius: var(--radius-xs);
+    font-size: 10.5px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .ih-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .ih-round {
+    color: var(--amber-highlight);
+    font-weight: 700;
+  }
+  .ih-deltas {
+    color: var(--parchment-muted);
+    font-size: 10px;
+    text-align: right;
+  }
+  .ih-user {
+    color: var(--parchment-bright);
+  }
+  .ih-ai {
+    color: var(--parchment-muted);
+    line-height: 1.35;
+  }
+
   @keyframes iconSpin {
     from {
       transform: rotate(0deg);

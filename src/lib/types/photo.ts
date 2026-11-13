@@ -55,6 +55,20 @@ export interface PhotoPlate {
   crop?: CropGeometry;
   fileHandle?: any;
   aiTuningSnapshot?: AiTuningSnapshot;
+  aiLatestBaseline?: AiTuningSnapshot;
+  aiIterationHistory?: AiIterationRecord[];
+}
+
+export interface AiIterationRecord {
+  round: number;
+  timestamp: number;
+  userPrompt?: string;
+  userModifiedKeys: string[];
+  lockedKeys: string[];
+  aiRationale: string;
+  deltasSummary: string[];
+  appliedProfile: string;
+  tuning: TuningParameters;
 }
 
 export interface AiTuningSnapshot {

@@ -125,6 +125,7 @@
     activePhoto?: PhotoPlateItem | any;
     activeProfileId?: string;
     onRestoreAiTuning?: () => void;
+    onIterateAiTuning?: () => void;
     onQuickAiTone?: () => void;
     onQuickAiWhiteBalance?: () => void;
     onResetToAsShot?: () => void;
@@ -146,6 +147,7 @@
     activePhoto: propsActivePhoto = null,
     activeProfileId: propsActiveProfileId,
     onRestoreAiTuning,
+    onIterateAiTuning,
     onQuickAiTone,
     onQuickAiWhiteBalance,
     onResetToAsShot,
@@ -404,6 +406,21 @@
       </div>
 
       <div class="history-right-group">
+        {#if hasAiBaseline && isModifiedFromAi && onIterateAiTuning}
+          <button
+            type="button"
+            class="toolbar-btn highlight"
+            disabled={isAiAnalyzing}
+            onclick={onIterateAiTuning}
+            title="保留您目前的滑桿調整，讓 AI 觀看目前畫面並協同補齊其餘參數"
+          >
+            <span class="material-symbols-outlined" class:spin={isAiAnalyzing} style="font-size: 13px;">
+              {isAiAnalyzing ? "progress_activity" : "auto_fix_high"}
+            </span>
+            <span>AI 補齊其餘</span>
+          </button>
+        {/if}
+
         {#if hasAiBaseline && onRestoreAiTuning}
           <button
             type="button"

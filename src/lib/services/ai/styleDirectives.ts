@@ -14,7 +14,12 @@
  * 僅客观描述各個 .cube 檔案的色彩科學特性，不干預或強制指定 AI 的具體參數調整方向。
  */
 
-import type { StylePresetKey, StyleKeywordId, VisionInferenceOptions } from './types';
+import type {
+  StylePresetKey,
+  StyleKeywordId,
+  VisionInferenceOptions,
+  IterativeRefinementContext,
+} from './types';
 import {
   HSL_BAND_KEYS,
   type ExifOpticalData,
@@ -331,7 +336,8 @@ export function buildCriticInstructionBlock(
   styleKeywords?: StyleKeywordId[],
   customStylePrompt?: string,
   monochrome?: boolean,
-  scope?: AiScopePreferences
+  scope?: AiScopePreferences,
+  iterativeContext?: IterativeRefinementContext
 ): string {
   const isDecisionObj = typeof firstPassInput === 'object' && firstPassInput !== null;
   const firstPassProfile = isDecisionObj ? firstPassInput.recommended_profile : firstPassInput;
@@ -412,6 +418,26 @@ export function buildCriticInstructionBlock(
     ? `- User Scope Locks: Keep [${lockedChannels.join(', ')}] strictly unchanged (omit or set deltas to 0).\n`
     : '';
 
+  let iterativeBlock = '';
+  if (iterativeContext) {
+    const roundLabel = iterativeContext.round ? ` (Iteration Round ${iterativeContext.round})` : '';
+    const parts: string[] = [
+      `- ITERATIVE CO-PILOT REFINEMENT MODE${roundLabel}: Image 2 already reflects the user's latest slider adjustments and/or previous iteration state. Evaluate Image 2 as the current visual ground truth.`,
+    ];
+    if (iterativeContext.userChangesSummary && iterativeContext.userChangesSummary.length > 0) {
+      parts.push(`- User Manual Parameter Adjustments Applied on Image 2:\n  ${iterativeContext.userChangesSummary.join('\n  ')}`);
+    }
+    if (iterativeContext.lockedParamKeys && iterativeContext.lockedParamKeys.length > 0) {
+      parts.push(`- User-Anchored Pinned Parameters (STRICTLY LOCKED): Keep [${iterativeContext.lockedParamKeys.join(', ')}] strictly unchanged (output 0 / 0.0 for their deltas). Harmonize the remaining unlocked channels around the user's pinned choices.`);
+    }
+    if (iterativeContext.userFeedbackPrompt && iterativeContext.userFeedbackPrompt.trim().length > 0) {
+      parts.push(`- User Refinement Request (HIGHEST PRIORITY): "${iterativeContext.userFeedbackPrompt.trim()}". Fulfill this visual intent precisely via delta adjustments on unlocked channels while keeping the overall image balanced.`);
+    } else if (iterativeContext.userChangesSummary && iterativeContext.userChangesSummary.length > 0) {
+      parts.push(`- Co-Pilot Compensation Goal: The user adjusted specific parameters above; inspect Image 2 and compensate the remaining unlocked channels (e.g., highlights, lift_shadows, blacks, contrast, vibrance, color_density, split-toning, HSL) so the overall tonal balance, shadow detail, and color harmony remain cohesive.`);
+    }
+    iterativeBlock = `${parts.join('\n')}\n`;
+  }
+
   let criticPrompt = `You are a darkroom quality-control colorist and technical critic.
 You are inspecting TWO images:
 1. IMAGE 1: The original unedited capture proxy (1024px downscaled preview).
@@ -420,7 +446,7 @@ Note: Do not supply positive clarity/sharpness deltas to compensate for proxy re
 
 ${baselineParamsBlock}YOUR MISSION & GUIDELINES:
 - Baseline Film Aesthetic: The designated 3D film profile is "${firstPassProfile}". Maintain and respect this baseline film aesthetic.
-${aestheticLine}${monochromeLine}${scopeLockLine}- Since you have Image 2 (rendered actual result) as concrete ground truth, supply the necessary Delta adjustments to harmonize exposure, dynamic range, and tonal balance toward the intended aesthetic.
+${aestheticLine}${monochromeLine}${scopeLockLine}${iterativeBlock}- Since you have Image 2 (rendered actual result) as concrete ground truth, supply the necessary Delta adjustments to harmonize exposure, dynamic range, and tonal balance toward the intended aesthetic.
 - Inspect and fine-tune the following parameters (Respecting the hardware shader boundaries):
   1. EXPOSURE & HIGHLIGHT HARMONY (exposure_delta, valid range: -2.0 to 2.0 EV):
      - Evaluate overall luminance and highlight roll-off relative to the target aesthetic.

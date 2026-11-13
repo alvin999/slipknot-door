@@ -147,6 +147,13 @@ export interface DirectoryPlanOptions {
   temperature?: number;
 }
 
+export interface IterativeRefinementContext {
+  round?: number;
+  userFeedbackPrompt?: string;
+  lockedParamKeys?: string[];
+  userChangesSummary?: string[];
+}
+
 export interface RefinementInferenceOptions {
   apiKey: string;
   modelId: string;
@@ -162,6 +169,7 @@ export interface RefinementInferenceOptions {
   customStylePrompt?: string;
   monochrome?: boolean;
   scope?: AiScopePreferences;
+  iterativeContext?: IterativeRefinementContext;
 }
 
 export interface RefinementDecision {

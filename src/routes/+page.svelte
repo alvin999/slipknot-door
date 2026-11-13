@@ -751,6 +751,13 @@
     activePhoto.tuning = { ...snapshot.tuning };
     if (snapshot.crop) activePhoto.crop = { ...snapshot.crop };
     activePhoto.appliedProfile = snapshot.appliedProfile;
+    activePhoto.aiLatestBaseline = {
+      ...snapshot,
+      tuning: { ...snapshot.tuning, hsl: cloneHslAdjustments(snapshot.tuning.hsl) },
+      crop: snapshot.crop ? { ...snapshot.crop } : undefined,
+    };
+    activePhoto.aiIterationHistory = [];
+    aiPipeline.lockManualAdjustments = true;
 
     triggerWebglRender();
     toastStore.show("已恢復為 AI 顯影基準調色 ✓", "success", 2500);
@@ -765,6 +772,8 @@
     darkroomState.resetCropState();
     resetCropState();
     aiPipeline.resetDecisionState();
+    aiPipeline.iterativeFeedbackPrompt = "";
+    aiPipeline.lockManualAdjustments = true;
 
     if (activePhoto) {
       activePhoto.appliedProfile = "Profile_00_StandardNatural";
@@ -773,6 +782,8 @@
       activePhoto.gradedThumbnail = undefined;
       activePhoto.aiDecision = undefined;
       activePhoto.aiTuningSnapshot = undefined;
+      activePhoto.aiLatestBaseline = undefined;
+      activePhoto.aiIterationHistory = undefined;
       activePhoto.sceneTag = "本機相簿幀";
       photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
         p.id === activePhoto!.id
@@ -789,6 +800,17 @@
       );
     }
     triggerWebglRender();
+  }
+
+  async function runIterativeAiRefinement(
+    prompt?: string,
+    forceLockManual?: boolean,
+  ): Promise<boolean> {
+    const ok = await aiPipeline.runIterativeRefinement(prompt, forceLockManual);
+    if (ok) {
+      triggerWebglRender();
+    }
+    return ok;
   }
 
   /**
@@ -1086,6 +1108,7 @@
           }}
           onCopyTerminalLogs={copyTerminalLogs}
           onRunAiAnalysis={() => runAiAnalysis()}
+          onIterateAiTuning={(prompt?: string) => runIterativeAiRefinement(prompt)}
           onRequestBatchAi={requestBatchAiAnalysis}
           onCancelBatchAi={cancelBatchAi}
           onOpenVault={() => (isVaultOpen = true)}
@@ -1234,6 +1257,7 @@
             {activePhoto}
             activeProfileId={activePhoto?.appliedProfile}
             onRestoreAiTuning={restoreAiTuning}
+            onIterateAiTuning={() => runIterativeAiRefinement(undefined, true)}
             onQuickAiTone={quickAiTone}
             onQuickAiWhiteBalance={quickAiWhiteBalance}
             onResetToAsShot={resetToAsShot}

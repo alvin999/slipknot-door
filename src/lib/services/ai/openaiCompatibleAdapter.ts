@@ -327,7 +327,8 @@ Respond ONLY with raw JSON matching this schema:
       options.styleKeywords,
       options.customStylePrompt,
       options.monochrome,
-      options.scope
+      options.scope,
+      options.iterativeContext
     );
 
     const payloadBody: Record<string, any> = {

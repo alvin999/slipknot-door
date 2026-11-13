@@ -8,6 +8,7 @@ import {
   HSL_BAND_KEYS,
   cloneHslAdjustments,
   createDefaultHslAdjustments,
+  type AiTuningSnapshot,
   type CropGeometry,
   type TuningParameters,
   type HslAdjustments,
@@ -20,6 +21,14 @@ import {
   computeInscribedCropForRotation,
   getTargetAspectRatio,
 } from "$lib/utils/cropGeometry";
+
+export interface TuningParamDiff {
+  key: string;
+  label: string;
+  fromValue: string;
+  toValue: string;
+  summary: string;
+}
 
 export type DiffMode = "off" | "split" | "sideBySide";
 export type CropRatioPreset = "original" | "1:1" | "4:5" | "16:9" | "9:16" | "free";
@@ -936,6 +945,97 @@ export class DarkroomStateStore {
     this.vignette = tuning.vignette ?? 0.0;
     this.hsl = cloneHslAdjustments(tuning.hsl);
     return this.copiedTuning;
+  }
+
+  /**
+   * 取得目前調色與 AI 基準（優先使用最新迭代基準 aiLatestBaseline，否則退回 aiTuningSnapshot）的逐項差異清單
+   */
+  getTuningDiffsFromBaseline(photo: PhotoPlateItem | null): TuningParamDiff[] {
+    const snap: AiTuningSnapshot | undefined =
+      photo?.aiLatestBaseline ?? photo?.aiTuningSnapshot;
+    if (!photo || !snap) return [];
+
+    const t = snap.tuning;
+    const diffs: TuningParamDiff[] = [];
+    const fmtSign = (v: number, unit = "", decimals = 2) =>
+      `${v > 0 ? "+" : ""}${v.toFixed(decimals)}${unit}`;
+
+    const checkNum = (
+      key: string,
+      label: string,
+      curr: number,
+      base: number,
+      eps: number,
+      format: (v: number) => string,
+    ) => {
+      if (Math.abs(curr - base) > eps) {
+        const fromValue = format(base);
+        const toValue = format(curr);
+        diffs.push({
+          key,
+          label,
+          fromValue,
+          toValue,
+          summary: `${label}: ${fromValue} → ${toValue}`,
+        });
+      }
+    };
+
+    checkNum("exposure", "曝光", this.exposure, t.exposure, 0.01, (v) => fmtSign(v, " EV"));
+    checkNum("highlights", "高光", this.highlights, t.highlights ?? 0.0, 0.01, (v) => fmtSign(v));
+    checkNum("contrast", "對比", this.contrast, t.contrast, 0.01, (v) => fmtSign(v));
+    checkNum("shadows", "暗部", this.shadows, t.shadows ?? 0.0, 0.01, (v) => fmtSign(v));
+    checkNum("blacks", "黑階", this.blacks, t.blacks ?? 0.0, 0.01, (v) => fmtSign(v));
+    checkNum("colorTemp", "色溫", this.colorTemp, t.colorTemp, 10, (v) => `${Math.round(v)}K`);
+    checkNum("tint", "色調", this.tint, t.tint ?? 0.0, 0.5, (v) => fmtSign(v, "", 1));
+    checkNum("lutIntensity", "LUT 濃度", this.lutIntensity, t.lutIntensity, 0.01, (v) => `${Math.round(v * 100)}%`);
+    checkNum("vibrance", "自然飽和度", this.vibrance, t.vibrance ?? 0.0, 0.01, (v) => fmtSign(v));
+    checkNum("colorDensity", "減色密度", this.colorDensity, t.colorDensity ?? 0.0, 0.01, (v) => fmtSign(v));
+    checkNum("clarity", "清晰度", this.clarity, t.clarity ?? 0.0, 0.01, (v) => fmtSign(v));
+    checkNum("sharpness", "銳利度", this.sharpness, t.sharpness ?? 0.0, 0.01, (v) => fmtSign(v));
+    checkNum("shadowTintAmount", "暗部著色", this.shadowTintAmount, t.shadowTintAmount ?? 0.0, 0.01, (v) => v.toFixed(2));
+    checkNum("highlightTintAmount", "亮部著色", this.highlightTintAmount, t.highlightTintAmount ?? 0.0, 0.01, (v) => v.toFixed(2));
+    checkNum("halation", "Halation", this.halation, t.halation ?? 0.0, 0.01, (v) => v.toFixed(2));
+    checkNum("grainAmount", "銀鹽微粒", this.grainAmount, t.grainAmount ?? 0.15, 0.01, (v) => v.toFixed(2));
+    checkNum("vignette", "暗角", this.vignette, t.vignette ?? 0.0, 0.01, (v) => fmtSign(v));
+
+    if (photo.appliedProfile !== snap.appliedProfile) {
+      const fromValue = snap.appliedProfile.replace(/^Profile_\d+_/, "");
+      const toValue = (photo.appliedProfile || "").replace(/^Profile_\d+_/, "");
+      diffs.push({
+        key: "appliedProfile",
+        label: "風格檔",
+        fromValue,
+        toValue,
+        summary: `風格檔: ${fromValue} → ${toValue}`,
+      });
+    }
+
+    const bandNames: Record<string, string> = {
+      red: "紅", orange: "橙", yellow: "黃", green: "綠", cyan: "青", blue: "藍",
+    };
+    for (const k of HSL_BAND_KEYS) {
+      const a = this.hsl?.[k];
+      const b = t.hsl?.[k];
+      const changed =
+        Math.abs((a?.hue ?? 0) - (b?.hue ?? 0)) > 0.01 ||
+        Math.abs((a?.sat ?? 0) - (b?.sat ?? 0)) > 0.01 ||
+        Math.abs((a?.lum ?? 0) - (b?.lum ?? 0)) > 0.01;
+      if (changed) {
+        const label = `${bandNames[k] || k}色 HSL`;
+        const toValue = `H:${(a?.hue ?? 0).toFixed(2)} S:${(a?.sat ?? 0).toFixed(2)} L:${(a?.lum ?? 0).toFixed(2)}`;
+        const fromValue = `H:${(b?.hue ?? 0).toFixed(2)} S:${(b?.sat ?? 0).toFixed(2)} L:${(b?.lum ?? 0).toFixed(2)}`;
+        diffs.push({
+          key: `hsl.${k}`,
+          label,
+          fromValue,
+          toValue,
+          summary: `${label}: (${fromValue}) → (${toValue})`,
+        });
+      }
+    }
+
+    return diffs;
   }
 
   /**

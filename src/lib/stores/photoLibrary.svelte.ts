@@ -14,7 +14,7 @@ import { SessionService } from "$lib/services/sessionService";
 import { toastStore } from "$lib/stores/toastStore.svelte";
 import { darkroomState } from "$lib/stores/darkroomState.svelte";
 import { thumbnailRenderService } from "$lib/services/thumbnailRenderService.svelte";
-import type { CropGeometry, AiTuningSnapshot } from "$lib/types/photo";
+import type { CropGeometry, AiTuningSnapshot, AiIterationRecord } from "$lib/types/photo";
 
 export interface PhotoPlateItem {
   id: string;
@@ -47,6 +47,8 @@ export interface PhotoPlateItem {
   crop?: CropGeometry;
   aiDecision?: AiSceneDecision;
   aiTuningSnapshot?: AiTuningSnapshot;
+  aiLatestBaseline?: AiTuningSnapshot;
+  aiIterationHistory?: AiIterationRecord[];
   tuning?: {
     exposure: number;
     contrast: number;

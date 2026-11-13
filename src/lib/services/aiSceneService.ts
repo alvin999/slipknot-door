@@ -806,6 +806,240 @@ export class AiSceneService {
   }
 
   /**
+   * 使用者調色後之雙圖協同迭代微調 (Iterative Co-Pilot Refinement)
+   * 將原圖與「使用者目前調整後的渲染畫面」送入視覺模型，依鎖定錨點與文字回饋計算補償 Delta
+   */
+  public static async refineIteratively(
+    originalImageSrc: string,
+    currentDecision: AiSceneDecision,
+    exif: ExifOpticalData,
+    options: {
+      signal?: AbortSignal;
+      onLog?: (msg: string) => Promise<void> | void;
+      stylePreset?: import('./ai/types').StylePresetKey;
+      styleKeywords?: import('./ai/types').StyleKeywordId[];
+      customStylePrompt?: string;
+      monochrome?: boolean;
+      scope?: AiScopePreferences;
+      renderPreview: (previewSrc: string, decision: AiSceneDecision) => Promise<string | null>;
+      iterativeContext: import('./ai/types').IterativeRefinementContext;
+    }
+  ): Promise<{
+    updatedDecision: AiSceneDecision;
+    refineRationale: string;
+    deltasSummary: string[];
+  }> {
+    // 優先選用設定的 Critic 引擎；若未啟用或無 refinePhoto 能力則使用主 Vision 引擎
+    const criticEngine = await AiEngineFactory.getCriticEngine();
+    const visionEngine = await AiEngineFactory.getVisionEngine();
+    const useCritic =
+      criticEngine.enabled &&
+      Boolean(criticEngine.strategy?.refinePhoto) &&
+      (criticEngine.strategy?.providerId === 'ollama' || Boolean(criticEngine.apiKey?.trim()));
+
+    const strategy = (useCritic && criticEngine.strategy) ? criticEngine.strategy : visionEngine.strategy;
+    const apiKey = useCritic ? criticEngine.apiKey : visionEngine.apiKey;
+    const modelId = useCritic ? criticEngine.modelId : visionEngine.modelId;
+    const temperature = useCritic ? criticEngine.temperature : visionEngine.temperature;
+
+    const hasValidKey = strategy.providerId === 'ollama' || Boolean(apiKey && apiKey.trim() !== '');
+    if (!hasValidKey) {
+      throw new Error(`未配置 ${strategy.providerName} 之可用 API 金鑰，請先至金鑰與模型中心輸入金鑰`);
+    }
+    if (!strategy.refinePhoto) {
+      throw new Error(`目前引擎 (${strategy.providerName}) 尚未支援雙圖協同微調`);
+    }
+
+    const { base64: cleanBase64 } = await this.toCleanBase64(originalImageSrc);
+    const previewInput = `data:image/jpeg;base64,${cleanBase64}`;
+    const renderedBase64 = await options.renderPreview(previewInput, currentDecision);
+    if (!renderedBase64 || renderedBase64.trim() === '') {
+      throw new Error('無法渲染目前調整後的預覽畫面供 AI 比對');
+    }
+
+    if (options.onLog) {
+      await options.onLog(
+        `> [AI_ITERATE] 啟動雙圖協同微調 (${modelId}) · Round ${options.iterativeContext.round ?? 2}...`
+      );
+    }
+
+    const refinement = await strategy.refinePhoto({
+      apiKey,
+      modelId,
+      originalImageBase64: cleanBase64,
+      renderedImageBase64: renderedBase64,
+      firstPassDecision: currentDecision,
+      exif,
+      signal: options.signal,
+      temperature,
+      stylePreset: options.stylePreset,
+      styleKeywords: options.styleKeywords,
+      customStylePrompt: options.customStylePrompt,
+      monochrome: options.monochrome,
+      scope: options.scope,
+      iterativeContext: options.iterativeContext,
+    });
+
+    const updated: AiSceneDecision = {
+      ...currentDecision,
+      hsl: currentDecision.hsl ? cloneHslAdjustments(currentDecision.hsl) : undefined,
+    };
+
+    const locked = new Set(options.iterativeContext.lockedParamKeys || []);
+    const scope = options.scope;
+    const allowTone = !scope || scope.tone;
+    const allowWb = !scope || scope.whiteBalance;
+    const allowLutIntensity = !scope || scope.lutProfile;
+    const allowColorMixer = !scope || scope.filmPhysics !== false;
+    const allowSplitToning = !scope || (scope.splitToning !== undefined ? scope.splitToning : scope.filmPhysics !== false);
+    const allowFilmTexture = !scope || (scope.filmTexture !== undefined ? scope.filmTexture : scope.filmPhysics !== false);
+
+    const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
+    const deltasSummary: string[] = [];
+    const fmtDelta = (d: number, unit = '', dec = 2) => `${d > 0 ? '+' : ''}${d.toFixed(dec)}${unit}`;
+
+    if (allowTone) {
+      if (!locked.has('exposure') && typeof refinement.exposure_delta === 'number' && Math.abs(refinement.exposure_delta) >= 0.02) {
+        const prev = updated.exposure_compensation;
+        updated.exposure_compensation = parseFloat(clamp(prev + refinement.exposure_delta, -2.0, 2.0).toFixed(2));
+        deltasSummary.push(`曝光 ${fmtDelta(updated.exposure_compensation - prev, ' EV')}`);
+      }
+      if (!locked.has('highlights') && typeof refinement.highlights_delta === 'number' && Math.abs(refinement.highlights_delta) >= 0.02) {
+        const prev = updated.highlights ?? 0.0;
+        updated.highlights = parseFloat(clamp(prev + refinement.highlights_delta, -1.0, 1.0).toFixed(2));
+        deltasSummary.push(`高光 ${fmtDelta(updated.highlights - prev)}`);
+      }
+      if (!locked.has('shadows') && typeof refinement.lift_shadows_delta === 'number' && Math.abs(refinement.lift_shadows_delta) >= 0.02) {
+        const prev = updated.lift_shadows;
+        updated.lift_shadows = parseFloat(clamp(prev + refinement.lift_shadows_delta, -0.5, 0.5).toFixed(2));
+        deltasSummary.push(`暗部 ${fmtDelta(updated.lift_shadows - prev)}`);
+      }
+      if (!locked.has('blacks') && typeof refinement.blacks_delta === 'number' && Math.abs(refinement.blacks_delta) >= 0.02) {
+        const prev = updated.blacks ?? 0.0;
+        updated.blacks = parseFloat(clamp(prev + refinement.blacks_delta, -0.5, 0.5).toFixed(2));
+        deltasSummary.push(`黑階 ${fmtDelta(updated.blacks - prev)}`);
+      }
+      if (!locked.has('contrast') && typeof refinement.contrast_delta === 'number' && Math.abs(refinement.contrast_delta) >= 0.02) {
+        const prev = updated.contrast ?? 0.0;
+        updated.contrast = parseFloat(clamp(prev + refinement.contrast_delta, -0.8, 0.8).toFixed(2));
+        deltasSummary.push(`對比 ${fmtDelta(updated.contrast - prev)}`);
+      }
+      if (!locked.has('clarity') && typeof refinement.clarity_delta === 'number' && Math.abs(refinement.clarity_delta) >= 0.02) {
+        const prev = updated.clarity ?? 0.0;
+        updated.clarity = parseFloat(clamp(prev + refinement.clarity_delta, -1.0, 1.0).toFixed(2));
+        deltasSummary.push(`清晰度 ${fmtDelta(updated.clarity - prev)}`);
+      }
+      if (!locked.has('sharpness') && typeof refinement.sharpness_delta === 'number' && Math.abs(refinement.sharpness_delta) >= 0.02) {
+        const prev = updated.sharpness ?? 0.0;
+        updated.sharpness = parseFloat(clamp(prev + refinement.sharpness_delta, -1.0, 1.0).toFixed(2));
+        deltasSummary.push(`銳利度 ${fmtDelta(updated.sharpness - prev)}`);
+      }
+    }
+
+    if (allowWb) {
+      if (!locked.has('colorTemp') && typeof refinement.color_temp_delta === 'number' && Math.abs(refinement.color_temp_delta) >= 15) {
+        const prev = updated.color_temp ?? 5500;
+        updated.color_temp = Math.round(clamp(prev + refinement.color_temp_delta, 2800, 8500));
+        const d = updated.color_temp - prev;
+        deltasSummary.push(`色溫 ${d > 0 ? '+' : ''}${d}K`);
+      }
+      if (!locked.has('tint') && typeof refinement.tint_delta === 'number' && Math.abs(refinement.tint_delta) >= 0.5) {
+        const prev = updated.tint ?? 0.0;
+        updated.tint = parseFloat(clamp(prev + refinement.tint_delta, -100.0, 100.0).toFixed(1));
+        deltasSummary.push(`色調 ${fmtDelta(updated.tint - prev, '', 1)}`);
+      }
+    }
+
+    if (allowLutIntensity && !locked.has('lutIntensity') && typeof refinement.lut_intensity_delta === 'number' && Math.abs(refinement.lut_intensity_delta) >= 0.02) {
+      const prev = updated.lut_intensity ?? 0.85;
+      updated.lut_intensity = parseFloat(clamp(prev + refinement.lut_intensity_delta, 0.0, 1.0).toFixed(2));
+      deltasSummary.push(`LUT 濃度 ${fmtDelta(updated.lut_intensity - prev)}`);
+    }
+
+    if (allowColorMixer) {
+      if (!locked.has('vibrance') && typeof refinement.vibrance_delta === 'number' && Math.abs(refinement.vibrance_delta) >= 0.02) {
+        const prev = updated.vibrance ?? 0.0;
+        updated.vibrance = parseFloat(clamp(prev + refinement.vibrance_delta, -1.0, 1.0).toFixed(2));
+        deltasSummary.push(`自然飽和 ${fmtDelta(updated.vibrance - prev)}`);
+      }
+      if (!locked.has('colorDensity') && typeof refinement.color_density_delta === 'number' && Math.abs(refinement.color_density_delta) >= 0.02) {
+        const prev = updated.color_density ?? 0.0;
+        updated.color_density = parseFloat(clamp(prev + refinement.color_density_delta, -1.0, 1.0).toFixed(2));
+        deltasSummary.push(`減色密度 ${fmtDelta(updated.color_density - prev)}`);
+      }
+      if (refinement.hsl_deltas) {
+        const nextHsl = cloneHslAdjustments(updated.hsl);
+        let hslUpdated = false;
+        for (const band of HSL_BAND_KEYS) {
+          if (locked.has(`hsl.${band}`)) continue;
+          const db = refinement.hsl_deltas[band];
+          if (!db) continue;
+          if (typeof db.hue === 'number' && Math.abs(db.hue) >= 0.02) {
+            nextHsl[band].hue = parseFloat(clamp(nextHsl[band].hue + db.hue, -1.0, 1.0).toFixed(2));
+            hslUpdated = true;
+          }
+          if (typeof db.sat === 'number' && Math.abs(db.sat) >= 0.02) {
+            nextHsl[band].sat = parseFloat(clamp(nextHsl[band].sat + db.sat, -1.0, 1.0).toFixed(2));
+            hslUpdated = true;
+          }
+          if (typeof db.lum === 'number' && Math.abs(db.lum) >= 0.02) {
+            nextHsl[band].lum = parseFloat(clamp(nextHsl[band].lum + db.lum, -1.0, 1.0).toFixed(2));
+            hslUpdated = true;
+          }
+        }
+        if (hslUpdated) {
+          updated.hsl = nextHsl;
+          deltasSummary.push('HSL 局部微調');
+        }
+      }
+    }
+
+    if (allowSplitToning) {
+      if (!locked.has('shadowTintAmount') && typeof refinement.shadow_tint_amount_delta === 'number' && Math.abs(refinement.shadow_tint_amount_delta) >= 0.02) {
+        const prev = updated.shadow_tint_amount ?? 0.0;
+        updated.shadow_tint_amount = parseFloat(clamp(prev + refinement.shadow_tint_amount_delta, 0.0, 1.0).toFixed(2));
+        deltasSummary.push(`暗部著色 ${fmtDelta(updated.shadow_tint_amount - prev)}`);
+      }
+      if (!locked.has('highlightTintAmount') && typeof refinement.highlight_tint_amount_delta === 'number' && Math.abs(refinement.highlight_tint_amount_delta) >= 0.02) {
+        const prev = updated.highlight_tint_amount ?? 0.0;
+        updated.highlight_tint_amount = parseFloat(clamp(prev + refinement.highlight_tint_amount_delta, 0.0, 1.0).toFixed(2));
+        deltasSummary.push(`亮部著色 ${fmtDelta(updated.highlight_tint_amount - prev)}`);
+      }
+    }
+
+    if (allowFilmTexture) {
+      if (!locked.has('halation') && typeof refinement.halation_delta === 'number' && Math.abs(refinement.halation_delta) >= 0.02) {
+        const prev = updated.halation ?? 0.0;
+        updated.halation = parseFloat(clamp(prev + refinement.halation_delta, 0.0, 1.0).toFixed(2));
+        deltasSummary.push(`Halation ${fmtDelta(updated.halation - prev)}`);
+      }
+      if (!locked.has('grainAmount') && typeof refinement.grain_amount_delta === 'number' && Math.abs(refinement.grain_amount_delta) >= 0.02) {
+        const prev = updated.grain_amount ?? 0.15;
+        updated.grain_amount = parseFloat(clamp(prev + refinement.grain_amount_delta, 0.0, 1.0).toFixed(2));
+        deltasSummary.push(`微粒 ${fmtDelta(updated.grain_amount - prev)}`);
+      }
+      if (!locked.has('vignette') && typeof refinement.vignette_delta === 'number' && Math.abs(refinement.vignette_delta) >= 0.02) {
+        const prev = updated.vignette ?? 0.0;
+        updated.vignette = parseFloat(clamp(prev + refinement.vignette_delta, -1.0, 1.0).toFixed(2));
+        deltasSummary.push(`暗角 ${fmtDelta(updated.vignette - prev)}`);
+      }
+    }
+
+    if (options.onLog) {
+      await options.onLog(`> [AI_ITERATE_DONE] ${refinement.refine_rationale}`);
+      if (deltasSummary.length > 0) {
+        await options.onLog(`> [AI_ITERATE_DIFF] ${deltasSummary.join(' · ')}`);
+      }
+    }
+
+    return {
+      updatedDecision: updated,
+      refineRationale: refinement.refine_rationale,
+      deltasSummary,
+    };
+  }
+
+  /**
    * 依據使用者指派之文字策略執行極速社群文案與 IPTC 標籤生成 (Strategy Pattern)
    */
   public static async generateGroqCopywriting(payload: CopywritingPayload): Promise<CopywritingResult> {

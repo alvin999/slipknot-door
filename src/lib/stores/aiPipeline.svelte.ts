@@ -198,6 +198,9 @@ export class AiPipelineStore {
 
   // AI 推論與批次排程狀態
   isAiAnalyzing = $state<boolean>(false);
+  isIteratingRefine = $state<boolean>(false);
+  iterativeFeedbackPrompt = $state<string>("");
+  lockManualAdjustments = $state<boolean>(true);
   isBatchAiRunning = $state<boolean>(false);
   cancelBatchRequested = $state<boolean>(false);
   batchAbortController: AbortController | null = null;
@@ -247,6 +250,8 @@ export class AiPipelineStore {
    * 根據選取相片載入或重設 AI 決策面板狀態
    */
   loadFromPhoto(plate: PhotoPlateItem): void {
+    this.lockManualAdjustments = true;
+    this.iterativeFeedbackPrompt = "";
     if (plate.aiDecision) {
       this.aiSuggestedScene = `${plate.aiDecision.scene_type} (視覺即時判讀)`;
       this.aiSceneTitle =
@@ -859,8 +864,8 @@ export class AiPipelineStore {
         photoToProcess.crop = targetCrop;
       }
 
-      // 保存專屬 AI 基準快照供後續一鍵還原 (Restore AI Baseline)
-      photoToProcess.aiTuningSnapshot = {
+      // 保存專屬 AI 基準快照供後續一鍵還原 (Restore AI Baseline) 與多輪迭代基準
+      const initialSnapshot = {
         appliedProfile: targetProfile,
         tuning: {
           exposure: baseEv,
@@ -889,6 +894,14 @@ export class AiPipelineStore {
         appliedScope: { ...this.aiScope },
         appliedAt: Date.now(),
       };
+      photoToProcess.aiTuningSnapshot = initialSnapshot;
+      photoToProcess.aiLatestBaseline = {
+        ...initialSnapshot,
+        tuning: { ...initialSnapshot.tuning, hsl: cloneHslAdjustments(baseHsl) },
+        crop: initialSnapshot.crop ? { ...initialSnapshot.crop } : undefined,
+      };
+      photoToProcess.aiIterationHistory = [];
+      this.lockManualAdjustments = true;
 
       // 若目前為聚焦相片且為手動單幀觸發，更新全域滑桿與動態動畫
       if (isCurrentActive) {
@@ -1069,6 +1082,218 @@ export class AiPipelineStore {
       return false;
     } finally {
       this.isAiAnalyzing = false;
+    }
+  }
+
+  /**
+   * 雙軌協同迭代微調 (Iterative Co-Pilot Refinement)
+   * 結合使用者的手動參數修改（可選擇鎖定保留或全部開放調整）與自然語言回饋，讓 AI 檢視當前畫面並調整參數
+   */
+  async runIterativeRefinement(
+    overridePrompt?: string,
+    forceLockManual?: boolean,
+  ): Promise<boolean> {
+    const activePhoto = photoLibrary.activePhoto;
+    if (!activePhoto || this.isAiAnalyzing || this.isIteratingRefine) {
+      return false;
+    }
+    if (!this.hasActiveApiKey()) {
+      this.onRequireApiKey?.();
+      return false;
+    }
+
+    const feedbackText = (overridePrompt ?? this.iterativeFeedbackPrompt).trim();
+    const diffs = darkroomState.getTuningDiffsFromBaseline(activePhoto);
+
+    if (diffs.length === 0 && !feedbackText) {
+      toastStore.show("請先調整任一滑桿，或輸入希望 AI 微調的方向", "info", 2500);
+      return false;
+    }
+
+    // 記錄手動調整後的當下快照，讓使用者隨時可用 Ctrl+Z 退回 AI 介入前
+    darkroomState.recordSnapshot(true);
+
+    const shouldLockManual = forceLockManual ?? this.lockManualAdjustments;
+    const lockedKeys = shouldLockManual ? diffs.map((d) => d.key) : [];
+    const userModifiedKeys = diffs.map((d) => d.key);
+    const userChangesSummary = diffs.map((d) =>
+      shouldLockManual
+        ? `${d.summary} [LOCKED: preserve user value]`
+        : `${d.summary} [REFERENCE: AI may adjust all parameters]`
+    );
+
+    const nextRound = (activePhoto.aiIterationHistory?.length ?? 0) + 2;
+
+    this.isAiAnalyzing = true;
+    this.isIteratingRefine = true;
+
+    const currentDecision: import("$lib/services/aiSceneService").AiSceneDecision = {
+      scene_type: activePhoto.aiDecision?.scene_type || "custom_iteration",
+      scene_title: activePhoto.aiDecision?.scene_title || activePhoto.sceneTag || "光影協同微調",
+      style_insight: activePhoto.aiDecision?.style_insight || "",
+      recommended_mood: activePhoto.aiDecision?.recommended_mood || "",
+      recommended_profile: activePhoto.appliedProfile || "Profile_00_StandardNatural",
+      exposure_compensation: darkroomState.exposure,
+      highlights: darkroomState.highlights,
+      contrast: darkroomState.contrast,
+      color_temp: darkroomState.colorTemp,
+      tint: darkroomState.tint,
+      lift_shadows: darkroomState.shadows,
+      blacks: darkroomState.blacks,
+      vibrance: darkroomState.vibrance,
+      lut_intensity: darkroomState.lutIntensity,
+      clarity: darkroomState.clarity,
+      sharpness: darkroomState.sharpness,
+      color_density: darkroomState.colorDensity,
+      shadow_hue: darkroomState.shadowHue,
+      shadow_tint_amount: darkroomState.shadowTintAmount,
+      highlight_hue: darkroomState.highlightHue,
+      highlight_tint_amount: darkroomState.highlightTintAmount,
+      halation: darkroomState.halation,
+      grain_amount: darkroomState.grainAmount,
+      vignette: darkroomState.vignette,
+      hsl: cloneHslAdjustments(darkroomState.hsl),
+      isFallback: false,
+    };
+
+    try {
+      const { updatedDecision, refineRationale, deltasSummary } =
+        await AiSceneService.refineIteratively(
+          activePhoto.thumbnail,
+          currentDecision,
+          {
+            cameraModel: activePhoto.camera,
+            lensModel: activePhoto.lens,
+            iso: activePhoto.iso,
+            shutterSpeed: activePhoto.shutter,
+            apertureValue: activePhoto.aperture,
+            focalLength: activePhoto.focalLength,
+          },
+          {
+            stylePreset: darkroomState.activeStylePreset,
+            styleKeywords: darkroomState.selectedStyleKeywords,
+            customStylePrompt: darkroomState.customStylePrompt.trim() || undefined,
+            monochrome: darkroomState.monochrome,
+            scope: this.aiScope,
+            onLog: async (msg: string) => {
+              await this.appendAiLog(msg, 15);
+            },
+            renderPreview: (src, dec) =>
+              thumbnailRenderService.renderPass1PreviewForCritic(
+                src,
+                dec,
+                darkroomState.monochrome,
+                "auto",
+              ),
+            iterativeContext: {
+              round: nextRound,
+              userFeedbackPrompt: feedbackText || undefined,
+              lockedParamKeys: lockedKeys,
+              userChangesSummary,
+            },
+          },
+        );
+
+      const nextHsl = updatedDecision.hsl
+        ? cloneHslAdjustments(updatedDecision.hsl)
+        : cloneHslAdjustments(darkroomState.hsl);
+
+      this.animateAndSync(
+        {
+          exposure: updatedDecision.exposure_compensation,
+          highlights: updatedDecision.highlights ?? darkroomState.highlights,
+          contrast: updatedDecision.contrast ?? darkroomState.contrast,
+          shadows: updatedDecision.lift_shadows,
+          blacks: updatedDecision.blacks ?? darkroomState.blacks,
+          lutIntensity: updatedDecision.lut_intensity,
+          colorTemp: updatedDecision.color_temp ?? darkroomState.colorTemp,
+          tint: updatedDecision.tint ?? darkroomState.tint,
+          vibrance: updatedDecision.vibrance ?? darkroomState.vibrance,
+          clarity: updatedDecision.clarity ?? darkroomState.clarity,
+          sharpness: updatedDecision.sharpness ?? darkroomState.sharpness,
+          colorDensity: updatedDecision.color_density ?? darkroomState.colorDensity,
+          shadowTintAmount: updatedDecision.shadow_tint_amount ?? darkroomState.shadowTintAmount,
+          highlightTintAmount: updatedDecision.highlight_tint_amount ?? darkroomState.highlightTintAmount,
+          halation: updatedDecision.halation ?? darkroomState.halation,
+          grainAmount: updatedDecision.grain_amount ?? darkroomState.grainAmount,
+          vignette: updatedDecision.vignette ?? darkroomState.vignette,
+          hsl: nextHsl,
+        },
+        520,
+      );
+
+      const nextTuning = {
+        exposure: updatedDecision.exposure_compensation,
+        highlights: updatedDecision.highlights ?? darkroomState.highlights,
+        contrast: updatedDecision.contrast ?? darkroomState.contrast,
+        shadows: updatedDecision.lift_shadows,
+        blacks: updatedDecision.blacks ?? darkroomState.blacks,
+        lutIntensity: updatedDecision.lut_intensity,
+        colorTemp: updatedDecision.color_temp ?? darkroomState.colorTemp,
+        tint: updatedDecision.tint ?? darkroomState.tint,
+        vibrance: updatedDecision.vibrance ?? darkroomState.vibrance,
+        clarity: updatedDecision.clarity ?? darkroomState.clarity,
+        sharpness: updatedDecision.sharpness ?? darkroomState.sharpness,
+        colorDensity: updatedDecision.color_density ?? darkroomState.colorDensity,
+        shadowHue: darkroomState.shadowHue,
+        shadowTintAmount: updatedDecision.shadow_tint_amount ?? darkroomState.shadowTintAmount,
+        highlightHue: darkroomState.highlightHue,
+        highlightTintAmount: updatedDecision.highlight_tint_amount ?? darkroomState.highlightTintAmount,
+        halation: updatedDecision.halation ?? darkroomState.halation,
+        grainAmount: updatedDecision.grain_amount ?? darkroomState.grainAmount,
+        vignette: updatedDecision.vignette ?? darkroomState.vignette,
+        monochrome: darkroomState.monochrome,
+        hsl: cloneHslAdjustments(nextHsl),
+      };
+
+      activePhoto.tuning = nextTuning;
+      activePhoto.aiDecision = {
+        ...(activePhoto.aiDecision || updatedDecision),
+        ...updatedDecision,
+        style_insight: refineRationale || activePhoto.aiDecision?.style_insight,
+      };
+      activePhoto.aiLatestBaseline = {
+        appliedProfile: activePhoto.appliedProfile || "Profile_00_StandardNatural",
+        tuning: { ...nextTuning, hsl: cloneHslAdjustments(nextHsl) },
+        crop: activePhoto.crop ? { ...activePhoto.crop } : undefined,
+        appliedScope: { ...this.aiScope },
+        appliedAt: Date.now(),
+      };
+      activePhoto.aiIterationHistory = [
+        ...(activePhoto.aiIterationHistory || []),
+        {
+          round: nextRound,
+          timestamp: Date.now(),
+          userPrompt: feedbackText || undefined,
+          userModifiedKeys,
+          lockedKeys,
+          aiRationale: refineRationale,
+          deltasSummary,
+          appliedProfile: activePhoto.appliedProfile || "Profile_00_StandardNatural",
+          tuning: { ...nextTuning, hsl: cloneHslAdjustments(nextHsl) },
+        },
+      ];
+
+      this.aiStyleInsight = refineRationale || this.aiStyleInsight;
+      this.iterativeFeedbackPrompt = "";
+      this.lockManualAdjustments = true;
+
+      photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
+        p.id === activePhoto.id ? { ...activePhoto } : p,
+      );
+      photoLibrary.activePhoto = { ...activePhoto };
+      thumbnailRenderService.enqueueThumbnailRender(activePhoto);
+
+      toastStore.show(`第 ${nextRound} 輪 AI 協同微調完成 ✓`, "success", 2800);
+      return true;
+    } catch (err: any) {
+      console.error("Iterative refinement failed:", err);
+      await this.appendAiLog(`> [ERROR] 協同微調失敗：${err.message || "未知錯誤"}`, 15);
+      toastStore.show(`AI 協同微調失敗：${err.message || "雲端推論異常"}`, "error", 4000);
+      return false;
+    } finally {
+      this.isAiAnalyzing = false;
+      this.isIteratingRefine = false;
     }
   }
 
