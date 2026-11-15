@@ -35,17 +35,33 @@ export class ExportPipelineStore {
   exportProgress = $state<number>(100);
   isExporting = $state<boolean>(false);
   exportNotice = $state<string>("");
+  lastExportedDir = $state<string>("");
+  private noticeTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  private clearNoticeTimer(): void {
+    if (this.noticeTimeoutId !== null) {
+      clearTimeout(this.noticeTimeoutId);
+      this.noticeTimeoutId = null;
+    }
+  }
+
+  private scheduleNoticeClear(durationMs: number): void {
+    this.clearNoticeTimer();
+    const expected = this.exportNotice;
+    this.noticeTimeoutId = setTimeout(() => {
+      if (this.exportNotice === expected) {
+        this.exportNotice = "";
+      }
+      this.noticeTimeoutId = null;
+    }, durationMs);
+  }
 
   /**
    * 顯示短暫匯出或系統提示訊息
    */
   showNotice(message: string, durationMs = 2500): void {
     this.exportNotice = message;
-    setTimeout(() => {
-      if (this.exportNotice === message) {
-        this.exportNotice = "";
-      }
-    }, durationMs);
+    this.scheduleNoticeClear(durationMs);
   }
 
   /**
@@ -137,6 +153,7 @@ export class ExportPipelineStore {
           blob,
         });
 
+        this.lastExportedDir = subDir ? `${targetDir}/${subDir}` : targetDir;
         this.exportNotice = saveResult.savedPath
           ? `已快速匯出至 ${saveResult.savedPath}`
           : `已快速匯出 ${filename}`;
@@ -144,9 +161,7 @@ export class ExportPipelineStore {
     } catch {
       this.exportNotice = "快速匯出發生錯誤";
     } finally {
-      setTimeout(() => {
-        this.exportNotice = "";
-      }, 3500);
+      this.scheduleNoticeClear(8000);
     }
   }
 
@@ -215,6 +230,7 @@ export class ExportPipelineStore {
       }
     }
 
+    this.clearNoticeTimer();
     this.isExporting = true;
     this.exportProgress = 5;
     this.exportNotice = `準備匯出 ${listToExport.length} 張相片...`;
@@ -290,6 +306,9 @@ export class ExportPipelineStore {
       }
 
       this.exportProgress = 100;
+      this.lastExportedDir = dateSubDir
+        ? `${targetDir}/${dateSubDir}`
+        : targetDir;
       const planNotice = directoryPlan
         ? `（已自動分類為 ${directoryPlan.folders.length} 個資料夾）`
         : "";
@@ -298,9 +317,7 @@ export class ExportPipelineStore {
       this.exportNotice = "匯出發生錯誤";
     } finally {
       this.isExporting = false;
-      setTimeout(() => {
-        this.exportNotice = "";
-      }, 4000);
+      this.scheduleNoticeClear(9000);
     }
   }
 }

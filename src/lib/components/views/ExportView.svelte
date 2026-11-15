@@ -7,6 +7,7 @@
     type ExportFormat,
   } from "$lib/services/exportService";
   import { KeyVaultService } from "$lib/services/keyVaultService";
+  import { exportState } from "$lib/stores/exportState.svelte";
   import type { DirectoryPlanResult } from "$lib/services/ai/types";
 
   export interface PhotoPlateItem {
@@ -474,7 +475,8 @@
   }
 
   async function handleOpenDestination() {
-    const fullPath = resolvedPreviewPath || targetDirectory;
+    const fullPath =
+      exportState.lastExportedDir || resolvedPreviewPath || targetDirectory;
     await ExportService.openExportDirectory(fullPath);
   }
 
@@ -1449,6 +1451,9 @@
       <div class="button-row">
         {#if exportNotice}
           <span class="notice-text font-mono">{exportNotice}</span>
+        {/if}
+
+        {#if exportState.lastExportedDir}
           <button
             type="button"
             class="archival-btn-secondary icon-only"

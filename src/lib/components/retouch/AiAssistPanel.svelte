@@ -1359,6 +1359,47 @@
       </div>
     {/if}
 
+    {#if !currentIsBatchRunning && aiPipeline.batchFailedPhotos.length > 0}
+      <div class="batch-failed-strip font-mono">
+        <div class="batch-failed-info">
+          <span
+            class="material-symbols-outlined"
+            style="font-size: 14px; color: #f87171;"
+          >
+            error_outline
+          </span>
+          <span>
+            批次顯影有 {aiPipeline.batchFailedPhotos.length} 張失敗
+          </span>
+        </div>
+        <div class="batch-failed-actions">
+          <button
+            type="button"
+            class="batch-retry-chip-btn font-mono"
+            onclick={() => aiPipeline.requestRetryFailedBatchAi()}
+            disabled={currentIsAiAnalyzing}
+            title="僅針對上次批次顯影失敗的相片重新執行 AI 顯影"
+          >
+            <span class="material-symbols-outlined" style="font-size: 12px;"
+              >refresh</span
+            >
+            <span>重試失敗 ({aiPipeline.batchFailedPhotos.length})</span>
+          </button>
+          <button
+            type="button"
+            class="batch-dismiss-btn"
+            onclick={() => aiPipeline.clearBatchFailedPhotos()}
+            title="忽略並清除失敗紀錄"
+            aria-label="清除批次失敗紀錄"
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px;"
+              >close</span
+            >
+          </button>
+        </div>
+      </div>
+    {/if}
+
     {#if currentIsBatchRunning}
       <button
         type="button"
@@ -2639,6 +2680,72 @@
   .revert-chip-btn:hover {
     background: var(--amber-highlight);
     color: var(--canvas-base);
+  }
+
+  .batch-failed-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    font-size: 11px;
+    color: #fca5a5;
+  }
+  .batch-failed-info {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+  .batch-failed-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .batch-retry-chip-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(248, 113, 113, 0.65);
+    background: rgba(239, 68, 68, 0.18);
+    color: #fecaca;
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .batch-retry-chip-btn:hover:not(:disabled) {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: #fff;
+  }
+  .batch-retry-chip-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .batch-dismiss-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: #fca5a5;
+    opacity: 0.7;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .batch-dismiss-btn:hover {
+    opacity: 1;
+    background: rgba(239, 68, 68, 0.2);
   }
 
   .cta-buttons-row {

@@ -209,6 +209,17 @@ export class AiPipelineStore {
     total: number;
     countdown: number;
   } | null>(null);
+  batchFailedPhotoIds = $state<string[]>([]);
+
+  get batchFailedPhotos(): PhotoPlateItem[] {
+    if (this.batchFailedPhotoIds.length === 0) return [];
+    const failedSet = new Set(this.batchFailedPhotoIds);
+    return photoLibrary.photoPlates.filter((p) => failedSet.has(p.id));
+  }
+
+  clearBatchFailedPhotos(): void {
+    this.batchFailedPhotoIds = [];
+  }
 
   // AI 場景研判與美學決策數據
   aiDecisionIsFallback = $state<boolean | null>(null);
@@ -1049,6 +1060,12 @@ export class AiPipelineStore {
       }
       thumbnailRenderService.enqueueThumbnailRender(photoToProcess);
 
+      if (this.batchFailedPhotoIds.includes(photoToProcess.id)) {
+        this.batchFailedPhotoIds = this.batchFailedPhotoIds.filter(
+          (id) => id !== photoToProcess.id,
+        );
+      }
+
       await this.appendAiLog(`> [SUCCESS] 顯影調校完成 ✓`, 10);
       if (!this.isBatchAiRunning) {
         toastStore.show(
@@ -1733,13 +1750,33 @@ export class AiPipelineStore {
   }
 
   /**
+   * 啟動僅針對失敗項目的 AI 批次重試
+   */
+  requestRetryFailedBatchAi(): void {
+    const failedTargets = this.batchFailedPhotos;
+    if (failedTargets.length === 0) {
+      this.onNotice?.("目前沒有失敗的相片需要重試");
+      return;
+    }
+
+    if (!this.hasActiveApiKey()) {
+      this.onRequireApiKey?.();
+    } else {
+      this.runBatchAiAnalysis(failedTargets);
+    }
+  }
+
+  /**
    * AI 批次顯影調色（含 4.2s 速率保護與取消中斷）
    */
-  async runBatchAiAnalysis(): Promise<void> {
+  async runBatchAiAnalysis(customTargets?: PhotoPlateItem[]): Promise<void> {
+    const isRetryBatch = Boolean(customTargets && customTargets.length > 0);
     const targetList =
-      photoLibrary.flaggedPhotos.length > 0
-        ? [...photoLibrary.flaggedPhotos]
-        : [...photoLibrary.photoPlates];
+      customTargets && customTargets.length > 0
+        ? [...customTargets]
+        : photoLibrary.flaggedPhotos.length > 0
+          ? [...photoLibrary.flaggedPhotos]
+          : [...photoLibrary.photoPlates];
     if (targetList.length === 0) {
       this.onNotice?.("目前相簿無相片可供 AI 批次顯影");
       return;
@@ -1753,9 +1790,15 @@ export class AiPipelineStore {
     this.isBatchAiRunning = true;
     this.cancelBatchRequested = false;
     this.batchAbortController = new AbortController();
+    this.batchFailedPhotoIds = [];
     this.aiTerminalLogs = [];
+    const failedIds: string[] = [];
+    let succeededCount = 0;
+
     await this.appendAiLog(
-      `> [BATCH_START] 啟動 AI 批次顯影調色，共 ${targetList.length} 張相片...`,
+      isRetryBatch
+        ? `> [BATCH_RETRY] 重新執行失敗項目顯影調色，共 ${targetList.length} 張相片...`
+        : `> [BATCH_START] 啟動 AI 批次顯影調色，共 ${targetList.length} 張相片...`,
       20,
     );
 
@@ -1793,7 +1836,7 @@ export class AiPipelineStore {
       // 讓出微任務讓瀏覽器 DOM 渲染與事件處理器有空隙運作
       await new Promise((r) => setTimeout(r, 16));
 
-      await this.runAiAnalysis(p);
+      const ok = await this.runAiAnalysis(p);
 
       if (this.cancelBatchRequested) {
         await this.appendAiLog(
@@ -1801,6 +1844,12 @@ export class AiPipelineStore {
           10,
         );
         break;
+      }
+
+      if (ok) {
+        succeededCount++;
+      } else {
+        failedIds.push(p.id);
       }
 
       // 每張相片之間進行 4.2 秒速率保護等待，避免超過雲端 API 速率限制
@@ -1814,11 +1863,34 @@ export class AiPipelineStore {
       }
     }
 
+    this.batchFailedPhotoIds = failedIds;
+
     if (!this.cancelBatchRequested) {
-      await this.appendAiLog(
-        `> [BATCH_COMPLETE] 全部 ${targetList.length} 張相片批次顯影完成！🎉`,
-        10,
-      );
+      if (failedIds.length > 0) {
+        await this.appendAiLog(
+          `> [BATCH_PARTIAL] 批次顯影結束：成功 ${succeededCount} 張、失敗 ${failedIds.length} 張（可點擊「重試失敗項目」補齊）`,
+          10,
+        );
+        toastStore.show(
+          `批次顯影完成 ${succeededCount}/${targetList.length} 張，${failedIds.length} 張失敗`,
+          "warning",
+          6000,
+          {
+            label: "重試失敗",
+            onClick: () => this.requestRetryFailedBatchAi(),
+          },
+        );
+      } else {
+        await this.appendAiLog(
+          `> [BATCH_COMPLETE] 全部 ${targetList.length} 張相片批次顯影完成！🎉`,
+          10,
+        );
+        toastStore.show(
+          `全部 ${targetList.length} 張相片 AI 批次顯影完成 ✓`,
+          "success",
+          3500,
+        );
+      }
     }
 
     this.isBatchAiRunning = false;
