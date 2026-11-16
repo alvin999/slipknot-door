@@ -704,21 +704,42 @@
             </div>
 
             <!-- 任務 3: 雙圖閉環覆審模型指定 (Pass 2 Critic Model) -->
-            <div class="role-card hairline-all">
+            <div class="role-card hairline-all" class:is-disabled={!aiPipeline.criticEnabled}>
               <div class="role-card-top font-mono">
                 <div class="role-title-left">
                   <span class="material-symbols-outlined" style="font-size: 15px; color: var(--amber-highlight);">fact_check</span>
                   <span>雙圖覆審品控模型 (Pass 2 Critic · 開關與溫度於設定／暗房調整)</span>
                 </div>
+                {#if !aiPipeline.criticEnabled}
+                  <span class="critic-locked-badge">未啟用 Pass 2</span>
+                {/if}
               </div>
 
-              <div class="critic-radio-row font-mono">
+              {#if !aiPipeline.criticEnabled}
+                <p class="critic-locked-hint font-mono">
+                  尚未啟用「二階審美批評家」，請先至設定頁或暗房 AI 面板勾選啟用後再設定覆審模型。
+                </p>
+              {/if}
+
+              <div class="critic-radio-row font-mono" class:is-disabled={!aiPipeline.criticEnabled}>
                 <label>
-                  <input type="radio" name="critic_mode" value={false} bind:group={roleCriticUseCustom} />
+                  <input
+                    type="radio"
+                    name="critic_mode"
+                    value={false}
+                    bind:group={roleCriticUseCustom}
+                    disabled={!aiPipeline.criticEnabled}
+                  />
                   <span>沿用上方視覺主引擎 ({roleVisionModelId})</span>
                 </label>
                 <label>
-                  <input type="radio" name="critic_mode" value={true} bind:group={roleCriticUseCustom} />
+                  <input
+                    type="radio"
+                    name="critic_mode"
+                    value={true}
+                    bind:group={roleCriticUseCustom}
+                    disabled={!aiPipeline.criticEnabled}
+                  />
                   <span>指定異質覆審模型 (Cross-Model Check)</span>
                 </label>
               </div>
@@ -728,6 +749,7 @@
                   <select
                     class="role-select font-mono"
                     value={roleCriticProvider}
+                    disabled={!aiPipeline.criticEnabled}
                     onchange={(e) => handleCriticProviderChange((e.target as HTMLSelectElement).value as AiProviderId)}
                   >
                     {#each PROVIDER_REGISTRY as prov}
@@ -737,7 +759,11 @@
                     {/each}
                   </select>
 
-                  <select class="role-select model-picker font-mono" bind:value={roleCriticModelId}>
+                  <select
+                    class="role-select model-picker font-mono"
+                    bind:value={roleCriticModelId}
+                    disabled={!aiPipeline.criticEnabled}
+                  >
                     {#each getModelsForRole(roleCriticProvider, true, roleCriticModelId) as m}
                       <option value={m.id}>
                         {m.displayName || m.id} {m.recommendationTag ? `[${m.recommendationTag}]` : ''}
@@ -1062,6 +1088,9 @@
     flex-direction: column;
     gap: 8px;
   }
+  .role-card.is-disabled {
+    opacity: 0.62;
+  }
   .role-card-top {
     display: flex;
     align-items: center;
@@ -1111,6 +1140,10 @@
   }
   .role-select:focus {
     border-color: var(--amber-highlight);
+  }
+  .role-select:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
   }
   .role-select.model-picker {
     border-color: rgba(212, 163, 115, 0.35);
@@ -1179,6 +1212,21 @@
     gap: 8px;
     margin-top: 4px;
   }
+  .critic-locked-badge {
+    font-size: 10px;
+    color: var(--parchment-dim);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--hairline-slate);
+    padding: 1px 7px;
+    border-radius: var(--radius-xs);
+    flex-shrink: 0;
+  }
+  .critic-locked-hint {
+    margin: 0;
+    font-size: 10px;
+    line-height: 1.45;
+    color: var(--amber-highlight);
+  }
   .critic-radio-row {
     display: flex;
     gap: 16px;
@@ -1191,6 +1239,9 @@
     align-items: center;
     gap: 5px;
     cursor: pointer;
+  }
+  .critic-radio-row.is-disabled label {
+    cursor: not-allowed;
   }
 
   /* 6 Provider Pills */
