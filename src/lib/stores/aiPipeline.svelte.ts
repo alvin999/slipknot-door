@@ -572,11 +572,6 @@ export class AiPipelineStore {
         this.aiRecommendedProfile = decision.recommended_profile;
         darkroomState.aiCropRationale = decision.crop_rationale || "";
         this.aiVisionTags = decision.tags || [];
-
-        // 若有視覺標籤，自動預熱 Groq 文案生成（秒回體驗）
-        if (this.aiVisionTags.length > 0 && !this.isBatchAiRunning) {
-          this.triggerGroqCopywriting();
-        }
       }
 
       await this.appendAiLog(
