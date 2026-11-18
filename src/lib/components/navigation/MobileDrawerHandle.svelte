@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from "$lib/i18n";
+
   type MobileDrawer = "none" | "ai" | "tuning";
 
   interface Props {
@@ -33,7 +35,7 @@
         <span class="material-symbols-outlined" style="font-size: 13px;"
           >palette</span
         >
-        <span>風格</span>
+        <span>{t("mobileDrawer.style")}</span>
       </button>
       <button
         type="button"
@@ -44,7 +46,7 @@
         <span class="material-symbols-outlined" style="font-size: 13px;"
           >tune</span
         >
-        <span>微調</span>
+        <span>{t("mobileDrawer.tuning")}</span>
       </button>
     </div>
     <div class="mobile-drawer-right-actions">
@@ -54,16 +56,16 @@
           class="drawer-expand-btn font-mono"
           class:active={isExpanded}
           onclick={onToggleExpand}
-          title={isExpanded ? "切換回半高預覽" : "展開較高面板"}
+          title={isExpanded ? t("mobileDrawer.collapseHalfTitle") : t("mobileDrawer.expandFullTitle")}
         >
           <span class="material-symbols-outlined" style="font-size: 13px;">
             {isExpanded ? "close_fullscreen" : "open_in_full"}
           </span>
-          <span>{isExpanded ? "半高" : "展開"}</span>
+          <span>{isExpanded ? t("mobileDrawer.half") : t("mobileDrawer.expand")}</span>
         </button>
       {/if}
       <button type="button" class="drawer-close-btn font-mono" onclick={onClose}>
-        <span>收合</span>
+        <span>{t("mobileDrawer.collapse")}</span>
         <span class="material-symbols-outlined" style="font-size: 15px;"
           >keyboard_arrow_down</span
         >
@@ -74,7 +76,7 @@
   <div class="mobile-drawer-handle-bar">
     <div class="drawer-drag-pill"></div>
     <button type="button" class="drawer-close-btn font-mono" onclick={onClose}>
-      <span>收合面板</span>
+      <span>{t("mobileDrawer.collapsePanel")}</span>
       <span class="material-symbols-outlined" style="font-size: 14px;"
         >keyboard_arrow_down</span
       >

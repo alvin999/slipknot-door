@@ -1,5 +1,6 @@
 <script lang="ts">
   import { type CustomLutRecord, parseCubeMetadata } from '$lib/services/customLutService';
+  import { t } from '$lib/i18n';
 
   export interface ProfileItem {
     id: string;
@@ -40,7 +41,7 @@
   let {
     profiles,
     activeProfileId,
-    activePhotoTitle = '尚未選取底片',
+    activePhotoTitle = t('profiles.noPhotoSelected'),
     onApplyProfile,
     onApplyToAll,
     onImportCustomLut,
@@ -73,7 +74,7 @@
   let pendingFileName = $state<string>('');
   let customTitle = $state<string>('');
   let customPrompt = $state<string>('');
-  let customScene = $state<string>('街拍人文 / 氛圍日常');
+  let customScene = $state<string>(t('profiles.defaultScene'));
   let parsedLutSize = $state<number>(33);
   let customAccent = $state<string>('#bfa15f');
   let customLutRatio = $state<number>(0.85);
@@ -103,7 +104,7 @@
       const text = await file.text();
       const meta = parseCubeMetadata(text, file.name.replace(/\.cube$/i, ''));
       if (!meta.isValid) {
-        toastMessage = '警告：.cube 檔案格式不完整或非標準 3D LUT';
+        toastMessage = t('profiles.invalidCubeWarning');
         setTimeout(() => { toastMessage = ''; }, 4000);
         return;
       }
@@ -118,7 +119,7 @@
       showImportModal = true;
     } catch (err) {
       console.error('Failed to read .cube file:', err);
-      toastMessage = '讀取 .cube 檔案失敗';
+      toastMessage = t('profiles.readCubeError');
       setTimeout(() => { toastMessage = ''; }, 3000);
     }
   }
@@ -144,7 +145,7 @@
 
     showImportModal = false;
     pendingCubeText = '';
-    toastMessage = `已成功匯入自訂 LUT「${newRecord.name}」並建立 AI 連動！`;
+    toastMessage = t('profiles.importSuccess', { name: newRecord.name });
     setTimeout(() => { toastMessage = ''; }, 4000);
   }
 
@@ -177,21 +178,21 @@
 
     showEditModal = false;
     editingRecord = null;
-    toastMessage = `已成功更新「${updated.name}」之色彩代表色與 AI 連動！`;
+    toastMessage = t('profiles.updateSuccess', { name: updated.name });
     setTimeout(() => { toastMessage = ''; }, 4000);
   }
 
   function handleApplyAll(id: string) {
     onApplyToAll(id);
-    toastMessage = `已將「${profiles.find(p => p.id === id)?.title}」批次指定至全相卷底片`;
+    toastMessage = t('profiles.applyRollSuccess', { title: profiles.find(p => p.id === id)?.title ?? id });
     setTimeout(() => { toastMessage = ''; }, 3000);
   }
 
   async function handleDelete(id: string, name: string) {
-    if (confirm(`確定要刪除自訂 LUT「${name}」嗎？`)) {
+    if (confirm(t('profiles.confirmDelete', { name }))) {
       if (onDeleteCustomLut) {
         await onDeleteCustomLut(id);
-        toastMessage = `已刪除「${name}」`;
+        toastMessage = t('profiles.deleteSuccess', { name });
         setTimeout(() => { toastMessage = ''; }, 3000);
       }
     }
@@ -211,8 +212,8 @@
   <!-- HEADER -->
   <header class="profiles-toolbar hairline-b font-mono">
     <div class="header-left">
-      <span class="tool-title font-headline">3D LUT 去識別化風格典藏庫</span>
-      <span class="counter-badge">{profiles.length} PROFILES ({profiles.filter(p => p.isCustom).length} 自訂)</span>
+      <span class="tool-title font-headline">{t('profiles.headerTitle')}</span>
+      <span class="counter-badge">{t('profiles.customCountBadge', { total: profiles.length, custom: profiles.filter(p => p.isCustom).length })}</span>
     </div>
     <div class="header-right">
       {#if toastMessage}
@@ -220,7 +221,7 @@
       {/if}
       <button type="button" class="tool-btn highlight" onclick={triggerFileInput}>
         <span class="material-symbols-outlined" style="font-size: 15px;">file_upload</span>
-        <span>匯入自訂 .cube LUT</span>
+        <span>{t('profiles.importBtn')}</span>
       </button>
     </div>
   </header>
@@ -243,7 +244,7 @@
                   <button
                     type="button"
                     class="action-icon-btn edit-btn"
-                    title="編輯風格代表色、比例與 AI 指令"
+                    title={t('profiles.editBtnTitle')}
                     onclick={() => handleOpenEdit(prof)}
                   >
                     <span class="material-symbols-outlined" style="font-size: 15px;">edit</span>
@@ -251,7 +252,7 @@
                   <button
                     type="button"
                     class="action-icon-btn del-btn"
-                    title="刪除此自訂 LUT"
+                    title={t('profiles.deleteBtnTitle')}
                     onclick={() => handleDelete(prof.id, prof.title)}
                   >
                     <span class="material-symbols-outlined" style="font-size: 15px;">delete</span>
@@ -260,7 +261,7 @@
                 {#if activeProfileId === prof.id}
                   <span class="active-pill font-mono">
                     <span class="dot"></span>
-                    目前套用
+                    {t('profiles.currentlyApplied')}
                   </span>
                 {/if}
               </div>
@@ -309,15 +310,15 @@
               onclick={() => onApplyProfile(prof.id)}
             >
               <span class="material-symbols-outlined" style="font-size: 14px;">check</span>
-              <span>套用至當前幀</span>
+              <span>{t('profiles.applyCurrent')}</span>
             </button>
             <button 
               type="button" 
               class="tool-btn" 
               onclick={() => handleApplyAll(prof.id)}
-              title="將此色調風格指定至相卷內所有底片"
+              title={t('profiles.applyRollTitle')}
             >
-              <span>套用至全卷</span>
+              <span>{t('profiles.applyRoll')}</span>
             </button>
           </div>
         </div>
@@ -331,7 +332,7 @@
   <div class="modal-backdrop">
     <div class="import-modal-card hairline-all font-mono">
       <div class="modal-header hairline-b">
-        <span class="font-headline modal-title">匯入自訂 3D LUT 並建立 AI 連動</span>
+        <span class="font-headline modal-title">{t('profiles.importModalTitle')}</span>
         <button type="button" class="close-btn" onclick={() => showImportModal = false}>
           <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
         </button>
@@ -339,26 +340,26 @@
 
       <div class="modal-body font-body">
         <div class="meta-preview hairline-all">
-          <span class="meta-badge">.cube 來源：{pendingFileName}</span>
-          <span class="meta-badge">維度尺寸：{parsedLutSize}×{parsedLutSize}×{parsedLutSize}</span>
+          <span class="meta-badge">{t('profiles.cubeSource', { name: pendingFileName })}</span>
+          <span class="meta-badge">{t('profiles.cubeDimension', { size: parsedLutSize })}</span>
         </div>
 
         <div class="input-group">
-          <label for="custom-lut-title" class="input-label font-mono">風格顯示名稱</label>
+          <label for="custom-lut-title" class="input-label font-mono">{t('profiles.displayNameLabel')}</label>
           <input
             id="custom-lut-title"
             type="text"
             class="archival-input font-mono"
             bind:value={customTitle}
-            placeholder="例如：Kodak Gold 200 / 暖調日落負片"
+            placeholder={t('profiles.displayNamePlaceholder')}
           />
         </div>
 
         <!-- 風格代表色自動識別與自訂 -->
         <div class="input-group">
           <label for="custom-color-picker" class="input-label font-mono">
-            <span>風格特徵光譜色 (自動分析提取)</span>
-            <span class="label-hint">已依據 .cube 3D 空間點雲色相偏移自動萃取，亦可手動微調</span>
+            <span>{t('profiles.accentLabelImport')}</span>
+            <span class="label-hint">{t('profiles.accentHintImport')}</span>
           </label>
           <div class="color-picker-row hairline-all">
             <div class="spectrum-preview-box">
@@ -389,7 +390,7 @@
         <!-- 預設 LUT 套用強度 -->
         <div class="input-group">
           <div class="slider-header font-mono">
-            <label for="custom-lut-ratio" class="input-label">預設套用強度 (LUT RATIO)</label>
+            <label for="custom-lut-ratio" class="input-label">{t('profiles.lutRatioLabel')}</label>
             <span class="ratio-val amber font-mono">{Math.round(customLutRatio * 100)}%</span>
           </div>
           <input
@@ -405,37 +406,37 @@
 
         <div class="input-group">
           <label for="custom-lut-prompt" class="input-label font-mono">
-            <span>AI 連動光學風格指令 (Prompt Directive)</span>
-            <span class="label-hint">AI 顯影時將參考此光學特徵進行動態曝光與色溫協同</span>
+            <span>{t('profiles.aiDirectiveLabel')}</span>
+            <span class="label-hint">{t('profiles.aiDirectiveHintImport')}</span>
           </label>
           <textarea
             id="custom-lut-prompt"
             class="archival-textarea font-mono"
             rows="3"
             bind:value={customPrompt}
-            placeholder="例如：Warm golden highlights, rich cyan shadow toe, vintage analog print density"
+            placeholder={t('profiles.aiDirectivePlaceholder')}
           ></textarea>
         </div>
 
         <div class="input-group">
-          <label for="custom-lut-scene" class="input-label font-mono">適用建議場景</label>
+          <label for="custom-lut-scene" class="input-label font-mono">{t('profiles.sceneLabel')}</label>
           <input
             id="custom-lut-scene"
             type="text"
             class="archival-input font-mono"
             bind:value={customScene}
-            placeholder="例如：金色時刻 / 人文街拍 / 室內人像"
+            placeholder={t('profiles.scenePlaceholder')}
           />
         </div>
       </div>
 
       <div class="modal-actions hairline-t">
         <button type="button" class="tool-btn" onclick={() => showImportModal = false}>
-          取消
+          {t('profiles.cancel')}
         </button>
         <button type="button" class="archival-btn-primary" onclick={confirmImport}>
           <span class="material-symbols-outlined" style="font-size: 15px;">check</span>
-          <span>確認匯入並註冊至 AI</span>
+          <span>{t('profiles.confirmImport')}</span>
         </button>
       </div>
     </div>
@@ -447,7 +448,7 @@
   <div class="modal-backdrop">
     <div class="import-modal-card hairline-all font-mono">
       <div class="modal-header hairline-b">
-        <span class="font-headline modal-title">編輯自訂 LUT 與 AI 連動指令</span>
+        <span class="font-headline modal-title">{t('profiles.editModalTitle')}</span>
         <button type="button" class="close-btn" onclick={() => showEditModal = false}>
           <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
         </button>
@@ -456,25 +457,25 @@
       <div class="modal-body font-body">
         <div class="meta-preview hairline-all">
           <span class="meta-badge">LUT ID：{editingRecord.id}</span>
-          <span class="meta-badge">維度尺寸：{editingRecord.lutSize}×{editingRecord.lutSize}×{editingRecord.lutSize}</span>
+          <span class="meta-badge">{t('profiles.cubeDimension', { size: editingRecord.lutSize })}</span>
         </div>
 
         <div class="input-group">
-          <label for="edit-lut-title" class="input-label font-mono">風格顯示名稱</label>
+          <label for="edit-lut-title" class="input-label font-mono">{t('profiles.displayNameLabel')}</label>
           <input
             id="edit-lut-title"
             type="text"
             class="archival-input font-mono"
             bind:value={editTitle}
-            placeholder="風格顯示名稱"
+            placeholder={t('profiles.displayNameLabel')}
           />
         </div>
 
         <!-- 編輯代表色 -->
         <div class="input-group">
           <label for="edit-color-picker" class="input-label font-mono">
-            <span>風格特徵光譜色 (Accent Color)</span>
-            <span class="label-hint">調整代表色以匹配卡片裝飾色條</span>
+            <span>{t('profiles.accentLabelEdit')}</span>
+            <span class="label-hint">{t('profiles.accentHintEdit')}</span>
           </label>
           <div class="color-picker-row hairline-all">
             <div class="spectrum-preview-box">
@@ -505,7 +506,7 @@
         <!-- 編輯預設強度 -->
         <div class="input-group">
           <div class="slider-header font-mono">
-            <label for="edit-lut-ratio" class="input-label">預設套用強度 (LUT RATIO)</label>
+            <label for="edit-lut-ratio" class="input-label">{t('profiles.lutRatioLabel')}</label>
             <span class="ratio-val amber font-mono">{Math.round(editLutRatio * 100)}%</span>
           </div>
           <input
@@ -521,37 +522,37 @@
 
         <div class="input-group">
           <label for="edit-lut-prompt" class="input-label font-mono">
-            <span>AI 連動光學風格指令 (Prompt Directive)</span>
-            <span class="label-hint">微調此指令將直接影響 AI 顯影推論時的光學平衡與色彩科學決策</span>
+            <span>{t('profiles.aiDirectiveLabel')}</span>
+            <span class="label-hint">{t('profiles.aiDirectiveHintEdit')}</span>
           </label>
           <textarea
             id="edit-lut-prompt"
             class="archival-textarea font-mono"
             rows="3"
             bind:value={editPrompt}
-            placeholder="例如：Warm golden highlights, rich cyan shadow toe, vintage analog print density"
+            placeholder={t('profiles.aiDirectivePlaceholder')}
           ></textarea>
         </div>
 
         <div class="input-group">
-          <label for="edit-lut-scene" class="input-label font-mono">適用建議場景</label>
+          <label for="edit-lut-scene" class="input-label font-mono">{t('profiles.sceneLabel')}</label>
           <input
             id="edit-lut-scene"
             type="text"
             class="archival-input font-mono"
             bind:value={editScene}
-            placeholder="例如：金色時刻 / 人文街拍 / 室內人像"
+            placeholder={t('profiles.scenePlaceholder')}
           />
         </div>
       </div>
 
       <div class="modal-actions hairline-t">
         <button type="button" class="tool-btn" onclick={() => showEditModal = false}>
-          取消
+          {t('profiles.cancel')}
         </button>
         <button type="button" class="archival-btn-primary" onclick={confirmEdit}>
           <span class="material-symbols-outlined" style="font-size: 15px;">save</span>
-          <span>儲存修改並更新 AI 連動</span>
+          <span>{t('profiles.saveChanges')}</span>
         </button>
       </div>
     </div>

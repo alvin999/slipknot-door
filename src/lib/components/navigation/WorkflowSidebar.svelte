@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
+
   type ModuleTab = 'catalog' | 'retouch' | 'profiles' | 'export' | 'devices';
 
   interface Props {
@@ -31,7 +33,7 @@
     onclick={() => onTabChange('catalog')}
   >
     <span class="material-symbols-outlined">grid_view</span>
-    <span class="nav-label">1. 膠卷目錄挑圖</span>
+    <span class="nav-label">{t('sidebar.catalog')}</span>
     <span class="nav-badge font-mono">{totalPhotos}</span>
   </button>
 
@@ -41,7 +43,7 @@
     onclick={() => onTabChange('retouch')}
   >
     <span class="material-symbols-outlined">tonality</span>
-    <span class="nav-label">2. 單張暗房精修</span>
+    <span class="nav-label">{t('sidebar.retouch')}</span>
     {#if flaggedCount > 0}
       <span class="nav-badge font-mono amber">{flaggedCount}</span>
     {/if}
@@ -53,7 +55,7 @@
     onclick={() => onTabChange('export')}
   >
     <span class="material-symbols-outlined">output_circle</span>
-    <span class="nav-label">3. 批次匯出管線</span>
+    <span class="nav-label">{t('sidebar.export')}</span>
     <span class="nav-badge font-mono">{activeQueueLength}</span>
   </button>
 
@@ -63,7 +65,7 @@
     onclick={() => onTabChange('profiles')}
   >
     <span class="material-symbols-outlined">palette</span>
-    <span class="nav-label">3D LUT 風格庫</span>
+    <span class="nav-label">{t('sidebar.profiles')}</span>
     <span class="nav-badge font-mono">{profilesCount}</span>
   </button>
 
@@ -73,17 +75,17 @@
     onclick={() => onTabChange('devices')}
   >
     <span class="material-symbols-outlined">settings_input_component</span>
-    <span class="nav-label">設備與存儲設定</span>
+    <span class="nav-label">{t('sidebar.devices')}</span>
   </button>
 
   <button
     type="button"
     class="nav-item help-nav-btn"
     onclick={onOpenHelp}
-    title="開啟系統操作與快捷鍵速查 (按 ?)"
+    title={t('sidebar.helpTitle')}
   >
     <span class="material-symbols-outlined">help</span>
-    <span class="nav-label">操作說明與快速鍵</span>
+    <span class="nav-label">{t('sidebar.help')}</span>
     <kbd class="kbd-chip">?</kbd>
   </button>
 </nav>

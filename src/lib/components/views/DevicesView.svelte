@@ -5,6 +5,7 @@
   import type { AiProviderId } from '$lib/services/ai/types';
   import { aiPipeline } from '$lib/stores/aiPipeline.svelte';
   import type { AiScopePreferences } from '$lib/types/photo';
+  import { t, type TranslationKey } from '$lib/i18n';
 
   interface Props {
     cameraMounts: CameraMountInfo[];
@@ -36,15 +37,15 @@
   let showWebSandboxDetails = $state<boolean>(false);
   let isWebMode = $derived(!IngestionService.isTauri());
 
-  const SCOPE_ITEMS: { key: keyof AiScopePreferences; label: string }[] = [
-    { key: 'lutProfile', label: '底片風格 LUT' },
-    { key: 'tone', label: '曝光與光影階調' },
-    { key: 'whiteBalance', label: '色溫白平衡' },
-    { key: 'filmPhysics', label: '色彩科學與 HSL' },
-    { key: 'splitToning', label: '冷暖分區色調' },
-    { key: 'filmTexture', label: '顆粒光暈與暗角' },
-    { key: 'crop', label: '自動構圖裁切' },
-    { key: 'keystone', label: '透視幾何校正' },
+  const SCOPE_ITEMS: { key: keyof AiScopePreferences; labelKey: TranslationKey }[] = [
+    { key: 'lutProfile', labelKey: 'devices.scopeLutProfile' },
+    { key: 'tone', labelKey: 'devices.scopeTone' },
+    { key: 'whiteBalance', labelKey: 'devices.scopeWhiteBalance' },
+    { key: 'filmPhysics', labelKey: 'devices.scopeFilmPhysics' },
+    { key: 'splitToning', labelKey: 'devices.scopeSplitToning' },
+    { key: 'filmTexture', labelKey: 'devices.scopeFilmTexture' },
+    { key: 'crop', labelKey: 'devices.scopeCrop' },
+    { key: 'keystone', labelKey: 'devices.scopeKeystone' },
   ];
 
   const DEVICE_PROVIDERS: { id: AiProviderId; label: string }[] = [
@@ -53,7 +54,7 @@
     { id: 'anthropic', label: 'Anthropic Claude' },
     { id: 'groq', label: 'Groq Cloud' },
     { id: 'openrouter', label: 'OpenRouter' },
-    { id: 'ollama', label: 'Ollama (本地端)' },
+    { id: 'ollama', label: t('devices.ollamaLocal') },
   ];
 
   function getModelsForProvider(provider: string, currentId: string, visionOnly = false): { id: string; displayName: string }[] {
@@ -73,17 +74,17 @@
   }
 
   function formatVaultMode(status: { exists: boolean; mode: string | null }): string {
-    if (!status.exists) return '未設定金鑰';
-    if (status.mode === 'password') return '密碼加密 (PBKDF2)';
-    if (status.mode === 'transparent') return '透明加密 (AES-GCM)';
-    return '無加密 (明文)';
+    if (!status.exists) return t('devices.keyNotSet');
+    if (status.mode === 'password') return t('devices.keyModePassword');
+    if (status.mode === 'transparent') return t('devices.keyModeTransparent');
+    return t('devices.keyModePlain');
   }
 </script>
 
 <div class="devices-viewport">
   <header class="devices-toolbar hairline-b font-mono">
     <div class="header-left">
-      <span class="tool-title font-headline">設定與設備總覽 (Settings & Hardware Hub)</span>
+      <span class="tool-title font-headline">{t('devices.headerTitle')}</span>
       <span class="counter-badge">{cameraMounts.length} CONNECTED</span>
     </div>
     <div class="header-right">
@@ -97,12 +98,12 @@
           <span class="material-symbols-outlined" class:spin={isScanningMounts} style="font-size: 15px;">
             sync
           </span>
-          <span>{isScanningMounts ? '探測中...' : '重新掃描掛載'}</span>
+          <span>{isScanningMounts ? t('devices.scanning') : t('devices.rescanMounts')}</span>
         </button>
       {/if}
       <button type="button" class="tool-btn" onclick={onOpenVault}>
         <span class="material-symbols-outlined" style="font-size: 15px;">vpn_key</span>
-        <span>管理金鑰</span>
+        <span>{t('devices.manageKeys')}</span>
       </button>
     </div>
   </header>
@@ -115,7 +116,7 @@
           <div class="web-banner-top">
             <div class="web-banner-info">
               <span class="material-symbols-outlined" style="font-size: 18px; color: var(--amber-highlight);">folder_open</span>
-              <span>瀏覽器預覽環境 · 手動選取本機相片或記憶卡目錄</span>
+              <span>{t('devices.webSandboxBanner')}</span>
             </div>
             <div class="web-banner-actions">
               <button
@@ -123,18 +124,18 @@
                 class="tool-btn subtle"
                 onclick={() => (showWebSandboxDetails = !showWebSandboxDetails)}
               >
-                {showWebSandboxDetails ? '收合說明' : '沙盒說明'}
+                {showWebSandboxDetails ? t('devices.collapseHelp') : t('devices.sandboxHelp')}
               </button>
               {#if onPickDirectory}
                 <button type="button" class="archival-btn-primary compact-load" onclick={onPickDirectory}>
-                  開啟目錄
+                  {t('devices.openDir')}
                 </button>
               {/if}
             </div>
           </div>
           {#if showWebSandboxDetails}
             <p class="web-banner-detail font-body">
-              因瀏覽器安全沙盒規範，Web 網頁模式無法主動探測作業系統外接 USB 磁碟。您可點擊「開啟目錄」手動載入相片資料夾，或使用桌面版執行 <code>npm run tauri dev</code> 啟用隨插即讀。
+              {@html t('devices.webSandboxDesc')}
             </p>
           {/if}
         </div>
@@ -145,16 +146,16 @@
         <div class="section-top font-mono">
           <div class="status-indicator-box">
             <span class="material-symbols-outlined" style="font-size: 18px; color: var(--amber-highlight);">psychology</span>
-            <span class="section-heading font-headline">AI 推論引擎與溫度控制 (Engine & Creativity)</span>
+            <span class="section-heading font-headline">{t('devices.aiEngineHeading')}</span>
           </div>
-          <span class="hint-pill">即時套用 · 全裝置同步</span>
+          <span class="hint-pill">{t('devices.syncHint')}</span>
         </div>
 
         <div class="ai-settings-grid font-mono">
           <!-- Vision Engine + Temperature -->
           <div class="ai-setting-block hairline-all">
             <div class="setting-block-head">
-              <span class="setting-title">👁 視覺調色主引擎</span>
+              <span class="setting-title">{t('devices.visionEngineTitle')}</span>
               <span class="temp-badge">Temp {aiPipeline.visionTemperature.toFixed(2)}</span>
             </div>
             <div class="provider-model-row">
@@ -183,7 +184,7 @@
               </select>
             </div>
             <div class="slider-control-row">
-              <span class="slider-lbl">創意度 (0 精準 ~ 1 風格)</span>
+              <span class="slider-lbl">{t('devices.creativityLabel')}</span>
               <input
                 type="range"
                 min="0"
@@ -195,20 +196,20 @@
               />
             </div>
             <div class="preset-chip-row">
-              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.visionTemperature - 0.1) < 0.03} onclick={() => aiPipeline.setVisionTemperature(0.1)}>0.1 寫實</button>
-              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.visionTemperature - 0.4) < 0.03} onclick={() => aiPipeline.setVisionTemperature(0.4)}>0.4 均衡</button>
-              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.visionTemperature - 0.8) < 0.03} onclick={() => aiPipeline.setVisionTemperature(0.8)}>0.8 藝術</button>
+              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.visionTemperature - 0.1) < 0.03} onclick={() => aiPipeline.setVisionTemperature(0.1)}>{t('devices.tempRealistic')}</button>
+              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.visionTemperature - 0.4) < 0.03} onclick={() => aiPipeline.setVisionTemperature(0.4)}>{t('devices.tempBalanced')}</button>
+              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.visionTemperature - 0.8) < 0.03} onclick={() => aiPipeline.setVisionTemperature(0.8)}>{t('devices.tempArtistic')}</button>
             </div>
           </div>
 
           <!-- Grading Strength & Pass 2 Critic -->
           <div class="ai-setting-block hairline-all">
             <div class="setting-block-head">
-              <span class="setting-title">🎛 調色強度與自我反思</span>
-              <span class="temp-badge">{Math.round(aiPipeline.aiTuningStrength * 100)}% 強度</span>
+              <span class="setting-title">{t('devices.strengthTitle')}</span>
+              <span class="temp-badge">{t('devices.strengthBadge', { pct: Math.round(aiPipeline.aiTuningStrength * 100) })}</span>
             </div>
             <div class="slider-control-row">
-              <span class="slider-lbl">整體調色幅度 (40% ~ 150%)</span>
+              <span class="slider-lbl">{t('devices.strengthLabel')}</span>
               <input
                 type="range"
                 min="0.4"
@@ -220,9 +221,9 @@
               />
             </div>
             <div class="preset-chip-row">
-              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.aiTuningStrength - 0.7) < 0.03} onclick={() => aiPipeline.setAiTuningStrength(0.7)}>70% 克制</button>
-              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.aiTuningStrength - 1.0) < 0.03} onclick={() => aiPipeline.setAiTuningStrength(1.0)}>100% 標準</button>
-              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.aiTuningStrength - 1.3) < 0.03} onclick={() => aiPipeline.setAiTuningStrength(1.3)}>130% 強烈</button>
+              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.aiTuningStrength - 0.7) < 0.03} onclick={() => aiPipeline.setAiTuningStrength(0.7)}>{t('devices.strengthRestrained')}</button>
+              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.aiTuningStrength - 1.0) < 0.03} onclick={() => aiPipeline.setAiTuningStrength(1.0)}>{t('devices.strengthStandard')}</button>
+              <button type="button" class="preset-chip" class:active={Math.abs(aiPipeline.aiTuningStrength - 1.3) < 0.03} onclick={() => aiPipeline.setAiTuningStrength(1.3)}>{t('devices.strengthStrong')}</button>
             </div>
 
             <div class="critic-divider"></div>
@@ -233,7 +234,7 @@
                   checked={aiPipeline.criticEnabled}
                   onchange={(e) => aiPipeline.setCriticEnabled(e.currentTarget.checked)}
                 />
-                <span>啟用二階審美批評家精修 (Pass 2)</span>
+                <span>{t('devices.enableCritic')}</span>
               </label>
               {#if aiPipeline.criticEnabled}
                 <span class="temp-badge">Temp {aiPipeline.criticTemperature.toFixed(2)}</span>
@@ -241,7 +242,7 @@
             </div>
             {#if aiPipeline.criticEnabled}
               <div class="slider-control-row">
-                <span class="slider-lbl">審校溫度</span>
+                <span class="slider-lbl">{t('devices.criticTempLabel')}</span>
                 <input
                   type="range"
                   min="0"
@@ -258,7 +259,7 @@
           <!-- Copywriting Engine + Temperature -->
           <div class="ai-setting-block hairline-all">
             <div class="setting-block-head">
-              <span class="setting-title">✍️ 策展文案引擎</span>
+              <span class="setting-title">{t('devices.copyEngineTitle')}</span>
               <span class="temp-badge">Temp {aiPipeline.copywritingTemperature.toFixed(2)}</span>
             </div>
             <div class="provider-model-row">
@@ -287,7 +288,7 @@
               </select>
             </div>
             <div class="slider-control-row">
-              <span class="slider-lbl">文案發散度 (0 紀實 ~ 1.2 詩意)</span>
+              <span class="slider-lbl">{t('devices.copyTempLabel')}</span>
               <input
                 type="range"
                 min="0"
@@ -303,8 +304,8 @@
           <!-- Default Granular AI Scope -->
           <div class="ai-setting-block hairline-all">
             <div class="setting-block-head">
-              <span class="setting-title">🎯 預設 AI 可調控維度</span>
-              <span class="hint-sub">精修前生效</span>
+              <span class="setting-title">{t('devices.defaultScopeTitle')}</span>
+              <span class="hint-sub">{t('devices.beforeRetouchHint')}</span>
             </div>
             <div class="scope-chip-grid">
               {#each SCOPE_ITEMS as item}
@@ -321,7 +322,7 @@
                   onclick={() => aiPipeline.toggleAiScope(item.key)}
                 >
                   <span class="scope-dot"></span>
-                  <span>{item.label}</span>
+                  <span>{t(item.labelKey)}</span>
                 </button>
               {/each}
             </div>
@@ -332,7 +333,7 @@
                   checked={Boolean(aiPipeline.aiScope.lockCropAspectRatio)}
                   onchange={() => aiPipeline.toggleAiScope('lockCropAspectRatio')}
                 />
-                <span>裁切時鎖定原圖長寬比例 (禁止強制變更為 16:9 / 4:5 等)</span>
+                <span>{t('devices.lockAspectRatio')}</span>
               </label>
             {/if}
           </div>
@@ -344,10 +345,10 @@
         <div class="section-top font-mono">
           <div class="status-indicator-box">
             <span class="material-symbols-outlined" style="font-size: 18px; color: var(--amber-highlight);">lock</span>
-            <span class="section-heading font-headline">AI 金鑰安全保險庫 (Key Vault)</span>
+            <span class="section-heading font-headline">{t('devices.vaultHeading')}</span>
           </div>
           <button type="button" class="tool-btn font-mono" onclick={onOpenVault}>
-            管理保險庫與金鑰
+            {t('devices.manageVaultBtn')}
           </button>
         </div>
 
@@ -356,21 +357,21 @@
             {#if prov.id === 'ollama'}
               <div class="vault-row">
                 <span class="vault-lbl">{prov.label}</span>
-                <span class="vault-val">端點：{KeyVaultService.getOllamaEndpoint()}（免金鑰）</span>
+                <span class="vault-val">{t('devices.ollamaEndpoint', { endpoint: KeyVaultService.getOllamaEndpoint() })}</span>
               </div>
             {:else}
               {@const st = prov.id === 'gemini' ? geminiKeyStatus : prov.id === 'groq' ? groqKeyStatus : KeyVaultService.getKeyStatus(prov.id)}
               <div class="vault-row">
                 <span class="vault-lbl">{prov.label}</span>
                 <span class={st.exists ? 'vault-val green' : 'vault-val dim'}>
-                  {st.exists ? `● 已配置 · ${formatVaultMode(st)}` : '○ 尚未設定'}
+                  {st.exists ? t('devices.vaultConfigured', { mode: formatVaultMode(st) }) : t('devices.vaultUnconfigured')}
                 </span>
               </div>
             {/if}
           {/each}
           <div class="vault-row">
-            <span class="vault-lbl">推論安全性</span>
-            <span class="vault-val">端對端本地加密存儲 · 絕不上傳至任何第三方中轉雲端</span>
+            <span class="vault-lbl">{t('devices.securityLabel')}</span>
+            <span class="vault-val">{t('devices.securityVal')}</span>
           </div>
         </div>
       </div>
@@ -382,12 +383,12 @@
             <div class="status-indicator-box">
               <span class="live-dot" class:active={cameraMounts.length > 0}></span>
               <span class="section-heading font-headline">
-                {cameraMounts.length > 0 ? '相機硬體已掛載' : '等待相機設備連線'}
+                {cameraMounts.length > 0 ? t('devices.cameraMounted') : t('devices.cameraWaiting')}
               </span>
             </div>
             <label class="auto-poll-label font-mono">
               <input type="checkbox" bind:checked={autoPolling} />
-              <span>USB 隨插即讀即時監聽</span>
+              <span>{t('devices.usbHotplugHint')}</span>
             </label>
           </div>
 
@@ -403,13 +404,13 @@
                   <div class="mount-details">
                     <div class="mount-name-row">
                       <span class="mount-vol font-headline">{mount.volume_name}</span>
-                      <span class="mount-tag">{mount.is_camera ? 'DCIM 攝影機' : '外接磁碟'}</span>
+                      <span class="mount-tag">{mount.is_camera ? t('devices.tagDcim') : t('devices.tagExternalDisk')}</span>
                     </div>
                     <div class="mount-path-row font-mono truncate">
-                      <span>掛載路徑：{mount.mount_path}</span>
+                      <span>{t('devices.mountPath', { path: mount.mount_path })}</span>
                       {#if mount.dcim_path}
                         <span class="divider">|</span>
-                        <span>DCIM 目錄：{mount.dcim_path}</span>
+                        <span>{t('devices.dcimPath', { path: mount.dcim_path })}</span>
                       {/if}
                     </div>
                   </div>
@@ -425,7 +426,7 @@
                         onclick={() => onLoadMount?.(mount)}
                       >
                         <span class="material-symbols-outlined" style="font-size: 14px;">input</span>
-                        <span>載入相片</span>
+                        <span>{t('devices.loadPhotos')}</span>
                       </button>
                     {/if}
                   </div>
@@ -436,13 +437,13 @@
             <div class="empty-device-hint font-mono hairline-all">
               <span class="material-symbols-outlined" style="font-size: 32px; color: var(--parchment-dim);">cable</span>
               <div class="hint-text">
-                <div class="hint-title">本機目前未偵測到相機掛載</div>
+                <div class="hint-title">{t('devices.noCameraTitle')}</div>
                 <div class="hint-desc">
-                  請以 USB/Type-C 傳輸線連接 Sony Alpha, Canon EOS, Nikon, Fujifilm 等相機並開啟電源，系統將自動秒級辨識並讀取相片。
+                  {t('devices.noCameraDesc')}
                 </div>
               </div>
               <button type="button" class="archival-btn-secondary" onclick={onRefreshMounts}>
-                手動重整掛載
+                {t('devices.manualRescan')}
               </button>
             </div>
           {/if}
@@ -787,7 +788,7 @@
     border-top: 1px solid rgba(255, 255, 255, 0.06);
   }
 
-  .web-banner-detail code {
+  .web-banner-detail :global(code) {
     color: var(--amber-highlight);
     background: rgba(0, 0, 0, 0.35);
     padding: 1px 5px;

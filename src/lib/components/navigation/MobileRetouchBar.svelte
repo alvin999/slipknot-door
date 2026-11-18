@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from "$lib/i18n";
+
   type MobileDrawer = "none" | "ai" | "tuning";
 
   interface Props {
@@ -44,7 +46,7 @@
     class="retouch-action-pill primary-ai"
     onclick={onRunAiAnalysis}
     disabled={isAiAnalyzing || isBatchAiRunning || !hasActivePhoto}
-    title="不開面板直接以目前設定執行一鍵 AI 顯影"
+    title={t("mobileRetouch.aiDevelopTitle")}
   >
     <span
       class="material-symbols-outlined"
@@ -57,10 +59,10 @@
     </span>
     <span>
       {isAiAnalyzing && !isBatchAiRunning
-        ? "顯影中..."
+        ? t("mobileRetouch.developing")
         : hasCustomStylePrompt
-          ? "依意境 AI"
-          : "一鍵 AI"}
+          ? t("mobileRetouch.aiWithVibe")
+          : t("mobileRetouch.aiOneClick")}
     </span>
   </button>
 
@@ -70,14 +72,16 @@
         type="button"
         class="retouch-action-pill danger-stop"
         onclick={onCancelBatchAi}
-        title="立即中止 AI 批次顯影"
+        title={t("mobileRetouch.stopBatchTitle")}
       >
         <span class="material-symbols-outlined" style="font-size: 15px;"
           >stop_circle</span
         >
         <span
-          >停止 ({batchProgress?.current || 1}/{batchProgress?.total ||
-            totalPhotos})</span
+          >{t("mobileRetouch.stopBatch", {
+            current: batchProgress?.current || 1,
+            total: batchProgress?.total || totalPhotos,
+          })}</span
         >
       </button>
     {:else}
@@ -86,12 +90,12 @@
         class="retouch-action-pill secondary-batch"
         onclick={onRequestBatchAi}
         disabled={isAiAnalyzing}
-        title="以預設或當前風格進行 AI 批次調色"
+        title={t("mobileRetouch.batchTitle")}
       >
         <span class="material-symbols-outlined" style="font-size: 15px;"
           >auto_mode</span
         >
-        <span>批次 ({flaggedCount > 0 ? flaggedCount : totalPhotos})</span>
+        <span>{t("mobileRetouch.batch", { count: flaggedCount > 0 ? flaggedCount : totalPhotos })}</span>
       </button>
     {/if}
   {/if}
@@ -101,12 +105,12 @@
     class="retouch-action-pill compact"
     class:active={activeMobileDrawer === "ai"}
     onclick={() => onToggleDrawer("ai")}
-    title="展開 AI 風格與意境關鍵字設定面板"
+    title={t("mobileRetouch.styleTitle")}
   >
     <span class="material-symbols-outlined" style="font-size: 15px;"
       >palette</span
     >
-    <span>風格</span>
+    <span>{t("mobileRetouch.style")}</span>
   </button>
 
   <button
@@ -114,10 +118,10 @@
     class="retouch-action-pill compact"
     class:active={activeMobileDrawer === "tuning"}
     onclick={() => onToggleDrawer("tuning")}
-    title="展開光影與色彩參數微調面板"
+    title={t("mobileRetouch.tuningTitle")}
   >
     <span class="material-symbols-outlined" style="font-size: 15px;">tune</span>
-    <span>微調</span>
+    <span>{t("mobileRetouch.tuning")}</span>
   </button>
 </div>
 

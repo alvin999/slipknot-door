@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import QuickLookModal from '$lib/components/QuickLookModal.svelte';
+  import { t } from '$lib/i18n';
   export interface CatalogPhotoItem {
     id: string;
     frameNo: string;
@@ -686,15 +687,15 @@
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
   role="region"
-  aria-label="膠卷目錄畫布"
+  aria-label={t('catalog.ariaLabel')}
 >
   <!-- 全視窗檔案拖曳懸浮感應罩 (Drag & Drop Full-viewport Ambient Glow) -->
   {#if isDragOver}
     <div class="drag-drop-overlay">
       <div class="drag-drop-modal hairline-all font-mono">
         <span class="material-symbols-outlined drag-drop-icon">cloud_upload</span>
-        <h3 class="drag-drop-title font-headline">釋放以載入相片或相卷資料夾</h3>
-        <p class="drag-drop-desc">將相片或相卷資料夾釋放至此即可載入暗房</p>
+        <h3 class="drag-drop-title font-headline">{t('catalog.dragDropTitle')}</h3>
+        <p class="drag-drop-desc">{t('catalog.dragDropDesc')}</p>
       </div>
     </div>
   {/if}
@@ -703,32 +704,32 @@
   {#if photos.length > 0}
     <header class="catalog-toolbar hairline-b font-mono">
       <div class="tool-group">
-        <span class="tool-title font-headline">膠卷目錄與挑圖矩陣</span>
+        <span class="tool-title font-headline">{t('catalog.toolbarTitle')}</span>
         <span class="counter-badge">{photos.length} FRAMES</span>
         {#if flaggedCount > 0}
-          <span class="counter-badge amber">已挑選 {flaggedCount} 幀</span>
+          <span class="counter-badge amber">{t('catalog.pickedCount', { count: flaggedCount })}</span>
         {/if}
       </div>
 
       <div class="tool-group actions">
         <!-- Vim Keyboard Shortcuts Hint: 在純觸控環境隱藏，外接鍵盤時動態點亮 -->
         {#if showKeyboardHints}
-        <div class="vim-nav-indicator hairline-all" title="鍵盤導航：HJKL 移動，P 挑選/取消，空白鍵大圖審查，Enter 一鍵進入精修">
+        <div class="vim-nav-indicator hairline-all" title={t('catalog.vimHintTitle')}>
           <span class="material-symbols-outlined" style="font-size: 13px; color: var(--amber-highlight);">keyboard</span>
           <span class="key-cap">HJKL</span>
-          <span class="key-desc">移動</span>
+          <span class="key-desc">{t('catalog.keyMove')}</span>
           <span class="key-sep">·</span>
           <span class="key-cap">P</span>
-          <span class="key-desc">挑選</span>
+          <span class="key-desc">{t('catalog.keyPick')}</span>
           <span class="key-sep">·</span>
           <span class="key-cap">Space</span>
-          <span class="key-desc">大圖</span>
+          <span class="key-desc">{t('catalog.keyQuickLook')}</span>
           <span class="key-sep">·</span>
           <span class="key-cap">Del</span>
-          <span class="key-desc">排除</span>
+          <span class="key-desc">{t('catalog.keyExclude')}</span>
           <span class="key-sep">·</span>
           <span class="key-cap">Enter</span>
-          <span class="key-desc">精修</span>
+          <span class="key-desc">{t('catalog.keyRetouch')}</span>
         </div>
         {/if}
 
@@ -737,10 +738,10 @@
           type="button" 
           class="tool-btn" 
           onclick={onPickDirectory} 
-          title="更換相片目錄 (重新載入相卷)"
+          title={t('catalog.changeDirTitle')}
         >
           <span class="material-symbols-outlined" style="font-size: 14px;">folder_open</span>
-          <span>更換目錄</span>
+          <span>{t('catalog.changeDir')}</span>
         </button>
 
         {#if onAppendDirectory}
@@ -748,10 +749,10 @@
             type="button" 
             class="tool-btn" 
             onclick={onAppendDirectory} 
-            title="追加資料夾底片至現有相卷"
+            title={t('catalog.appendDirTitle')}
           >
             <span class="material-symbols-outlined" style="font-size: 14px;">create_new_folder</span>
-            <span>追加目錄</span>
+            <span>{t('catalog.appendDir')}</span>
           </button>
         {/if}
 
@@ -760,10 +761,10 @@
             type="button" 
             class="tool-btn" 
             onclick={onAppendFiles} 
-            title="追加個別相片檔案至現有相卷"
+            title={t('catalog.appendFilesTitle')}
           >
             <span class="material-symbols-outlined" style="font-size: 14px;">add_photo_alternate</span>
-            <span>追加相片</span>
+            <span>{t('catalog.appendFiles')}</span>
           </button>
         {/if}
 
@@ -773,19 +774,19 @@
           class="tool-btn" 
           class:active={filterFlaggedOnly}
           onclick={() => filterFlaggedOnly = !filterFlaggedOnly}
-          title="僅顯示已標記挑圖底片"
+          title={t('catalog.filterPickedTitle')}
         >
           <span class="material-symbols-outlined" style="font-size: 14px;">bookmark</span>
-          <span>{filterFlaggedOnly ? '顯示全部' : '僅看已標記'}</span>
+          <span>{filterFlaggedOnly ? t('catalog.showAll') : t('catalog.pickedOnly')}</span>
         </button>
 
-        <button type="button" class="tool-btn" onclick={selectAll} title="將全部底片加入標記">
+        <button type="button" class="tool-btn" onclick={selectAll} title={t('catalog.selectAllTitle')}>
           <span class="material-symbols-outlined" style="font-size: 14px;">select_all</span>
-          <span>全選</span>
+          <span>{t('catalog.selectAll')}</span>
         </button>
-        <button type="button" class="tool-btn" onclick={clearAllFlags} title="清除所有標記">
+        <button type="button" class="tool-btn" onclick={clearAllFlags} title={t('catalog.clearFlagsTitle')}>
           <span class="material-symbols-outlined" style="font-size: 14px;">deselect</span>
-          <span>清除標記</span>
+          <span>{t('catalog.clearFlags')}</span>
         </button>
 
         <!-- RAW / JPEG Format Filter Selector -->
@@ -795,17 +796,17 @@
             class="density-btn" 
             class:active={formatFilter === 'all'}
             onclick={() => formatFilter = 'all'}
-            title="顯示全部（包含成對合併底片）"
+            title={t('catalog.formatAllTitle')}
             style="padding: 0 8px; width: auto;"
           >
-            全部
+            {t('catalog.formatAll')}
           </button>
           <button 
             type="button" 
             class="density-btn" 
             class:active={formatFilter === 'raw'}
             onclick={() => formatFilter = 'raw'}
-            title="僅顯示包含 RAW 格式之底片"
+            title={t('catalog.formatRawTitle')}
             style="padding: 0 8px; width: auto;"
           >
             RAW
@@ -815,7 +816,7 @@
             class="density-btn" 
             class:active={formatFilter === 'jpeg'}
             onclick={() => formatFilter = 'jpeg'}
-            title="僅顯示包含 JPEG 格式之底片"
+            title={t('catalog.formatJpgTitle')}
             style="padding: 0 8px; width: auto;"
           >
             JPG
@@ -829,7 +830,7 @@
             class="density-btn" 
             class:active={gridDensity === 'small'}
             onclick={() => gridDensity = 'small'}
-            title="緊密網格 (6 欄)"
+            title={t('catalog.gridDenseTitle')}
           >
             <span class="material-symbols-outlined" style="font-size: 14px;">grid_on</span>
           </button>
@@ -838,7 +839,7 @@
             class="density-btn" 
             class:active={gridDensity === 'medium'}
             onclick={() => gridDensity = 'medium'}
-            title="標準網格 (4 欄)"
+            title={t('catalog.gridStandardTitle')}
           >
             <span class="material-symbols-outlined" style="font-size: 14px;">grid_view</span>
           </button>
@@ -847,7 +848,7 @@
             class="density-btn" 
             class:active={gridDensity === 'large'}
             onclick={() => gridDensity = 'large'}
-            title="大圖檢視 (3 欄)"
+            title={t('catalog.gridLargeTitle')}
           >
             <span class="material-symbols-outlined" style="font-size: 14px;">splitscreen</span>
           </button>
@@ -858,10 +859,10 @@
             type="button"
             class="tool-btn key-guide-badge"
             onclick={onOpenVault}
-            title="尚未配置 AI 雲端金鑰，點擊前往保險庫設定"
+            title={t('catalog.noKeyTitle')}
           >
             <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">vpn_key_alert</span>
-            <span class="badge-text amber">未配置金鑰</span>
+            <span class="badge-text amber">{t('catalog.noKey')}</span>
           </button>
         {/if}
       </div>
@@ -932,7 +933,7 @@
                       if (selectedBatchIds.length === 0) exitMultiSelect();
                     }
                   }}
-                  title={selectedBatchIds.includes(photo.id) ? "取消選取此相片" : "選取此相片"}
+                  title={selectedBatchIds.includes(photo.id) ? t('catalog.deselectPhotoTitle') : t('catalog.selectPhotoTitle')}
                 >
                   <span class="material-symbols-outlined">
                     {selectedBatchIds.includes(photo.id) ? 'check_circle' : 'radio_button_unchecked'}
@@ -949,7 +950,7 @@
                     e.stopPropagation();
                     onRemovePhoto(photo);
                   }}
-                  title="從相卷排除此底片 (Delete / Backspace)"
+                  title={t('catalog.excludePhotoTitle')}
                 >
                   <span class="material-symbols-outlined">close</span>
                 </button>
@@ -963,7 +964,7 @@
                 ontouchstart={(e) => e.stopPropagation()}
                 ontouchend={(e) => e.stopPropagation()}
                 onclick={(e) => toggleFlag(photo, e)}
-                title="標記挑選此幀"
+                title={t('catalog.pickPhotoTitle')}
               >
                 <span class="material-symbols-outlined">
                   {photo.flagged ? 'bookmark' : 'bookmark_border'}
@@ -996,23 +997,23 @@
             <div class="film-card-footer font-mono">
               <span class="filename-text truncate">
                 {#if photo.formatType === 'pair'}
-                  <span class="format-tag-inline pair" title="RAW + JPEG 雙格式">RAW+JPG</span>
+                  <span class="format-tag-inline pair" title={t('catalog.formatPairTitle')}>RAW+JPG</span>
                 {:else if photo.formatType === 'raw'}
-                  <span class="format-tag-inline raw" title="RAW 光學數位底片">RAW</span>
+                  <span class="format-tag-inline raw" title={t('catalog.formatRawBadgeTitle')}>RAW</span>
                 {:else if photo.formatType === 'jpeg'}
-                  <span class="format-tag-inline jpg" title="JPEG 直出底片">JPG</span>
+                  <span class="format-tag-inline jpg" title={t('catalog.formatJpgBadgeTitle')}>JPG</span>
                 {/if}
                 {photo.filename}
               </span>
               {#if showKeyboardHints}
-                <span class="hint-dblclick">雙擊精修 ↵</span>
+                <span class="hint-dblclick">{t('catalog.dblClickHint')}</span>
               {:else if isMultiSelectMode}
                 <span class="hint-dblclick" class:amber={selectedBatchIds.includes(photo.id)}>
-                  {selectedBatchIds.includes(photo.id) ? '已選取 ✓' : '輕點或滑動選取'}
+                  {selectedBatchIds.includes(photo.id) ? t('catalog.touchSelected') : t('catalog.touchTapOrSwipe')}
                 </span>
               {:else}
                 <span class="hint-dblclick" class:amber={photo.flagged}>
-                  {photo.flagged ? '已挑選 🔖' : '輕點精修 · 長按多選'}
+                  {photo.flagged ? t('catalog.touchPicked') : t('catalog.touchTapOrHold')}
                 </span>
               {/if}
             </div>
@@ -1022,10 +1023,10 @@
     {:else if photos.length > 0 && filterFlaggedOnly}
       <div class="catalog-empty-box hairline-all font-mono">
         <span class="material-symbols-outlined empty-icon">bookmark_border</span>
-        <h4 class="empty-title">目前無標記底片</h4>
-        <p class="empty-sub">點擊底片右上角書籤圖示進行標記挑圖，或關閉「僅看已標記」過濾器。</p>
+        <h4 class="empty-title">{t('catalog.emptyPickedTitle')}</h4>
+        <p class="empty-sub">{t('catalog.emptyPickedSub')}</p>
         <button type="button" class="archival-btn-secondary" onclick={() => filterFlaggedOnly = false}>
-          顯示所有相卷底片
+          {t('catalog.showAllRoll')}
         </button>
       </div>
     {:else}
@@ -1037,7 +1038,7 @@
             <div class="crest-halo"></div>
           </div>
 
-          <h2 class="hero-title font-headline">大相無形</h2>
+          <h2 class="hero-title font-headline">{t('catalog.heroTitle')}</h2>
           <p class="hero-tagline font-mono">SLIPKNOTTING ON HEAVEN'S DOOR</p>
 
           <!-- 核心拖放艙 (Curatorial Dropzone Pod) -->
@@ -1056,14 +1057,14 @@
             </div>
             <div class="pod-meta-info">
               <div class="pod-headline font-headline">
-                {isLoadingPhotos ? '正在解析光學 RAW / JPG 底片...' : '開啟相片目錄，或將資料夾 / 檔案拖放至此'}
+                {isLoadingPhotos ? t('catalog.heroLoading') : t('catalog.heroPrompt')}
               </div>
               <div class="pod-formats">
-                點擊瀏覽選取，或直接拖放相片至暗房
+                {t('catalog.heroSub')}
               </div>
             </div>
             <div class="pod-action-hint">
-              <span>選取相卷 ↵</span>
+              <span>{t('catalog.heroPickRoll')}</span>
             </div>
           </div>
 
@@ -1079,10 +1080,10 @@
               <div class="camera-pod-left">
                 <span class="status-pulse-dot"></span>
                 <span class="material-symbols-outlined" style="font-size: 18px; color: #5eead4;">photo_camera</span>
-                <span class="camera-pod-name">已偵測到外接相機：{cameraMounts[0].volume_name}</span>
-                <span class="camera-pod-count">({cameraMounts[0].file_count} 幀 RAW)</span>
+                <span class="camera-pod-name">{t('catalog.cameraDetected', { volume: cameraMounts[0].volume_name })}</span>
+                <span class="camera-pod-count">{t('catalog.cameraCount', { count: cameraMounts[0].file_count })}</span>
               </div>
-              <span class="camera-pod-action">一鍵載入相機相卷 →</span>
+              <span class="camera-pod-action">{t('catalog.cameraOneClick')}</span>
             </div>
           {/if}
 
@@ -1090,23 +1091,23 @@
           <div class="hero-sub-actions font-mono">
             <button type="button" class="hero-ghost-btn" onclick={onRefreshMounts}>
               <span class="material-symbols-outlined" style="font-size: 15px;">cable</span>
-              <span>重新偵測 USB/Type-C 相機連線</span>
+              <span>{t('catalog.rescanCamera')}</span>
             </button>
             {#if !hasApiKey && onOpenVault}
               <button type="button" class="hero-ghost-btn amber" onclick={onOpenVault}>
                 <span class="material-symbols-outlined" style="font-size: 15px;">vpn_key</span>
-                <span>配置 AI 雲端金鑰 (選填)</span>
+                <span>{t('catalog.configAiKey')}</span>
               </button>
             {/if}
           </div>
 
           <!-- 系統工藝指標遙測條 (Curatorial Specifications) -->
           <div class="hero-specs-telemetry font-mono">
-            <span>50MS 內嵌 JPEG 零延遲解碼</span>
+            <span>{t('catalog.specDecode')}</span>
             <span class="spec-sep">/</span>
-            <span>WEBGL 2.0 3D LUT 色彩著色器</span>
+            <span>{t('catalog.specWebgl')}</span>
             <span class="spec-sep">/</span>
-            <span>LOCAL-FIRST 本機優先離線運作</span>
+            <span>{t('catalog.specLocal')}</span>
           </div>
         </div>
       </div>
@@ -1119,9 +1120,9 @@
       <div class="batch-bar-left">
         <span class="material-symbols-outlined batch-icon">checklist</span>
         <span class="batch-count-label">
-        已選取 <strong>{selectedBatchIds.length}</strong> 幀
+        {t('catalog.batchSelectedPrefix')} <strong>{selectedBatchIds.length}</strong> {t('catalog.batchSelectedSuffix')}
         {#if isSwipeSelecting}
-          <span class="swipe-indicator">⚡ 滑動連選中</span>
+          <span class="swipe-indicator">{t('catalog.swipeSelecting')}</span>
         {/if}
       </span>
       </div>
@@ -1131,20 +1132,20 @@
           class="batch-tool-btn primary" 
           onclick={() => batchSetFlagged(true)} 
           disabled={selectedBatchIds.length === 0}
-          title="將所選相片批次標記為挑選"
+          title={t('catalog.batchFlagTitle')}
         >
           <span class="material-symbols-outlined">bookmark</span>
-          <span>批次標記</span>
+          <span>{t('catalog.batchFlag')}</span>
         </button>
         <button 
           type="button" 
           class="batch-tool-btn" 
           onclick={() => batchSetFlagged(false)} 
           disabled={selectedBatchIds.length === 0}
-          title="取消所選相片的標記"
+          title={t('catalog.batchUnflagTitle')}
         >
           <span class="material-symbols-outlined">bookmark_remove</span>
-          <span>取消標記</span>
+          <span>{t('catalog.batchUnflag')}</span>
         </button>
         <button 
           type="button" 
@@ -1154,7 +1155,7 @@
           <span class="material-symbols-outlined">
             {selectedBatchIds.length === displayedPhotos.length ? 'deselect' : 'select_all'}
           </span>
-          <span>{selectedBatchIds.length === displayedPhotos.length ? '取消全選' : '全選'}</span>
+          <span>{selectedBatchIds.length === displayedPhotos.length ? t('catalog.deselectAll') : t('catalog.selectAll')}</span>
         </button>
         {#if onBatchRemovePhotos}
           <button 
@@ -1167,10 +1168,10 @@
               }
             }}
             disabled={selectedBatchIds.length === 0}
-            title="將所選相片批次自相卷排除"
+            title={t('catalog.batchExcludeTitle')}
           >
             <span class="material-symbols-outlined">delete_sweep</span>
-            <span>批次排除 ({selectedBatchIds.length})</span>
+            <span>{t('catalog.batchExclude', { count: selectedBatchIds.length })}</span>
           </button>
         {/if}
         <button 
@@ -1178,7 +1179,7 @@
           class="batch-done-btn" 
           onclick={exitMultiSelect}
         >
-          <span>完成</span>
+          <span>{t('catalog.done')}</span>
         </button>
       </div>
     </div>
