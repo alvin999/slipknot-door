@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t, type TranslationKey } from "$lib/i18n";
+
   type ModuleTab = "catalog" | "retouch" | "profiles" | "export" | "devices";
 
   interface Props {
@@ -8,16 +10,21 @@
     onSelectTab: (tab: ModuleTab) => void;
   }
 
-  let { activeTab, flaggedCount, isHidden = false, onSelectTab }: Props =
-    $props();
+  let {
+    activeTab,
+    flaggedCount,
+    isHidden = false,
+    onSelectTab,
+  }: Props = $props();
 
-  const navItems: { id: ModuleTab; icon: string; label: string }[] = [
-    { id: "catalog", icon: "grid_view", label: "挑圖" },
-    { id: "retouch", icon: "photo_filter", label: "精修" },
-    { id: "export", icon: "ios_share", label: "導出/分享" },
-    { id: "profiles", icon: "palette", label: "風格庫" },
-    { id: "devices", icon: "settings", label: "設定" },
-  ];
+  const navItems: { id: ModuleTab; icon: string; labelKey: TranslationKey }[] =
+    [
+      { id: "catalog", icon: "grid_view", labelKey: "mobileNav.catalog" },
+      { id: "retouch", icon: "photo_filter", labelKey: "mobileNav.retouch" },
+      { id: "export", icon: "ios_share", labelKey: "mobileNav.export" },
+      { id: "profiles", icon: "palette", labelKey: "mobileNav.profiles" },
+      { id: "devices", icon: "settings", labelKey: "mobileNav.devices" },
+    ];
 </script>
 
 <!-- 行動端底部導航列 (Mobile Bottom Navigation Bar) -->
@@ -33,7 +40,7 @@
       onclick={() => onSelectTab(item.id)}
     >
       <span class="material-symbols-outlined">{item.icon}</span>
-      <span class="nav-text">{item.label}</span>
+      <span class="nav-text">{t(item.labelKey)}</span>
       {#if item.id === "catalog" && flaggedCount > 0}
         <span class="nav-badge">{flaggedCount}</span>
       {/if}
@@ -103,4 +110,3 @@
     }
   }
 </style>
-

@@ -1,5 +1,7 @@
 # 大相無形 / Slipknotting on Heaven's Door
 
+**繁體中文** | [English](README.en.md) | [日本語](README.ja.md)
+
 > *“It's gettin' dark, too dark for me to see / I can't shoot them anymore.”*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

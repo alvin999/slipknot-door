@@ -32,7 +32,7 @@
   --parchment-ghost: #3a3834;
 
   /* Typography */
-  --font-headline: "Noto Serif TC", "Noto Serif", Georgia, serif;
+  --font-headline: "Noto Serif TC", "Noto Serif JP", "Noto Serif", Georgia, serif;
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --font-icon: "Material Symbols Outlined";

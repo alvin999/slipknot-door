@@ -1,7 +1,12 @@
 <script lang="ts">
-  import { IngestionService, type CameraMountInfo, type RecentDirectoryEntry } from '$lib/services/ingestionService';
+  import {
+    IngestionService,
+    type CameraMountInfo,
+    type RecentDirectoryEntry,
+  } from "$lib/services/ingestionService";
+  import { i18nStore, LOCALE_LABELS, LOCALE_SHORT_LABELS, SUPPORTED_LOCALES, t } from "$lib/i18n";
 
-  type ModuleTab = 'catalog' | 'retouch' | 'profiles' | 'export' | 'devices';
+  type ModuleTab = "catalog" | "retouch" | "profiles" | "export" | "devices";
 
   interface Props {
     activeTab: ModuleTab;
@@ -11,7 +16,7 @@
     flaggedCount: number;
     totalPhotos: number;
     activeQueueLength: number;
-    exportMode: 'modeA' | 'modeB';
+    exportMode: "modeA" | "modeB";
     isExporting: boolean;
     currentDirectoryName?: string;
     onSelectMount: () => void;
@@ -40,7 +45,7 @@
     activeQueueLength,
     exportMode,
     isExporting,
-    currentDirectoryName = '',
+    currentDirectoryName = "",
     onSelectMount,
     onPickDirectory,
     onAppendDirectory,
@@ -54,22 +59,23 @@
     onTriggerExport,
     onOpenHelp,
     onGoToProfiles,
-    onGoToDevices
+    onGoToDevices,
   }: Props = $props();
 
   let isDirMenuOpen = $state<boolean>(false);
+  let isLocaleMenuOpen = $state<boolean>(false);
   let recentDirs = $state<RecentDirectoryEntry[]>([]);
   let isMobile = $state<boolean>(false);
 
   $effect(() => {
-    if (typeof window === 'undefined') return;
-    const mq = window.matchMedia('(max-width: 768px)');
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 768px)");
     isMobile = mq.matches;
     const handleChange = (e: MediaQueryListEvent) => {
       isMobile = e.matches;
     };
-    mq.addEventListener?.('change', handleChange);
-    return () => mq.removeEventListener?.('change', handleChange);
+    mq.addEventListener?.("change", handleChange);
+    return () => mq.removeEventListener?.("change", handleChange);
   });
 
   function toggleDirMenu() {
@@ -96,10 +102,16 @@
 
 <header class="top-nav hairline-b">
   <div class="brand-block">
-    <img src="/brand-logo.png" alt="大相無形 Logo" class="brand-icon-img" />
+    <img
+      src="/brand-logo.png"
+      alt={t("nav.brandLogoAlt")}
+      class="brand-icon-img"
+    />
     <div class="brand-titles">
-      <h1 class="brand-title font-headline">大相無形</h1>
-      <span class="brand-sub font-mono">SLIPKNOTTING ON HEAVEN'S DOOR · 0.1.0</span>
+      <h1 class="brand-title font-headline">{t("nav.brandTitle")}</h1>
+      <span class="brand-sub font-mono"
+        >SLIPKNOTTING ON HEAVEN'S DOOR · 0.1.0</span
+      >
     </div>
   </div>
 
@@ -111,12 +123,17 @@
       role="button"
       tabindex="0"
       onclick={handleTelemetryClick}
-      onkeydown={(e) => { if (e.key === 'Enter') handleTelemetryClick(e as any); }}
+      onkeydown={(e) => {
+        if (e.key === "Enter") handleTelemetryClick(e as any);
+      }}
       title={cameraMounts.length > 0
-        ? `已偵測到外接相機 [${cameraMounts[0].volume_name}] (${cameraMounts[0].file_count} 幀 RAW)，點擊優先載入相機，或點右側 ▾ 展開選單`
+        ? t("nav.cameraDetectedTitle", {
+            volume: cameraMounts[0].volume_name,
+            count: cameraMounts[0].file_count,
+          })
         : totalPhotos > 0
-          ? '點擊展開目錄與來源管理選單 (更換目錄、追加相片或查看歷史)'
-          : '點擊選取相片目錄 (支援 RAW / JPG)'}
+          ? t("nav.dirMenuTitle")
+          : t("nav.selectDirTitle")}
     >
       <span
         class="status-dot"
@@ -126,42 +143,56 @@
       ></span>
       <span class="device-name font-mono">
         {#if totalPhotos > 0 && cameraMounts.length > 0}
-          📁 {currentDirectoryName || '目前目錄'} // 📷 {cameraMounts[0].volume_name}
+          📁 {currentDirectoryName || t("nav.currentDirFallback")} // 📷 {cameraMounts[0]
+            .volume_name}
         {:else if totalPhotos > 0}
-          📁 {currentDirectoryName || '相片目錄'}
+          📁 {currentDirectoryName || t("nav.photoDirFallback")}
         {:else if cameraMounts.length > 0}
-          📷 {cameraMounts[0].volume_name} // 一鍵載入
+          📷 {cameraMounts[0].volume_name} // {t("nav.cameraOneClick")}
         {:else}
-          📁 開啟相片目錄 / 相機
+          📁 {t("nav.openDirOrCamera")}
         {/if}
       </span>
       <span class="divider">|</span>
       <span class="device-metric font-mono">
         {#if cameraMounts.length > 0}
-          <span class="camera-badge">相機 {cameraMounts[0].file_count} 幀 ↵</span>
+          <span class="camera-badge"
+            >{t("nav.cameraBadge", { count: cameraMounts[0].file_count })}</span
+          >
         {:else if totalPhotos > 0}
-          已載入 {totalPhotos} 幀
+          {t("nav.loadedCount", { count: totalPhotos })}
         {:else}
-          選取目錄
+          {t("nav.selectDir")}
         {/if}
       </span>
       <button
         type="button"
         class="dropdown-chevron font-mono"
         onclick={handleDropdownTriggerClick}
-        title="展開相卷目錄與來源選單"
-        aria-label="展開相卷來源選單"
+        title={t("nav.expandDirMenu")}
+        aria-label={t("nav.expandDirMenuAria")}
       >
         ▾
       </button>
     </div>
 
     {#if isDirMenuOpen}
-      <div class="dir-menu-backdrop" onclick={() => isDirMenuOpen = false} role="presentation"></div>
+      <div
+        class="dir-menu-backdrop"
+        onclick={() => (isDirMenuOpen = false)}
+        role="presentation"
+      ></div>
       <div class="dir-dropdown-menu hairline-all font-mono" role="menu">
         <div class="dir-menu-header">
-          <span class="dir-menu-title font-headline">相卷來源管理</span>
-          <button type="button" class="dir-menu-close" onclick={() => isDirMenuOpen = false} title="關閉">✕</button>
+          <span class="dir-menu-title font-headline"
+            >{t("nav.dirMenuHeader")}</span
+          >
+          <button
+            type="button"
+            class="dir-menu-close"
+            onclick={() => (isDirMenuOpen = false)}
+            title={t("nav.close")}>✕</button
+          >
         </div>
 
         <div class="dir-menu-section">
@@ -176,8 +207,8 @@
           >
             <span class="material-symbols-outlined icon">folder_open</span>
             <div class="item-text">
-              <span class="item-title">開啟新目錄 (更換相卷)</span>
-              <span class="item-desc">選擇資料夾並重新載入 RAW / JPG 底片</span>
+              <span class="item-title">{t("nav.openNewDir")}</span>
+              <span class="item-desc">{t("nav.openNewDirDesc")}</span>
             </div>
           </button>
 
@@ -190,10 +221,12 @@
                 onAppendDirectory();
               }}
             >
-              <span class="material-symbols-outlined icon">create_new_folder</span>
+              <span class="material-symbols-outlined icon"
+                >create_new_folder</span
+              >
               <div class="item-text">
-                <span class="item-title">追加整個資料夾</span>
-                <span class="item-desc">將另一個目錄底片合併至當前相卷</span>
+                <span class="item-title">{t("nav.appendDir")}</span>
+                <span class="item-desc">{t("nav.appendDirDesc")}</span>
               </div>
             </button>
           {/if}
@@ -207,10 +240,12 @@
                 onAppendFiles();
               }}
             >
-              <span class="material-symbols-outlined icon">add_photo_alternate</span>
+              <span class="material-symbols-outlined icon"
+                >add_photo_alternate</span
+              >
               <div class="item-text">
-                <span class="item-title">追加個別相片檔案</span>
-                <span class="item-desc">挑選單張或多張相片檔案合併至相卷</span>
+                <span class="item-title">{t("nav.appendFiles")}</span>
+                <span class="item-desc">{t("nav.appendFilesDesc")}</span>
               </div>
             </button>
           {/if}
@@ -218,7 +253,7 @@
 
         {#if cameraMounts.length > 0}
           <div class="dir-menu-divider"></div>
-          <div class="dir-menu-label">偵測到相機連線</div>
+          <div class="dir-menu-label">{t("nav.cameraSection")}</div>
           <div class="dir-menu-section">
             {#each cameraMounts as mount}
               <button
@@ -233,7 +268,11 @@
                 <span class="material-symbols-outlined icon">photo_camera</span>
                 <div class="item-text">
                   <span class="item-title">{mount.volume_name}</span>
-                  <span class="item-desc">{mount.file_count} 幀 RAW · 隨插即讀載入</span>
+                  <span class="item-desc"
+                    >{t("nav.cameraMountDesc", {
+                      count: mount.file_count,
+                    })}</span
+                  >
                 </div>
               </button>
             {/each}
@@ -242,7 +281,7 @@
 
         {#if recentDirs.length > 0}
           <div class="dir-menu-divider"></div>
-          <div class="dir-menu-label">最近開啟目錄</div>
+          <div class="dir-menu-label">{t("nav.recentDirs")}</div>
           <div class="dir-menu-section recent-list">
             {#each recentDirs as dir}
               <button
@@ -250,7 +289,8 @@
                 class="dir-menu-item recent-item"
                 onclick={() => {
                   isDirMenuOpen = false;
-                  if (onSelectRecentDirectory) onSelectRecentDirectory(dir.path);
+                  if (onSelectRecentDirectory)
+                    onSelectRecentDirectory(dir.path);
                 }}
                 title={dir.path}
               >
@@ -273,16 +313,20 @@
     <button
       type="button"
       class="stepper-step"
-      class:active={activeTab === 'catalog'}
+      class:active={activeTab === "catalog"}
       onclick={onGoToCatalog}
-      title="按鈕一：目錄挑選底片"
+      title={t("nav.step1Title")}
     >
       <span class="step-num">01</span>
-      <span class="step-label">目錄挑選</span>
+      <span class="step-label">{t("nav.catalog")}</span>
       {#if flaggedCount > 0}
-        <span class="step-tag amber">{flaggedCount} 幀</span>
+        <span class="step-tag amber"
+          >{t("nav.framesCount", { count: flaggedCount })}</span
+        >
       {:else if totalPhotos > 0}
-        <span class="step-tag">{totalPhotos} 幀</span>
+        <span class="step-tag"
+          >{t("nav.framesCount", { count: totalPhotos })}</span
+        >
       {/if}
     </button>
 
@@ -292,15 +336,16 @@
     <button
       type="button"
       class="stepper-step"
-      class:active={activeTab === 'retouch'}
+      class:active={activeTab === "retouch"}
       onclick={onGoToRetouch}
-      title="按鈕二：單張暗房精修（若有選取則僅出現選取底片，未選取則全部顯示）"
+      title={t("nav.step2Title")}
     >
       <span class="step-num">02</span>
-      <span class="step-label">一鍵精修</span>
+      <span class="step-label">{t("nav.retouch")}</span>
       {#if activeQueueLength > 0}
         <span class="step-tag" class:amber={flaggedCount > 0}>
-          {activeQueueLength} 幀 {flaggedCount > 0 ? '(挑選)' : '(全量)'}
+          {t("nav.framesCount", { count: activeQueueLength })}
+          {flaggedCount > 0 ? t("nav.pickedMode") : t("nav.allMode")}
         </span>
       {/if}
     </button>
@@ -311,66 +356,78 @@
     <button
       type="button"
       class="stepper-step"
-      class:active={activeTab === 'export'}
+      class:active={activeTab === "export"}
       onclick={onGoToExport}
-      title="按鈕三：批次導出管線"
+      title={t("nav.step3Title")}
     >
       <span class="step-num">03</span>
-      <span class="step-label">批次導出</span>
+      <span class="step-label">{t("nav.export")}</span>
       {#if activeQueueLength > 0}
-        <span class="step-tag">{activeQueueLength} 幀</span>
+        <span class="step-tag"
+          >{t("nav.framesCount", { count: activeQueueLength })}</span
+        >
       {/if}
     </button>
   </div>
 
   <!-- Right Controls: Dynamic Sequential Action Button -->
   <div class="top-actions">
-    {#if activeTab === 'catalog'}
+    {#if activeTab === "catalog"}
       {#if totalPhotos > 0}
         <!-- STEP 1 PRIMARY ACTION (僅在已載入照片時顯示) -->
         <button
           class="archival-btn-primary stepper-cta amber-glow"
           onclick={onGoToRetouch}
-          title="步驟一動作：一鍵進入暗房精修（若有選取則僅精修選取幀，未選取則精修全部）"
+          title={t("nav.step1ActionTitle")}
         >
-          <span class="material-symbols-outlined" style="font-size: 16px;">tonality</span>
+          <span class="material-symbols-outlined" style="font-size: 16px;"
+            >tonality</span
+          >
           <span class="btn-text-full">
             {#if flaggedCount > 0}
-              一鍵精修 ({flaggedCount} 幀) →
+              {t("nav.retouchSelectedFull", { count: flaggedCount })}
             {:else}
-              一鍵精修 (全部) →
+              {t("nav.retouchAllFull")}
             {/if}
           </span>
           <span class="btn-text-short">
             {#if flaggedCount > 0}
-              精修 ({flaggedCount}) →
+              {t("nav.retouchSelectedShort", { count: flaggedCount })}
             {:else}
-              精修 (全) →
+              {t("nav.retouchAllShort")}
             {/if}
           </span>
         </button>
       {/if}
-    {:else if activeTab === 'retouch'}
+    {:else if activeTab === "retouch"}
       {#if activeQueueLength > 0}
         <button
           class="archival-btn-secondary"
           onclick={onOpenQuickExport}
-          title="單張即時出圖 (⌘E)"
+          title={t("nav.quickExport")}
           style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-xs); border: 1px solid var(--hairline-slate); background: var(--surface-panel); color: var(--amber-highlight); cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;"
         >
-          <span class="material-symbols-outlined" style="font-size: 15px;">bolt</span>
-          <span class="btn-text-full">即時出圖 (⌘E)</span>
-          <span class="btn-text-short">即時出圖</span>
+          <span class="material-symbols-outlined" style="font-size: 15px;"
+            >bolt</span
+          >
+          <span class="btn-text-full">{t("nav.quickExport")}</span>
+          <span class="btn-text-short">{t("nav.quickExportShort")}</span>
         </button>
         <!-- STEP 2 PRIMARY ACTION (僅在精修佇列有照片時顯示) -->
         <button
           class="archival-btn-primary stepper-cta cyan-glow"
           onclick={onGoToExport}
-          title="步驟二動作：完成調色，前往批次導出"
+          title={t("nav.step2ActionTitle")}
         >
-          <span class="material-symbols-outlined" style="font-size: 16px;">output_circle</span>
-          <span class="btn-text-full">完成精修，前往導出 ({activeQueueLength} 幀) →</span>
-          <span class="btn-text-short">導出 ({activeQueueLength}) →</span>
+          <span class="material-symbols-outlined" style="font-size: 16px;"
+            >output_circle</span
+          >
+          <span class="btn-text-full"
+            >{t("nav.goToExportFull", { count: activeQueueLength })}</span
+          >
+          <span class="btn-text-short"
+            >{t("nav.goToExportShort", { count: activeQueueLength })}</span
+          >
         </button>
       {/if}
     {:else}
@@ -380,13 +437,21 @@
           class="archival-btn-primary stepper-cta"
           onclick={onTriggerExport}
           disabled={isExporting}
-          title="步驟三動作：執行批次出圖管線"
+          title={t("nav.step3ActionTitle")}
         >
           <span class="material-symbols-outlined" style="font-size: 16px;">
-            {exportMode === 'modeA' ? 'bolt' : 'hd'}
+            {exportMode === "modeA" ? "bolt" : "hd"}
           </span>
-          <span class="btn-text-full">{isExporting ? '匯出中...' : `批次導出 (${activeQueueLength} 幀) ⚡`}</span>
-          <span class="btn-text-short">{isExporting ? '匯出中' : `導出 (${activeQueueLength}) ⚡`}</span>
+          <span class="btn-text-full"
+            >{isExporting
+              ? t("nav.exporting")
+              : t("nav.batchExportFull", { count: activeQueueLength })}</span
+          >
+          <span class="btn-text-short"
+            >{isExporting
+              ? t("nav.exporting")
+              : t("nav.batchExportShort", { count: activeQueueLength })}</span
+          >
         </button>
       {/if}
     {/if}
@@ -396,10 +461,10 @@
       <button
         type="button"
         class="help-trigger-btn hairline-all font-mono mobile-hide-shortcut"
-        class:active={activeTab === 'profiles'}
+        class:active={activeTab === "profiles"}
         onclick={onGoToProfiles}
-        title="3D LUT 風格庫"
-        aria-label="3D LUT 風格庫"
+        title={t("nav.profiles")}
+        aria-label={t("nav.profiles")}
       >
         <span class="material-symbols-outlined icon">palette</span>
       </button>
@@ -409,22 +474,64 @@
       <button
         type="button"
         class="help-trigger-btn hairline-all font-mono mobile-hide-shortcut"
-        class:active={activeTab === 'devices'}
+        class:active={activeTab === "devices"}
         onclick={onGoToDevices}
-        title="系統、AI 與設備設定"
-        aria-label="系統、AI 與設備設定"
+        title={t("nav.devices")}
+        aria-label={t("nav.devices")}
       >
         <span class="material-symbols-outlined icon">settings</span>
       </button>
     {/if}
+
+    <!-- Language Switcher Dropdown -->
+    <div class="locale-menu-wrapper">
+      <button
+        type="button"
+        class="locale-trigger-btn hairline-all font-mono"
+        class:active={isLocaleMenuOpen}
+        onclick={() => { isLocaleMenuOpen = !isLocaleMenuOpen; }}
+        title={t("locale.label")}
+        aria-label={t("locale.label")}
+        aria-expanded={isLocaleMenuOpen}
+        aria-haspopup="menu"
+      >
+        <span class="material-symbols-outlined locale-icon">language</span>
+        <span class="locale-code">{LOCALE_SHORT_LABELS[i18nStore.locale]}</span>
+        <span class="locale-caret">▾</span>
+      </button>
+
+      {#if isLocaleMenuOpen}
+        <div class="locale-menu-backdrop" onclick={() => { isLocaleMenuOpen = false; }} role="presentation"></div>
+        <div class="locale-dropdown-menu hairline-all font-mono" role="menu">
+          {#each SUPPORTED_LOCALES as loc}
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={i18nStore.locale === loc}
+              class="locale-menu-item"
+              class:selected={i18nStore.locale === loc}
+              onclick={() => {
+                i18nStore.setLocale(loc);
+                isLocaleMenuOpen = false;
+              }}
+            >
+              <span class="locale-item-label">{LOCALE_LABELS[loc]}</span>
+              {#if i18nStore.locale === loc}
+                <span class="material-symbols-outlined locale-check">check</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
 
     <!-- Help & Shortcuts Button -->
     <button
       type="button"
       class="help-trigger-btn hairline-all font-mono"
       onclick={onOpenHelp}
-      title={isMobile ? '系統操作說明' : '系統操作與鍵盤快捷鍵指南 (按 ?)'}
-      aria-label={isMobile ? '系統操作說明' : '系統操作與鍵盤快捷鍵指南'}
+      title={isMobile ? t("nav.help") : t("nav.helpDesktop")}
+      aria-label={isMobile ? t("nav.help") : t("nav.helpAriaDesktop")}
     >
       <span class="material-symbols-outlined icon">help_outline</span>
     </button>
@@ -440,6 +547,98 @@
     justify-content: space-between;
     padding: 0 16px;
     flex-shrink: 0;
+  }
+
+  .locale-menu-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .locale-trigger-btn {
+    height: 30px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    background-color: var(--surface-elevated);
+    color: var(--parchment-muted);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      background-color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .locale-trigger-btn:hover,
+  .locale-trigger-btn.active {
+    color: var(--parchment-bright);
+    background-color: var(--surface-overlay);
+  }
+
+  .locale-icon {
+    font-size: 14px;
+  }
+
+  .locale-caret {
+    font-size: 10px;
+    opacity: 0.75;
+  }
+
+  .locale-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 98;
+  }
+
+  .locale-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 140px;
+    background-color: var(--surface-elevated);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    z-index: 99;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .locale-menu-item {
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    color: var(--parchment-muted);
+    font-size: 12px;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+  }
+
+  .locale-menu-item:hover {
+    background-color: var(--surface-overlay);
+    color: var(--parchment-bright);
+  }
+
+  .locale-menu-item.selected {
+    color: var(--amber-highlight);
+    background-color: rgba(212, 163, 115, 0.08);
+  }
+
+  .locale-check {
+    font-size: 14px;
   }
 
   .brand-block {
@@ -846,7 +1045,11 @@
   }
 
   .amber-glow {
-    background: linear-gradient(135deg, var(--amber-highlight), #d48b3b) !important;
+    background: linear-gradient(
+      135deg,
+      var(--amber-highlight),
+      #d48b3b
+    ) !important;
     color: #121214 !important;
     border: 1px solid rgba(226, 157, 82, 0.9) !important;
     box-shadow: 0 0 14px rgba(226, 157, 82, 0.3);
@@ -946,4 +1149,3 @@
     }
   }
 </style>
-
