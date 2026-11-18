@@ -29,6 +29,7 @@ import {
 } from '../../types/photo';
 import type { AiSceneDecision } from '../aiSceneService';
 import type { CustomLutRecord } from '../customLutService';
+import { getAiResponseLanguageInstruction, i18nStore } from '../../i18n';
 
 export interface StyleKeywordEntry {
   id: StyleKeywordId;
@@ -672,6 +673,13 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
       ? `,\n  "lut_intensity": "number between 0.0 and 1.0"`
       : '';
 
+  const langName =
+    i18nStore.locale === 'en'
+      ? 'English'
+      : i18nStore.locale === 'ja'
+        ? 'Japanese'
+        : 'Traditional Chinese';
+
   return `You are a radiometric calibration and volumetric color grading specialist.
 The geometric frame and perspective have already been stabilized. Analyze the optical luminance distribution and chromatic harmony of this image.
 EXIF: ISO ${exif.iso || 'N/A'}, Shutter ${exif.shutterSpeed || 'N/A'}, Aperture ${exif.apertureValue || 'N/A'}, Focal ${exif.focalLength || 'N/A'}.
@@ -683,12 +691,14 @@ ${instructionBlock}
 Active Control Channels:
 ${channels.join('\n')}
 
+Language Requirement: ${getAiResponseLanguageInstruction()}
+
 Respond ONLY with raw JSON matching this schema:
 {
-  "scene_title": "string (4-8 chars in Traditional Chinese)",
+  "scene_title": "string (concise title in ${langName})",
   "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
-  "style_insight": "string (1-2 sentences in Traditional Chinese)",
-  "recommended_mood": "string (short mood label in Traditional Chinese)",
-  "tags": ["string (3 to 6 tags in Traditional Chinese)"]${lutSchemaFields}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "highlights": "number between -1.0 and +1.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "blacks": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}${enableColorMixer ? `,\n  "vibrance": "number between -1.0 and +1.0",\n  "color_density": "number between -1.0 and +1.0",\n  "hsl": "optional partial object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-1.0, +1.0]"` : ''}${enableSplitToning ? `,\n  "shadow_hue": "number between 0 and 360",\n  "shadow_tint_amount": "number between 0.0 and 1.0",\n  "highlight_hue": "number between 0 and 360",\n  "highlight_tint_amount": "number between 0.0 and 1.0"` : ''}${enableFilmTexture ? `,\n  "halation": "number between 0.0 and 1.0",\n  "grain_amount": "number between 0.0 and 1.0",\n  "vignette": "number between -1.0 and +1.0"` : ''}
+  "style_insight": "string (1-2 sentences in ${langName})",
+  "recommended_mood": "string (short mood label in ${langName})",
+  "tags": ["string (3 to 6 tags in ${langName})"]${lutSchemaFields}${enableTone ? `,\n  "exposure_compensation": "number between -2.0 and +2.0",\n  "highlights": "number between -1.0 and +1.0",\n  "contrast": "number between -0.8 and +0.8",\n  "lift_shadows": "number between -0.5 and +0.5",\n  "blacks": "number between -0.5 and +0.5",\n  "clarity": "number between -1.0 and +1.0",\n  "sharpness": "number between -1.0 and +1.0"` : ''}${enableWb ? `,\n  "color_temp": "integer between 2800 and 8500",\n  "tint": "number between -100.0 and +100.0"` : ''}${enableColorMixer ? `,\n  "vibrance": "number between -1.0 and +1.0",\n  "color_density": "number between -1.0 and +1.0",\n  "hsl": "optional partial object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-1.0, +1.0]"` : ''}${enableSplitToning ? `,\n  "shadow_hue": "number between 0 and 360",\n  "shadow_tint_amount": "number between 0.0 and 1.0",\n  "highlight_hue": "number between 0 and 360",\n  "highlight_tint_amount": "number between 0.0 and 1.0"` : ''}${enableFilmTexture ? `,\n  "halation": "number between 0.0 and 1.0",\n  "grain_amount": "number between 0.0 and 1.0",\n  "vignette": "number between -1.0 and +1.0"` : ''}
 }`;
 }
