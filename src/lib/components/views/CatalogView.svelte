@@ -309,9 +309,10 @@
     }
   }
 
-  // 觸控手勢管理：長按進入多選模式並可連帶滑動連選；單擊直接進入精修 (多選時為切換)
+  // 觸控手勢管理：長按進入多選模式並可連帶滑動連選；僅在未滑動單擊時進入精修 (多選時為切換)
   let touchStartX = 0;
   let touchStartY = 0;
+  let hasTouchMoved = false;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let didTriggerLongPress = false;
 
@@ -320,6 +321,7 @@
     if ((e.target as HTMLElement)?.closest('.flag-btn')) return;
     didTriggerLongPress = false;
     isSwipeSelecting = false;
+    hasTouchMoved = false;
     stopAutoScroll();
 
     if (e.touches.length > 0) {
@@ -354,11 +356,12 @@
       return;
     }
 
-    if (longPressTimer) {
-      const diffX = Math.abs(touch.clientX - touchStartX);
-      const diffY = Math.abs(touch.clientY - touchStartY);
-      // 移動超過 10px 視為一般捲動瀏覽，立即取消長按定時器
-      if (diffX > 10 || diffY > 10) {
+    const diffX = Math.abs(touch.clientX - touchStartX);
+    const diffY = Math.abs(touch.clientY - touchStartY);
+    // 移動超過 10px 視為捲動瀏覽，標記已滑動並立即取消長按定時器
+    if (diffX > 10 || diffY > 10) {
+      hasTouchMoved = true;
+      if (longPressTimer) {
         clearTimeout(longPressTimer);
         longPressTimer = null;
       }
@@ -376,16 +379,25 @@
 
     if (isSwipeSelecting) {
       isSwipeSelecting = false;
+      hasTouchMoved = false;
       if (e.cancelable) e.preventDefault();
       return;
     }
 
     if (didTriggerLongPress) {
       didTriggerLongPress = false;
+      hasTouchMoved = false;
       if (e.cancelable) e.preventDefault();
       return;
     }
 
+    // 若本次觸控已經滑動捲動，或被瀏覽器取消 (touchcancel)，絕不進入精修或切換選取
+    if (e.type === 'touchcancel' || hasTouchMoved) {
+      hasTouchMoved = false;
+      return;
+    }
+
+    if (e.cancelable) e.preventDefault();
     if (isMultiSelectMode) {
       toggleBatchSelect(photo.id);
     } else {
@@ -790,7 +802,7 @@
         </button>
 
         <!-- RAW / JPEG Format Filter Selector -->
-        <div class="density-switch hairline-all font-mono" style="font-size: 11px;">
+        <div class="density-switch format-filter-switch hairline-all font-mono" style="font-size: 11px;">
           <button 
             type="button" 
             class="density-btn" 
@@ -824,7 +836,7 @@
         </div>
 
         <!-- Grid Density Selector -->
-        <div class="density-switch hairline-all">
+        <div class="density-switch grid-density-switch hairline-all">
           <button 
             type="button" 
             class="density-btn" 
@@ -1089,6 +1101,12 @@
 
           <!-- 次要動作列 -->
           <div class="hero-sub-actions font-mono">
+            {#if onAppendFiles}
+              <button type="button" class="hero-ghost-btn mobile-pick-files-btn" onclick={onAppendFiles}>
+                <span class="material-symbols-outlined" style="font-size: 15px;">add_photo_alternate</span>
+                <span>{t('catalog.appendFiles')} (RAW+JPG)</span>
+              </button>
+            {/if}
             <button type="button" class="hero-ghost-btn" onclick={onRefreshMounts}>
               <span class="material-symbols-outlined" style="font-size: 15px;">cable</span>
               <span>{t('catalog.rescanCamera')}</span>
@@ -2223,25 +2241,49 @@
   @media (pointer: coarse), (max-width: 768px) {
     .catalog-toolbar {
       padding: 6px 10px;
-      flex-wrap: wrap;
+      flex-direction: column;
+      align-items: stretch;
       gap: 6px;
+    }
+
+    .tool-group.actions {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+      gap: 6px;
+      padding-bottom: 2px;
+    }
+
+    .tool-group.actions::-webkit-scrollbar {
+      display: none;
+    }
+
+    .tool-group.actions > * {
+      flex-shrink: 0;
     }
 
     .tool-title {
       font-size: 13px;
     }
 
-    .density-switch {
-      display: none; /* 行動端與純觸控自適應 2 欄大縮圖 */
+    .grid-density-switch {
+      display: none; /* 行動端與純觸控固定為單欄大圖，隱藏桌面端密度切換 */
     }
 
     .catalog-grid-container {
-      padding: 8px;
+      padding: 8px 10px;
     }
 
     .film-grid {
-      grid-template-columns: repeat(2, 1fr) !important;
-      gap: 8px;
+      grid-template-columns: 1fr !important;
+      gap: 12px;
+    }
+
+    .mobile-pick-files-btn {
+      border-color: color-mix(in srgb, var(--amber-highlight) 50%, transparent);
+      color: var(--amber-highlight);
     }
 
     .film-card {

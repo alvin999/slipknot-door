@@ -34,6 +34,7 @@ export interface PhotoPlateItem {
   fileHandle?: File;
   filePath?: string;
   sidecarPath?: string;
+  sidecarFileHandle?: File;
   formatType?: "raw" | "jpeg" | "pair";
   gradedThumbnail?: string;
   exposureBias?: number;
@@ -335,13 +336,76 @@ export class PhotoLibraryStore {
     }
     const isTauriEnv = IngestionService.isTauri();
 
-    // 追加模式下，過濾掉已存在於目前相卷中的相片（以檔名比對）
+    // 追加模式下，過濾掉已存在於目前相卷中的相片，並支援跨次追加 RAW+JPG 自動配對合併
     let itemsToLoad = items;
+    let mergedPairCount = 0;
     if (append && this.photoPlates.length > 0) {
+      const getStemKey = (name: string) => {
+        const dotIdx = name.lastIndexOf(".");
+        return (dotIdx > 0 ? name.slice(0, dotIdx) : name).toUpperCase();
+      };
+
       const existingNames = new Set(this.photoPlates.map((p) => p.filename));
-      itemsToLoad = items.filter((item) => !existingNames.has(item.filename));
+      const existingByStem = new Map<string, PhotoPlateItem>();
+      for (const plate of this.photoPlates) {
+        const stem = getStemKey(plate.filename);
+        if (!existingByStem.has(stem)) {
+          existingByStem.set(stem, plate);
+        }
+      }
+
+      const remaining: RawPhotoItem[] = [];
+      for (const item of items) {
+        if (existingNames.has(item.filename)) continue;
+
+        const stem = getStemKey(item.filename);
+        const existingPlate = existingByStem.get(stem);
+        const itemType =
+          (item.format_type as string) === "image"
+            ? "jpeg"
+            : item.format_type ||
+              (item.extension.toLowerCase() === "jpg" ||
+              item.extension.toLowerCase() === "jpeg"
+                ? "jpeg"
+                : "raw");
+
+        if (existingPlate && existingPlate.formatType === "raw" && itemType === "jpeg") {
+          existingPlate.formatType = "pair";
+          existingPlate.sidecarPath = item.file_path;
+          existingPlate.sidecarFileHandle = item.fileHandle;
+          if (!existingPlate.thumbnail && item.fileHandle) {
+            existingPlate.thumbnail = IngestionService.createTrackedBlobUrl(item.fileHandle);
+          }
+          mergedPairCount++;
+          continue;
+        }
+
+        if (existingPlate && existingPlate.formatType === "jpeg" && itemType === "raw") {
+          existingPlate.sidecarPath = existingPlate.filePath;
+          existingPlate.sidecarFileHandle = existingPlate.fileHandle;
+          existingPlate.filePath = item.file_path;
+          existingPlate.filename = item.filename;
+          existingPlate.fileHandle = item.fileHandle;
+          existingPlate.formatType = "pair";
+          mergedPairCount++;
+          continue;
+        }
+
+        remaining.push(item);
+      }
+
+      itemsToLoad = remaining;
       if (itemsToLoad.length === 0) {
-        toastStore.show("所選相片均已在相卷中，未有新增相片", "info", 2500);
+        if (mergedPairCount > 0) {
+          this.photoPlates = [...this.photoPlates];
+          toastStore.show(
+            `已將 ${mergedPairCount} 組 RAW+JPG 自動合併配對 ✓`,
+            "success",
+            2800,
+          );
+        } else {
+          toastStore.show("所選相片均已在相卷中，未有新增相片", "info", 2500);
+        }
         return;
       }
     }
@@ -350,13 +414,27 @@ export class PhotoLibraryStore {
     // Step 1: Instant zero-latency initialization (< 5ms) for all frames
     const loaded: PhotoPlateItem[] = itemsToLoad.map((item, i) => {
       let directUrl = "";
-      if (item.fileHandle) {
+      if (item.sidecarFileHandle) {
+        directUrl = IngestionService.createTrackedBlobUrl(item.sidecarFileHandle);
+      } else if (item.fileHandle) {
         if (item.extension === "jpg" || item.extension === "jpeg") {
           directUrl = IngestionService.createTrackedBlobUrl(item.fileHandle);
         }
       } else if (!isTauriEnv && item.file_path) {
         directUrl = `/api/extract-preview?path=${encodeURIComponent(item.file_path)}`;
       }
+      const rawFormatType = item.format_type as string | undefined;
+      const normalizedFormatType: "raw" | "jpeg" | "pair" =
+        rawFormatType === "pair"
+          ? "pair"
+          : rawFormatType === "raw"
+            ? "raw"
+            : rawFormatType === "jpeg" || rawFormatType === "image"
+              ? "jpeg"
+              : item.extension.toLowerCase() === "jpg" ||
+                  item.extension.toLowerCase() === "jpeg"
+                ? "jpeg"
+                : "raw";
       const frameIdx = startIndex + i + 1;
       return {
         id: `photo_${frameIdx}_${Date.now()}`,
@@ -375,12 +453,8 @@ export class PhotoLibraryStore {
         fileHandle: item.fileHandle,
         filePath: item.file_path,
         sidecarPath: item.sidecar_path,
-        formatType:
-          item.format_type ||
-          (item.extension.toLowerCase() === "jpg" ||
-          item.extension.toLowerCase() === "jpeg"
-            ? "jpeg"
-            : "raw"),
+        sidecarFileHandle: item.sidecarFileHandle,
+        formatType: normalizedFormatType,
       };
     });
 
@@ -434,7 +508,8 @@ export class PhotoLibraryStore {
             );
             if (currentToken !== this.loadToken) return;
             if (this.photoPlates[plateIndex]) {
-              if (preview.blob_url || preview.jpeg_base64) {
+              const hasSidecarThumb = !!this.photoPlates[plateIndex].sidecarFileHandle && !!this.photoPlates[plateIndex].thumbnail;
+              if (!hasSidecarThumb && (preview.blob_url || preview.jpeg_base64)) {
                 this.photoPlates[plateIndex].thumbnail =
                   preview.blob_url ||
                   `data:image/jpeg;base64,${preview.jpeg_base64}`;

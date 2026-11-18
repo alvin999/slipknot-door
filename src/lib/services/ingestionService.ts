@@ -26,6 +26,7 @@ export interface RawPhotoItem {
   blobUrl?: string;
   fileHandle?: File;
   sidecar_path?: string;
+  sidecarFileHandle?: File;
   format_type?: 'raw' | 'jpeg' | 'pair';
 }
 
@@ -529,12 +530,13 @@ export class IngestionService {
       if (res.ok) {
         const items = await res.json();
         if (Array.isArray(items)) {
+          const pairedItems = this.pairRawAndImageItems(items);
           this.lastSummary = {
-            loadedCount: items.length,
+            loadedCount: pairedItems.length,
             skippedCount: 0,
             skippedExtensions: []
           };
-          return items;
+          return pairedItems;
         }
       }
     } catch {
@@ -603,12 +605,13 @@ export class IngestionService {
             }
           }
         }
+        const pairedItems = this.pairRawAndImageItems(items);
         this.lastSummary = {
-          loadedCount: items.length,
+          loadedCount: pairedItems.length,
           skippedCount,
           skippedExtensions: Array.from(skippedExts).sort()
         };
-        return items;
+        return pairedItems;
       } catch (err: any) {
         if (err.name === 'AbortError') return [];
         console.warn('showDirectoryPicker failed, falling back to HTML5 directory picker:', err);
@@ -654,15 +657,16 @@ export class IngestionService {
             if (ext) skippedExts.add(ext);
           }
         }
+        const pairedItems = this.pairRawAndImageItems(items);
         this.lastSummary = {
-          loadedCount: items.length,
+          loadedCount: pairedItems.length,
           skippedCount,
           skippedExtensions: Array.from(skippedExts).sort()
         };
         if (input.parentNode) {
           document.body.removeChild(input);
         }
-        resolve(items);
+        resolve(pairedItems);
       };
 
       input.oncancel = () => {
@@ -712,12 +716,13 @@ export class IngestionService {
               frame_no: `${String(i + 1).padStart(2, '0')}A`
             });
           }
+          const pairedItems = this.pairRawAndImageItems(items);
           this.lastSummary = {
-            loadedCount: items.length,
+            loadedCount: pairedItems.length,
             skippedCount: 0,
             skippedExtensions: []
           };
-          return items;
+          return pairedItems;
         }
         return [];
       } catch (err) {
@@ -763,12 +768,13 @@ export class IngestionService {
             if (ext) skippedExts.add(ext);
           }
         }
+        const pairedItems = this.pairRawAndImageItems(items);
         this.lastSummary = {
-          loadedCount: items.length,
+          loadedCount: pairedItems.length,
           skippedCount,
           skippedExtensions: Array.from(skippedExts).sort()
         };
-        return items;
+        return pairedItems;
       } catch (err: any) {
         if (err.name === 'AbortError') return [];
         console.warn('showOpenFilePicker failed, falling back to HTML5 input:', err);
@@ -808,13 +814,14 @@ export class IngestionService {
             if (ext) skippedExts.add(ext);
           }
         }
+        const pairedItems = this.pairRawAndImageItems(items);
         this.lastSummary = {
-          loadedCount: items.length,
+          loadedCount: pairedItems.length,
           skippedCount,
           skippedExtensions: Array.from(skippedExts).sort()
         };
         if (input.parentNode) document.body.removeChild(input);
-        resolve(items);
+        resolve(pairedItems);
       };
 
       input.oncancel = () => {
@@ -916,7 +923,80 @@ export class IngestionService {
       index++;
     }
 
-    return resultItems;
+    const pairedItems = this.pairRawAndImageItems(resultItems);
+    this.lastSummary = {
+      loadedCount: pairedItems.length,
+      skippedCount,
+      skippedExtensions: Array.from(skippedExts).sort()
+    };
+
+    return pairedItems;
+  }
+
+  /**
+   * 依所在目錄與主檔名 (Stem，不分大小寫) 自動將同張照片的 RAW 與 JPG/Image 合併為 pair，
+   * 與 Tauri 後端 detector.rs 保持一致的雙格式配對體驗。
+   */
+  public static pairRawAndImageItems(rawItems: RawPhotoItem[]): RawPhotoItem[] {
+    if (rawItems.length === 0) return [];
+
+    const groups = new Map<string, { raw?: RawPhotoItem; image?: RawPhotoItem }>();
+    const groupOrder: string[] = [];
+
+    for (const item of rawItems) {
+      const ext = (item.extension || item.filename.split('.').pop() || '').toLowerCase();
+      const slashIdx = Math.max(item.file_path.lastIndexOf('/'), item.file_path.lastIndexOf('\\'));
+      const dirPrefix = slashIdx >= 0 ? item.file_path.slice(0, slashIdx) : '';
+      const dotIdx = item.filename.lastIndexOf('.');
+      const stem = (dotIdx > 0 ? item.filename.slice(0, dotIdx) : item.filename).toUpperCase();
+      const groupKey = `${dirPrefix}::${stem}`;
+
+      let slot = groups.get(groupKey);
+      if (!slot) {
+        slot = {};
+        groups.set(groupKey, slot);
+        groupOrder.push(groupKey);
+      }
+
+      if (SUPPORTED_RAW_EXTS.includes(ext)) {
+        if (!slot.raw) slot.raw = item;
+      } else {
+        if (!slot.image) slot.image = item;
+      }
+    }
+
+    // 依檔名路徑做確定性排序，確保配對後的相卷順序穩定
+    groupOrder.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+    const paired: RawPhotoItem[] = [];
+    for (let i = 0; i < groupOrder.length; i++) {
+      const slot = groups.get(groupOrder[i])!;
+      const frameNo = `${String(i + 1).padStart(2, '0')}A`;
+
+      if (slot.raw && slot.image) {
+        paired.push({
+          ...slot.raw,
+          frame_no: frameNo,
+          sidecar_path: slot.image.file_path,
+          sidecarFileHandle: slot.image.fileHandle,
+          format_type: 'pair'
+        });
+      } else if (slot.raw) {
+        paired.push({
+          ...slot.raw,
+          frame_no: frameNo,
+          format_type: 'raw'
+        });
+      } else if (slot.image) {
+        paired.push({
+          ...slot.image,
+          frame_no: frameNo,
+          format_type: 'jpeg'
+        });
+      }
+    }
+
+    return paired;
   }
 
   /**
