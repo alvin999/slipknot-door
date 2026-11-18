@@ -98,6 +98,8 @@ export class PhotoLibraryStore {
   isScanningMounts = $state<boolean>(false);
   latestExtractionMs = $state<number>(18);
   private loadToken: number = 0;
+  private thumbnailRetryCounts = new Map<string, number>();
+  private priorityPhotoIds = new Set<string>();
 
   // 工作區排除復原堆疊快照
   lastRemovedSnapshot = $state<RemovedPhotosSnapshot | null>(null);
@@ -327,12 +329,14 @@ export class PhotoLibraryStore {
   async loadPhotosFromItems(
     items: RawPhotoItem[],
     append = false,
+    options?: { isCameraMount?: boolean },
   ): Promise<void> {
     if (items.length === 0) return;
 
     if (!append) {
       // 清理前一個相卷所佔用的 Blob URL，防止記憶體洩漏
       IngestionService.revokeAllBlobUrls();
+      this.thumbnailRetryCounts.clear();
     }
     const isTauriEnv = IngestionService.isTauri();
 
@@ -484,16 +488,50 @@ export class PhotoLibraryStore {
       }
     }
 
-    // Step 2: Progressive enhancement for EXIF and thumbnails with controlled concurrency worker pool
-    // Limits simultaneous I/O to avoid blocking system or network FUSE pipelines while keeping UI responsive
+    // Step 2: 智慧降併發 + 優先可視範圍讀取（Viewport-Priority Adaptive Worker Pool）
     const currentToken = ++this.loadToken;
-    const CONCURRENCY = 3;
-    let nextIndex = 0;
+    const isMtpOrFuse = itemsToLoad.some(
+      (item) =>
+        item.file_path?.includes("/gvfs/") ||
+        item.file_path?.toLowerCase().includes("mtp:"),
+    );
+    const maxConcurrency = isMtpOrFuse ? 1 : options?.isCameraMount ? 2 : 3;
+    let activeConcurrencyLimit = maxConcurrency;
+    let fastStreak = 0;
 
-    const runWorker = async () => {
-      while (nextIndex < itemsToLoad.length) {
+    // 建立待處理索引佇列，支援可視範圍插隊優先讀取
+    const pendingQueue: number[] = Array.from(
+      { length: itemsToLoad.length },
+      (_, idx) => idx,
+    );
+
+    const takeNextIndex = (): number | undefined => {
+      if (pendingQueue.length === 0) return undefined;
+      if (this.priorityPhotoIds.size > 0) {
+        const hitPos = pendingQueue.findIndex((idx) => {
+          const plate = this.photoPlates[startIndex + idx];
+          return plate && this.priorityPhotoIds.has(plate.id);
+        });
+        if (hitPos !== -1) {
+          return pendingQueue.splice(hitPos, 1)[0];
+        }
+      }
+      return pendingQueue.shift();
+    };
+
+    const runWorker = async (workerIndex: number) => {
+      while (pendingQueue.length > 0) {
         if (currentToken !== this.loadToken) return;
-        const i = nextIndex++;
+
+        // 智慧降併發：當目前通道因慢速或錯誤降載時，多餘 worker 暫停等待
+        if (workerIndex >= activeConcurrencyLimit) {
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          continue;
+        }
+
+        const i = takeNextIndex();
+        if (i === undefined) return;
+
         const item = itemsToLoad[i];
         const plateIndex = startIndex + i;
         if (
@@ -501,15 +539,41 @@ export class PhotoLibraryStore {
           isTauriEnv ||
           item.fileHandle
         ) {
+          const t0 = performance.now();
           try {
             const preview = await IngestionService.extractPreview(
               item.file_path,
               item.fileHandle,
+              {
+                sidecarPath: item.sidecar_path,
+                sidecarBlob: item.sidecarFileHandle,
+                maxRetries: 2,
+              },
             );
             if (currentToken !== this.loadToken) return;
+
+            const elapsedMs = performance.now() - t0;
+            const hasImagePayload = !!(preview.blob_url || preview.jpeg_base64);
+
+            // 根據實測 I/O 延遲動態調整併發上限：慢速裝置自動降為單工，穩定快速則逐步恢復
+            if (!hasImagePayload || elapsedMs > 1500) {
+              fastStreak = 0;
+              if (activeConcurrencyLimit > 1) {
+                activeConcurrencyLimit = 1;
+              }
+            } else if (elapsedMs < 350) {
+              fastStreak++;
+              if (fastStreak >= 4 && activeConcurrencyLimit < maxConcurrency) {
+                activeConcurrencyLimit++;
+                fastStreak = 0;
+              }
+            } else {
+              fastStreak = 0;
+            }
+
             if (this.photoPlates[plateIndex]) {
               const hasSidecarThumb = !!this.photoPlates[plateIndex].sidecarFileHandle && !!this.photoPlates[plateIndex].thumbnail;
-              if (!hasSidecarThumb && (preview.blob_url || preview.jpeg_base64)) {
+              if (!hasSidecarThumb && hasImagePayload) {
                 this.photoPlates[plateIndex].thumbnail =
                   preview.blob_url ||
                   `data:image/jpeg;base64,${preview.jpeg_base64}`;
@@ -574,6 +638,10 @@ export class PhotoLibraryStore {
               }
             }
           } catch (err) {
+            fastStreak = 0;
+            if (activeConcurrencyLimit > 1) {
+              activeConcurrencyLimit = 1;
+            }
             console.warn(
               `[PhotoLibrary] 解析相片預覽失敗 (${item.filename}):`,
               err,
@@ -583,9 +651,68 @@ export class PhotoLibraryStore {
       }
     };
 
-    const workerCount = Math.min(itemsToLoad.length, CONCURRENCY);
+    const workerCount = Math.min(itemsToLoad.length, maxConcurrency);
     for (let w = 0; w < workerCount; w++) {
-      runWorker();
+      runWorker(w);
+    }
+  }
+
+  /**
+   * 更新目前畫面可視範圍內的相片 ID，讓讀取佇列優先處理
+   */
+  prioritizePhotoIds(photoIds: string[]): void {
+    this.priorityPhotoIds = new Set(photoIds);
+  }
+
+  /**
+   * 單張縮圖載入失敗時的自動重試與 sidecar 備援
+   */
+  async retryPhotoThumbnail(photoId: string): Promise<void> {
+    const plateIndex = this.photoPlates.findIndex((p) => p.id === photoId);
+    if (plateIndex === -1) return;
+    const plate = this.photoPlates[plateIndex];
+
+    // 若離線渲染後的 gradedThumbnail 失敗，優先退回原圖縮圖
+    if (plate.gradedThumbnail) {
+      plate.gradedThumbnail = undefined;
+      if (this.activePhoto?.id === plate.id) {
+        this.activePhoto = { ...plate };
+      }
+      if (plate.thumbnail) return;
+    }
+
+    const attempts = this.thumbnailRetryCounts.get(photoId) ?? 0;
+    if (attempts >= 2) return;
+    this.thumbnailRetryCounts.set(photoId, attempts + 1);
+
+    try {
+      const preview = await IngestionService.extractPreview(
+        plate.filePath || "",
+        plate.fileHandle,
+        {
+          sidecarPath: plate.sidecarPath,
+          sidecarBlob: plate.sidecarFileHandle,
+          maxRetries: 1,
+        },
+      );
+
+      if (preview.blob_url || preview.jpeg_base64) {
+        if (plate.thumbnail?.startsWith("blob:")) {
+          IngestionService.revokeBlobUrl(plate.thumbnail);
+        }
+        const nextUrl = preview.blob_url
+          ? preview.blob_url.startsWith("/api/")
+            ? `${preview.blob_url}&retry=${Date.now()}`
+            : preview.blob_url
+          : `data:image/jpeg;base64,${preview.jpeg_base64}`;
+
+        plate.thumbnail = nextUrl;
+        if (this.activePhoto?.id === plate.id) {
+          this.activePhoto = { ...plate };
+        }
+      }
+    } catch (err) {
+      console.warn(`[PhotoLibrary] 縮圖重試失敗 (${plate.filename}):`, err);
     }
   }
 
@@ -897,7 +1024,7 @@ export class PhotoLibraryStore {
           mount.volume_name ||
           IngestionService.currentDirectoryName ||
           "相機外接裝置";
-        await this.loadPhotosFromItems(items, false);
+        await this.loadPhotosFromItems(items, false, { isCameraMount: true });
       }
       this.notifyIngestionResult(items.length, "相機裝置");
     } finally {

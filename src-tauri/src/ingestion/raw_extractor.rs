@@ -101,31 +101,45 @@ impl RawExtractor {
         file: &mut File,
         file_size: u64,
     ) -> Result<(Vec<u8>, Vec<u8>), String> {
-        let read_len = std::cmp::min(file_size, 16 * 1024 * 1024) as usize;
-        let mut buffer = vec![0u8; read_len];
+        // 先只讀取前 1MB 解析 TIFF IFD 與 EXIF，大幅降低慢速 USB 相機 I/O 負擔
+        let stage1_len = std::cmp::min(file_size, 1024 * 1024) as usize;
+        let mut buffer = vec![0u8; stage1_len];
         file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
         file.read_exact(&mut buffer).map_err(|e| e.to_string())?;
 
         // 1. Direct TIFF Preview Tag Resolution (Exact offset & length, zero guess work)
         if let Some((offset, length)) = Self::find_tiff_preview_tags(&buffer) {
-            if offset + 2 <= buffer.len() && buffer[offset] == 0xFF && buffer[offset + 1] == 0xD8 {
-                if offset + length <= buffer.len() {
-                    let jpeg_bytes = buffer[offset..offset + length].to_vec();
-                    return Ok((buffer, jpeg_bytes));
-                } else if (offset as u64) < file_size {
-                    let actual_len =
-                        std::cmp::min(length as u64, file_size - offset as u64) as usize;
-                    let mut jpeg_bytes = vec![0u8; actual_len];
-                    file.seek(SeekFrom::Start(offset as u64))
-                        .map_err(|e| e.to_string())?;
-                    file.read_exact(&mut jpeg_bytes)
-                        .map_err(|e| e.to_string())?;
-                    return Ok((buffer, jpeg_bytes));
+            if offset + length <= buffer.len() {
+                if let Some(valid_jpeg) =
+                    Self::validate_or_trim_jpeg(buffer[offset..offset + length].to_vec())
+                {
+                    return Ok((buffer, valid_jpeg));
+                }
+            } else if (offset as u64) < file_size {
+                let actual_len =
+                    std::cmp::min(length as u64, file_size - offset as u64) as usize;
+                let mut jpeg_bytes = vec![0u8; actual_len];
+                if file.seek(SeekFrom::Start(offset as u64)).is_ok()
+                    && file.read_exact(&mut jpeg_bytes).is_ok()
+                {
+                    if let Some(valid_jpeg) = Self::validate_or_trim_jpeg(jpeg_bytes) {
+                        return Ok((buffer, valid_jpeg));
+                    }
                 }
             }
         }
 
-        // 2. Binary Scan with Authentic JPEG Marker Traversal (Skips embedded Exif thumbnails safely)
+        // 2. Fallback: 若前 1MB 找不到有效預覽圖 Tag，再擴展讀取至 16MB 進行二進位 JPEG 掃描
+        let stage2_len = std::cmp::min(file_size, 16 * 1024 * 1024) as usize;
+        if stage2_len > buffer.len() {
+            let prev_len = buffer.len();
+            buffer.resize(stage2_len, 0);
+            file.seek(SeekFrom::Start(prev_len as u64))
+                .map_err(|e| e.to_string())?;
+            file.read_exact(&mut buffer[prev_len..])
+                .map_err(|e| e.to_string())?;
+        }
+
         let candidates = Self::find_embedded_jpegs(&buffer)?;
         let largest_jpeg = candidates
             .into_iter()
@@ -133,6 +147,24 @@ impl RawExtractor {
             .ok_or_else(|| "Failed to find preview candidate".to_string())?;
 
         Ok((buffer, largest_jpeg))
+    }
+
+    /// 驗證擷取出的 JPEG 位元組是否完整（以 SOI 0xFF 0xD8 開頭且以 EOI 0xFF 0xD9 結尾）
+    /// 若尾端有填充位元組（例如 0x00），嘗試透過 `parse_jpeg_end` 裁切至真實 EOI
+    fn validate_or_trim_jpeg(bytes: Vec<u8>) -> Option<Vec<u8>> {
+        if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
+            return None;
+        }
+        let len = bytes.len();
+        if bytes[len - 2] == 0xFF && bytes[len - 1] == 0xD9 {
+            return Some(bytes);
+        }
+        if let Some(eoi) = Self::parse_jpeg_end(&bytes, 0) {
+            if eoi > 24 * 1024 {
+                return Some(bytes[..eoi].to_vec());
+            }
+        }
+        None
     }
 
     /// Read preview offset and byte count from TIFF IFD0 and SubIFDs
@@ -232,12 +264,18 @@ impl RawExtractor {
                             strip_len = Some(len);
                         }
                         0x014A => {
-                            // SubIFDs
-                            for s in 0..count {
-                                let sub_ptr_off = val_offset as usize + (s as usize * 4);
-                                if let Some(sub_ifd) = read_u32(sub_ptr_off) {
-                                    if (sub_ifd as usize) < buf.len() {
-                                        check_ifds.push(sub_ifd as usize);
+                            // SubIFDs: count == 1 時 val_offset 本身即為偏移量，count > 1 時才是指向陣列的指標
+                            if count == 1 {
+                                if (val_offset as usize) < buf.len() {
+                                    check_ifds.push(val_offset as usize);
+                                }
+                            } else {
+                                for s in 0..count {
+                                    let sub_ptr_off = val_offset as usize + (s as usize * 4);
+                                    if let Some(sub_ifd) = read_u32(sub_ptr_off) {
+                                        if (sub_ifd as usize) < buf.len() {
+                                            check_ifds.push(sub_ifd as usize);
+                                        }
                                     }
                                 }
                             }
@@ -1047,6 +1085,20 @@ mod tests {
             end,
             Some(jpeg.len()),
             "parse_jpeg_end must return exact end of full JPEG"
+        );
+    }
+
+    #[test]
+    fn test_validate_or_trim_jpeg_rejects_truncated_and_accepts_valid() {
+        // 截斷的 JPEG（缺少 EOI 0xFF 0xD9）應被拒絕
+        let truncated = vec![0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x04, 0x12, 0x34];
+        assert!(RawExtractor::validate_or_trim_jpeg(truncated).is_none());
+
+        // 完整結尾的 JPEG 應通過驗證
+        let valid = vec![0xFF, 0xD8, 0xFF, 0xD9];
+        assert_eq!(
+            RawExtractor::validate_or_trim_jpeg(valid.clone()),
+            Some(valid)
         );
     }
 }

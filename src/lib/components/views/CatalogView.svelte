@@ -44,6 +44,8 @@
     onFilesDropped?: (dataTransfer: DataTransfer) => void;
     cameraMounts?: import('$lib/services/ingestionService').CameraMountInfo[];
     onLoadCameraMount?: (mount: import('$lib/services/ingestionService').CameraMountInfo) => void;
+    onRetryThumbnail?: (photoId: string) => void;
+    onPrioritizePhotos?: (photoIds: string[]) => void;
   }
 
   let {
@@ -66,7 +68,9 @@
     onToggleFlag,
     onFilesDropped,
     cameraMounts = [],
-    onLoadCameraMount
+    onLoadCameraMount,
+    onRetryThumbnail,
+    onPrioritizePhotos
   }: Props = $props();
 
   // Drag & Drop State
@@ -431,6 +435,53 @@
   );
 
   let gridElement: HTMLElement | null = $state(null);
+
+  // 偵測目前可視範圍（含前後預讀緩衝 240px）的卡片，通知讀取佇列優先載入
+  $effect(() => {
+    const grid = gridElement;
+    const count = displayedPhotos.length;
+    const notify = onPrioritizePhotos;
+    if (!grid || !notify || count === 0 || typeof IntersectionObserver === 'undefined') {
+      return;
+    }
+
+    const visibleIds = new Set<string>();
+    let rafId: number | null = null;
+
+    const flushVisible = () => {
+      rafId = null;
+      notify(Array.from(visibleIds));
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.photoId;
+          if (!id) continue;
+          if (entry.isIntersecting) {
+            visibleIds.add(id);
+          } else {
+            visibleIds.delete(id);
+          }
+        }
+        if (rafId === null) {
+          rafId = requestAnimationFrame(flushVisible);
+        }
+      },
+      {
+        rootMargin: '240px 0px',
+        threshold: 0.01
+      }
+    );
+
+    const cards = grid.querySelectorAll<HTMLElement>('.film-card[data-photo-id]');
+    cards.forEach((card) => observer.observe(card));
+
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  });
 
   // 動態依據 DOM 實際排版偵測當前視窗寬度下的每列欄數
   function getCurrentColumns(): number {
@@ -924,7 +975,19 @@
 
             <!-- Photo Canvas Frame -->
             <div class="film-card-image-wrap">
-              <img src={photo.gradedThumbnail || photo.thumbnail} alt={photo.filename} class="film-thumb-img" loading="lazy" />
+              {#if photo.gradedThumbnail || photo.thumbnail}
+                <img
+                  src={photo.gradedThumbnail || photo.thumbnail}
+                  alt={photo.filename}
+                  class="film-thumb-img"
+                  loading="lazy"
+                  onerror={() => onRetryThumbnail?.(photo.id)}
+                />
+              {:else}
+                <div class="film-thumb-placeholder" aria-label={photo.filename}>
+                  <span class="material-symbols-outlined">photo_camera</span>
+                </div>
+              {/if}
               
               <!-- Multi-Select Checkbox Floating on Top-Left -->
               {#if isMultiSelectMode}
@@ -1669,6 +1732,20 @@
 
   .film-card:hover .film-thumb-img {
     transform: scale(1.02);
+  }
+
+  .film-thumb-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary, #5c6370);
+    opacity: 0.45;
+  }
+
+  .film-thumb-placeholder .material-symbols-outlined {
+    font-size: 28px;
   }
 
   /* FLOATING CONTROLS ON CARD */

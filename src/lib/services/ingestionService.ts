@@ -337,7 +337,10 @@ export class IngestionService {
     try {
       const res = await fetch(`data:${mimeType};base64,${base64}`);
       const blob = await res.blob();
-      return this.createTrackedBlobUrl(blob);
+      if (blob && blob.size > 0) {
+        return this.createTrackedBlobUrl(blob);
+      }
+      return this.base64ToBlobUrl(base64, mimeType);
     } catch {
       return this.base64ToBlobUrl(base64, mimeType);
     }
@@ -1002,23 +1005,74 @@ export class IngestionService {
   /**
    * Extract embedded JPEG and optical EXIF within 50ms without raw demosaicing
    * Supports both Tauri desktop extraction and authentic in-browser binary extraction
+   * 支援重試機制與 RAW+JPG sidecar 備援讀取，避免相機 USB I/O 瞬斷造成缺圖
    */
-  public static async extractPreview(filePath: string, fileBlob?: File): Promise<EmbeddedPreviewResult> {
+  public static async extractPreview(
+    filePath: string,
+    fileBlob?: File,
+    options?: { sidecarPath?: string; sidecarBlob?: File; maxRetries?: number }
+  ): Promise<EmbeddedPreviewResult> {
     const startTime = performance.now();
+    const maxRetries = options?.maxRetries ?? 2;
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     // 1. In Tauri Desktop Environment
     if (this.isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const res = await invoke<EmbeddedPreviewResult>('extract_embedded_jpeg', { filePath });
-        if (res && res.jpeg_base64 && !res.blob_url) {
-          // Immediately convert multi-megabyte Base64 payload into a lightweight Blob URL asynchronously via native browser fetch
-          res.blob_url = await this.base64ToBlobUrlAsync(res.jpeg_base64, res.mime_type || 'image/jpeg');
-          res.jpeg_base64 = ''; // Release raw base64 string from V8 heap immediately
+      const { invoke } = await import('@tauri-apps/api/core');
+      let lastRes: EmbeddedPreviewResult | null = null;
+
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const res = await invoke<EmbeddedPreviewResult>('extract_embedded_jpeg', { filePath });
+          if (res && res.jpeg_base64 && !res.blob_url) {
+            // Immediately convert multi-megabyte Base64 payload into a lightweight Blob URL asynchronously via native browser fetch
+            res.blob_url = await this.base64ToBlobUrlAsync(res.jpeg_base64, res.mime_type || 'image/jpeg');
+            res.jpeg_base64 = ''; // Release raw base64 string from V8 heap immediately
+          }
+          if (res && (res.blob_url || res.jpeg_base64)) {
+            return res;
+          }
+          lastRes = res;
+        } catch (err) {
+          console.warn(`Tauri extract_embedded_jpeg failed (attempt ${attempt + 1}/${maxRetries + 1}):`, err);
         }
-        return res;
-      } catch (err) {
-        console.warn('Tauri extract_embedded_jpeg failed:', err);
+        if (attempt < maxRetries) {
+          await sleep(150 * Math.pow(2, attempt));
+        }
+      }
+
+      // RAW+JPG 配對備援：若主 RAW 無法取得有效預覽圖，改讀同組 sidecar JPG
+      if (options?.sidecarPath) {
+        for (let attempt = 0; attempt <= 1; attempt++) {
+          try {
+            const sidecarRes = await invoke<EmbeddedPreviewResult>('extract_embedded_jpeg', {
+              filePath: options.sidecarPath
+            });
+            if (sidecarRes && sidecarRes.jpeg_base64 && !sidecarRes.blob_url) {
+              sidecarRes.blob_url = await this.base64ToBlobUrlAsync(
+                sidecarRes.jpeg_base64,
+                sidecarRes.mime_type || 'image/jpeg'
+              );
+              sidecarRes.jpeg_base64 = '';
+            }
+            if (sidecarRes && (sidecarRes.blob_url || sidecarRes.jpeg_base64)) {
+              return {
+                ...sidecarRes,
+                file_path: filePath,
+                exif: lastRes?.exif || sidecarRes.exif
+              };
+            }
+          } catch (sidecarErr) {
+            console.warn(`Tauri sidecar JPG fallback failed (attempt ${attempt + 1}):`, sidecarErr);
+          }
+          if (attempt < 1) {
+            await sleep(150);
+          }
+        }
+      }
+
+      if (lastRes) {
+        return lastRes;
       }
     }
 
@@ -1050,67 +1104,94 @@ export class IngestionService {
 
       // For RAW files (.ARW, .CR2, .CR3, .NEF, .RAF, .DNG):
       // Binary scan first 16MB for embedded JPEG SOI (0xFF, 0xD8, 0xFF) & EOI (0xFF, 0xD9)
-      try {
-        const readLimit = Math.min(fileBlob.size, 16 * 1024 * 1024);
-        const buffer = await fileBlob.slice(0, readLimit).arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        const len = bytes.length;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const readLimit = Math.min(fileBlob.size, 16 * 1024 * 1024);
+          const buffer = await fileBlob.slice(0, readLimit).arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          const len = bytes.length;
 
-        let bestStart = -1;
-        let bestEnd = -1;
-        let maxPixels = 0;
-        let maxLen = 0;
+          let bestStart = -1;
+          let bestEnd = -1;
+          let maxPixels = 0;
+          let maxLen = 0;
 
-        for (let i = 0; i + 3 < len; i++) {
-          if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8 && bytes[i + 2] === 0xFF) {
-            const soi = i;
-            const eoi = this.findJpegEnd(bytes, soi);
-            if (eoi && eoi > soi + 30000) {
-              const candidateLen = eoi - soi;
-              let w = 0, h = 0;
-              for (let k = soi; k < Math.min(eoi, soi + 1024); k++) {
-                if (bytes[k] === 0xFF && (bytes[k + 1] === 0xC0 || bytes[k + 1] === 0xC2)) {
-                  h = (bytes[k + 5] << 8) | bytes[k + 6];
-                  w = (bytes[k + 7] << 8) | bytes[k + 8];
-                  break;
+          for (let i = 0; i + 3 < len; i++) {
+            if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8 && bytes[i + 2] === 0xFF) {
+              const soi = i;
+              const eoi = this.findJpegEnd(bytes, soi);
+              if (eoi && eoi > soi + 30000) {
+                const candidateLen = eoi - soi;
+                let w = 0, h = 0;
+                for (let k = soi; k < Math.min(eoi, soi + 1024); k++) {
+                  if (bytes[k] === 0xFF && (bytes[k + 1] === 0xC0 || bytes[k + 1] === 0xC2)) {
+                    h = (bytes[k + 5] << 8) | bytes[k + 6];
+                    w = (bytes[k + 7] << 8) | bytes[k + 8];
+                    break;
+                  }
                 }
+                const pixels = w * h;
+                if (pixels > maxPixels || (pixels === 0 && candidateLen > maxLen)) {
+                  maxPixels = pixels;
+                  maxLen = candidateLen;
+                  bestStart = soi;
+                  bestEnd = eoi;
+                }
+                i = eoi - 1; // Advance outer loop past current image
               }
-              const pixels = w * h;
-              if (pixels > maxPixels || (pixels === 0 && candidateLen > maxLen)) {
-                maxPixels = pixels;
-                maxLen = candidateLen;
-                bestStart = soi;
-                bestEnd = eoi;
-              }
-              i = eoi - 1; // Advance outer loop past current image
             }
           }
+
+          if (bestStart !== -1 && bestEnd !== -1) {
+            const jpegBytes = bytes.subarray(bestStart, bestEnd);
+            const jpegBlob = new Blob([jpegBytes], { type: 'image/jpeg' });
+            const blobUrl = this.createTrackedBlobUrl(jpegBlob);
+
+            // Dynamically parse full optical EXIF using standard TIFF tags from the 16MB raw buffer
+            const parsedExif = parseTiffExifFromBytes(bytes);
+            let cameraModel = parsedExif.camera_model || `${ext.toUpperCase()} 相機`;
+
+            return {
+              file_path: filePath,
+              mime_type: 'image/jpeg',
+              jpeg_base64: '',
+              blob_url: blobUrl,
+              extraction_time_ms: Math.round(performance.now() - startTime) || 16,
+              exif: {
+                ...parsedExif,
+                camera_model: cameraModel,
+                date_time: parsedExif.date_time !== '--' ? parsedExif.date_time : new Date(fileBlob.lastModified).toLocaleString('zh-TW')
+              }
+            };
+          }
+          break; // 成功讀取但未找到內嵌 JPEG，無需重試同一段 bytes
+        } catch (err) {
+          console.warn(`In-browser binary RAW extraction error (attempt ${attempt + 1}/${maxRetries + 1}):`, err);
+          if (attempt < maxRetries) {
+            await sleep(150 * Math.pow(2, attempt));
+          }
         }
+      }
 
-        if (bestStart !== -1 && bestEnd !== -1) {
-          const jpegBytes = bytes.subarray(bestStart, bestEnd);
-          const jpegBlob = new Blob([jpegBytes], { type: 'image/jpeg' });
-          const blobUrl = this.createTrackedBlobUrl(jpegBlob);
-
-          // Dynamically parse full optical EXIF using standard TIFF tags from the 16MB raw buffer
-          const parsedExif = parseTiffExifFromBytes(bytes);
-          let cameraModel = parsedExif.camera_model || `${ext.toUpperCase()} 相機`;
-
-          return {
-            file_path: filePath,
-            mime_type: 'image/jpeg',
-            jpeg_base64: '',
-            blob_url: blobUrl,
-            extraction_time_ms: Math.round(performance.now() - startTime) || 16,
-            exif: {
-              ...parsedExif,
-              camera_model: cameraModel,
-              date_time: parsedExif.date_time !== '--' ? parsedExif.date_time : new Date(fileBlob.lastModified).toLocaleString('zh-TW')
-            }
-          };
-        }
-      } catch (err) {
-        console.warn('In-browser binary RAW extraction error:', err);
+      // Web 模式 RAW+JPG 配對備援
+      if (options?.sidecarBlob) {
+        const blobUrl = this.createTrackedBlobUrl(options.sidecarBlob);
+        return {
+          file_path: filePath,
+          mime_type: 'image/jpeg',
+          jpeg_base64: '',
+          blob_url: blobUrl,
+          extraction_time_ms: Math.round(performance.now() - startTime) || 8,
+          exif: {
+            camera_model: `${ext.toUpperCase()} 相機`,
+            lens_model: '標準鏡頭',
+            iso: 100,
+            shutter_speed: '--',
+            aperture: '--',
+            focal_length: '--',
+            date_time: new Date(fileBlob.lastModified).toLocaleString('zh-TW')
+          }
+        };
       }
     }
 

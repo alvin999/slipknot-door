@@ -1147,6 +1147,8 @@
           onFilesDropped={handleFilesDropped}
           {cameraMounts}
           onLoadCameraMount={(m) => handleLoadCameraMount(m)}
+          onRetryThumbnail={(photoId) => photoLibrary.retryPhotoThumbnail(photoId)}
+          onPrioritizePhotos={(ids) => photoLibrary.prioritizePhotoIds(ids)}
         />
       {:else if activeTab === "retouch"}
         <!-- MODULE 2: RETOUCH DARKROOM WORKBENCH -->
