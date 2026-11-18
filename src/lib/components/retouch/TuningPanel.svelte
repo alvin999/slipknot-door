@@ -6,6 +6,7 @@
   import DarkroomSlider from "./DarkroomSlider.svelte";
   import DarkroomHistogram from "./DarkroomHistogram.svelte";
   import { toastStore } from "$lib/stores/toastStore.svelte";
+  import { t, type TranslationKey } from "$lib/i18n";
   import {
     TUNING_PANEL_UI_STORAGE_KEY,
     DEFAULT_TUNING_PANEL_UI_STATE,
@@ -15,16 +16,16 @@
 
   const HSL_BAND_META: {
     key: HslBandKey;
-    label: string;
+    labelKey: TranslationKey;
     color: string;
     hueGradient: string;
   }[] = [
-    { key: "red", label: "紅", color: "#e05555", hueGradient: "linear-gradient(to right, #c74ca8 0%, #e05555 50%, #e68a3e 100%)" },
-    { key: "orange", label: "橙", color: "#e68a3e", hueGradient: "linear-gradient(to right, #e05555 0%, #e68a3e 50%, #d9bd45 100%)" },
-    { key: "yellow", label: "黃", color: "#d9bd45", hueGradient: "linear-gradient(to right, #e68a3e 0%, #d9bd45 50%, #52b365 100%)" },
-    { key: "green", label: "綠", color: "#52b365", hueGradient: "linear-gradient(to right, #d9bd45 0%, #52b365 50%, #46b8c4 100%)" },
-    { key: "cyan", label: "青", color: "#46b8c4", hueGradient: "linear-gradient(to right, #52b365 0%, #46b8c4 50%, #4e79d9 100%)" },
-    { key: "blue", label: "藍", color: "#4e79d9", hueGradient: "linear-gradient(to right, #46b8c4 0%, #4e79d9 50%, #b558d6 100%)" },
+    { key: "red", labelKey: "tuning.bandRed", color: "#e05555", hueGradient: "linear-gradient(to right, #c74ca8 0%, #e05555 50%, #e68a3e 100%)" },
+    { key: "orange", labelKey: "tuning.bandOrange", color: "#e68a3e", hueGradient: "linear-gradient(to right, #e05555 0%, #e68a3e 50%, #d9bd45 100%)" },
+    { key: "yellow", labelKey: "tuning.bandYellow", color: "#d9bd45", hueGradient: "linear-gradient(to right, #e68a3e 0%, #d9bd45 50%, #52b365 100%)" },
+    { key: "green", labelKey: "tuning.bandGreen", color: "#52b365", hueGradient: "linear-gradient(to right, #d9bd45 0%, #52b365 50%, #46b8c4 100%)" },
+    { key: "cyan", labelKey: "tuning.bandCyan", color: "#46b8c4", hueGradient: "linear-gradient(to right, #52b365 0%, #46b8c4 50%, #4e79d9 100%)" },
+    { key: "blue", labelKey: "tuning.bandBlue", color: "#4e79d9", hueGradient: "linear-gradient(to right, #46b8c4 0%, #4e79d9 50%, #b558d6 100%)" },
   ];
 
   const initialTuningUi = readLocalJson(
@@ -51,35 +52,35 @@
     });
   }
 
-  const BW_FILTER_PRESETS: { key: BwFilterPresetKey; label: string; title: string }[] = [
-    { key: "neutral", label: "標準中性", title: "全色性中性灰階（歸零各色濾鏡權重）" },
-    { key: "yellow", label: "黃色濾鏡", title: "微壓藍天與反差增強（街拍常用）" },
-    { key: "orange", label: "橙色濾鏡", title: "明顯壓暗藍天、提亮暖色磚牆與膚色" },
-    { key: "red", label: "紅色濾鏡", title: "極致深黑戲劇天空與強烈白雲反差" },
-    { key: "green", label: "綠色濾鏡", title: "提亮森林樹葉層次、壓實紅色花果" },
-    { key: "portrait", label: "柔膚人像", title: "柔和提亮橙紅膚質與細膩中間調" },
+  const BW_FILTER_PRESETS: { key: BwFilterPresetKey; labelKey: TranslationKey; titleKey: TranslationKey }[] = [
+    { key: "neutral", labelKey: "tuning.bwNeutral", titleKey: "tuning.bwNeutralTitle" },
+    { key: "yellow", labelKey: "tuning.bwYellow", titleKey: "tuning.bwYellowTitle" },
+    { key: "orange", labelKey: "tuning.bwOrange", titleKey: "tuning.bwOrangeTitle" },
+    { key: "red", labelKey: "tuning.bwRed", titleKey: "tuning.bwRedTitle" },
+    { key: "green", labelKey: "tuning.bwGreen", titleKey: "tuning.bwGreenTitle" },
+    { key: "portrait", labelKey: "tuning.bwPortrait", titleKey: "tuning.bwPortraitTitle" },
   ];
 
-  const CROP_RATIO_OPTIONS: { key: CropRatioPreset; label: string; sub: string }[] = [
-    { key: "original", label: "原始比例", sub: "ORIG" },
-    { key: "1:1", label: "1:1 正方", sub: "1:1" },
-    { key: "4:5", label: "4:5 社群", sub: "4:5" },
-    { key: "16:9", label: "16:9 寬景", sub: "16:9" },
-    { key: "9:16", label: "9:16 直幅", sub: "9:16" },
-    { key: "free", label: "自由裁切", sub: "FREE" },
+  const CROP_RATIO_OPTIONS: { key: CropRatioPreset; labelKey: TranslationKey; sub: string }[] = [
+    { key: "original", labelKey: "tuning.cropOriginal", sub: "ORIG" },
+    { key: "1:1", labelKey: "tuning.cropSquare", sub: "1:1" },
+    { key: "4:5", labelKey: "tuning.cropPortrait45", sub: "4:5" },
+    { key: "16:9", labelKey: "tuning.cropWide169", sub: "16:9" },
+    { key: "9:16", labelKey: "tuning.cropVertical916", sub: "9:16" },
+    { key: "free", labelKey: "tuning.cropFree", sub: "FREE" },
   ];
 
-  // 將 0~360 度色相轉換為易讀的中文色彩名稱
+  // 將 0~360 度色相轉換為易讀的色彩名稱
   function describeHueName(deg: number): string {
     const d = ((Math.round(deg) % 360) + 360) % 360;
-    if (d < 18 || d >= 345) return "緋紅";
-    if (d < 48) return "暖金琥珀";
-    if (d < 72) return "暖黃";
-    if (d < 155) return "翠綠";
-    if (d < 205) return "冷青";
-    if (d < 255) return "靛藍";
-    if (d < 300) return "堇紫";
-    return "洋紅";
+    if (d < 18 || d >= 345) return t("tuning.hueCrimson");
+    if (d < 48) return t("tuning.hueAmber");
+    if (d < 72) return t("tuning.hueYellow");
+    if (d < 155) return t("tuning.hueEmerald");
+    if (d < 205) return t("tuning.hueCyan");
+    if (d < 255) return t("tuning.hueIndigo");
+    if (d < 300) return t("tuning.hueViolet");
+    return t("tuning.hueMagenta");
   }
 
   const hasAnyBwLumAdjustment = $derived(
@@ -203,7 +204,7 @@
     if (preset) return preset.title || preset.shortLabel;
     const prof = profiles.find((p) => p.id === currentProfileId);
     if (prof) return prof.title || prof.name || prof.id;
-    return "Standard · 原色自然直出";
+    return t("tuning.defaultStyleTitle");
   });
 
   // 監聽各項參數變更以自動記錄快照歷史 (防抖 300ms)
@@ -266,7 +267,7 @@
         if (darkroomState.canUndo) {
           e.preventDefault();
           darkroomState.undo();
-          toastStore.show("已復原上一步調色 (Undo)", "info", 1200);
+          toastStore.show(t("tuning.toastUndo"), "info", 1200);
         }
       }
       // Redo: Ctrl+Y 或 Ctrl+Shift+Z
@@ -274,7 +275,7 @@
         if (darkroomState.canRedo) {
           e.preventDefault();
           darkroomState.redo();
-          toastStore.show("已重做下一步調色 (Redo)", "info", 1200);
+          toastStore.show(t("tuning.toastRedo"), "info", 1200);
         }
       }
     }
@@ -296,12 +297,12 @@
   <!-- 顯影輸出模式與目前套用風格資訊 -->
   <div class="output-mode-panel">
     <div class="output-mode-bar">
-      <div class="style-status-info" title={`目前套用風格檔：${activeStyleTitle}`}>
-        <span class="style-status-label">目前風格</span>
+      <div class="style-status-info" title={t("tuning.styleTitleTip", { title: activeStyleTitle })}>
+        <span class="style-status-label">{t("tuning.currentStyle")}</span>
         <span class="style-status-name font-headline">{activeStyleTitle}</span>
       </div>
 
-      <div class="output-mode-switch font-mono" role="group" aria-label="顯影輸出色彩模式">
+      <div class="output-mode-switch font-mono" role="group" aria-label={t("tuning.outputModeAria")}>
         <button
           type="button"
           class="output-mode-btn"
@@ -312,10 +313,10 @@
               darkroomState.recordSnapshot(true);
             }
           }}
-          title="標準彩色 3D LUT 顯影管線"
+          title={t("tuning.colorModeTitle")}
         >
           <span class="mode-dot color"></span>
-          <span>彩色</span>
+          <span>{t("tuning.colorMode")}</span>
         </button>
         <button
           type="button"
@@ -327,10 +328,10 @@
               darkroomState.recordSnapshot(true);
             }
           }}
-          title="黑白暗房管線（繼承當前 LUT 階調曲線 + 6 色光譜濾鏡混色 + 銀鹽光暈）"
+          title={t("tuning.monoModeTitle")}
         >
           <span class="mode-dot mono"></span>
-          <span>黑白</span>
+          <span>{t("tuning.monoMode")}</span>
         </button>
       </div>
     </div>
@@ -345,13 +346,13 @@
           disabled={!darkroomState.canUndo}
           onclick={() => {
             if (darkroomState.undo()) {
-              toastStore.show("已復原上一步調色", "info", 1200);
+              toastStore.show(t("tuning.toastUndoShort"), "info", 1200);
             }
           }}
-          title="復原上一步調色 (Ctrl+Z)"
+          title={t("tuning.undoTitle")}
         >
           <span class="material-symbols-outlined" style="font-size: 13px;">undo</span>
-          <span>復原</span>
+          <span>{t("tuning.undo")}</span>
         </button>
 
         <button
@@ -361,13 +362,13 @@
           disabled={!darkroomState.canRedo}
           onclick={() => {
             if (darkroomState.redo()) {
-              toastStore.show("已重做下一步調色", "info", 1200);
+              toastStore.show(t("tuning.toastRedoShort"), "info", 1200);
             }
           }}
-          title="重做下一步調色 (Ctrl+Y)"
+          title={t("tuning.redoTitle")}
         >
           <span class="material-symbols-outlined" style="font-size: 13px;">redo</span>
-          <span>重做</span>
+          <span>{t("tuning.redo")}</span>
         </button>
 
         <span class="toolbar-divider"></span>
@@ -378,12 +379,12 @@
           onclick={() => {
             if (!activePhoto) return;
             darkroomState.copyCurrentTuning(activePhoto.appliedProfile);
-            toastStore.show("已複製目前調色參數 ✓", "success", 2000);
+            toastStore.show(t("tuning.toastCopied"), "success", 2000);
           }}
-          title="複製目前相片的所有調色參數，可貼上至其他相片"
+          title={t("tuning.copyTitle")}
         >
           <span class="material-symbols-outlined" style="font-size: 13px;">content_copy</span>
-          <span>複製</span>
+          <span>{t("tuning.copy")}</span>
         </button>
 
         {#if darkroomState.copiedTuning}
@@ -395,12 +396,12 @@
               if (pasted && onApplyProfile) {
                 onApplyProfile(pasted.appliedProfile);
               }
-              toastStore.show("已套用複製的調色參數 ✓", "success", 2000);
+              toastStore.show(t("tuning.toastPasted"), "success", 2000);
             }}
-            title="將已複製的調色參數套用至目前相片"
+            title={t("tuning.pasteTitle")}
           >
             <span class="material-symbols-outlined" style="font-size: 13px;">content_paste</span>
-            <span>貼上</span>
+            <span>{t("tuning.paste")}</span>
           </button>
         {/if}
       </div>
@@ -412,12 +413,12 @@
             class="toolbar-btn highlight"
             disabled={isAiAnalyzing}
             onclick={onIterateAiTuning}
-            title="保留您目前的滑桿調整，讓 AI 觀看目前畫面並協同補齊其餘參數"
+            title={t("tuning.aiAssistTitle")}
           >
             <span class="material-symbols-outlined" class:spin={isAiAnalyzing} style="font-size: 13px;">
               {isAiAnalyzing ? "progress_activity" : "auto_fix_high"}
             </span>
-            <span>AI 補齊其餘</span>
+            <span>{t("tuning.aiAssist")}</span>
           </button>
         {/if}
 
@@ -427,12 +428,12 @@
             class="toolbar-btn"
             class:highlight={isModifiedFromAi}
             onclick={onRestoreAiTuning}
-            title={isModifiedFromAi ? "已手動微調：點擊可一鍵還原為 AI 顯影基準" : "目前維持 AI 顯影基準"}
+            title={isModifiedFromAi ? t("tuning.restoreAiModified") : t("tuning.restoreAiBaseline")}
           >
             <span class="material-symbols-outlined" style="font-size: 13px;">
               settings_backup_restore
             </span>
-            <span>還原 AI</span>
+            <span>{t("tuning.restoreAi")}</span>
           </button>
         {/if}
 
@@ -441,10 +442,10 @@
             type="button"
             class="toolbar-btn"
             onclick={onResetToAsShot}
-            title="還原為相機拍攝時的原始色溫與曝光 (As Shot)"
+            title={t("tuning.asShotTitle")}
           >
             <span class="material-symbols-outlined" style="font-size: 13px;">photo_camera</span>
-            <span>相機原值</span>
+            <span>{t("tuning.asShot")}</span>
           </button>
         {/if}
 
@@ -453,10 +454,10 @@
             type="button"
             class="toolbar-btn danger-hover"
             onclick={onResetTuningParams}
-            title="完全重設為未修圖原片（清除所有調色、風格與裁切）"
+            title={t("tuning.resetAllTitle")}
           >
             <span class="material-symbols-outlined" style="font-size: 13px;">restart_alt</span>
-            <span>全重設</span>
+            <span>{t("tuning.resetAll")}</span>
           </button>
         {/if}
       </div>
@@ -477,12 +478,12 @@
         saveTuningPanelUi();
       }}
       aria-expanded={lutTuningExpanded}
-      title="展開或收合基礎光影與白平衡微調"
+      title={t("tuning.sec1ToggleTitle")}
     >
       <span class="step-num-badge font-mono">1</span>
-      <span class="section-main-title">光影與白平衡</span>
+      <span class="section-main-title">{t("tuning.sec1Title")}</span>
       {#if hasAnyToneAdjustment}
-        <span class="section-dirty-dot" title="此區塊已有微調項目"></span>
+        <span class="section-dirty-dot" title={t("tuning.secDirtyDot")}></span>
       {/if}
       <span class="material-symbols-outlined section-chevron">
         {lutTuningExpanded ? "expand_more" : "chevron_right"}
@@ -496,10 +497,10 @@
           class="quick-ai-btn"
           onclick={onQuickAiTone}
           disabled={isAiAnalyzing || !activePhoto}
-          title="讓 AI 自動分析並平衡此張相片的曝光、對比與明暗層次"
+          title={t("tuning.aiExposureTitle")}
         >
           <span class="material-symbols-outlined ai-icon">exposure</span>
-          <span>AI 光影</span>
+          <span>{t("tuning.aiExposure")}</span>
         </button>
       {/if}
 
@@ -509,10 +510,10 @@
           class="quick-ai-btn"
           onclick={onQuickAiWhiteBalance}
           disabled={isAiAnalyzing || !activePhoto}
-          title="讓 AI 自動校正此張相片的色溫與色調偏移"
+          title={t("tuning.aiWbTitle")}
         >
           <span class="material-symbols-outlined ai-icon">thermostat</span>
-          <span>AI 白平衡</span>
+          <span>{t("tuning.aiWb")}</span>
         </button>
       {/if}
     </div>
@@ -522,12 +523,12 @@
     <!-- 子分組 A：風格濃度與白平衡 -->
     <div class="sub-group-card">
       <div class="sub-group-title">
-        <span>風格濃度與色溫</span>
+        <span>{t("tuning.subWbTitle")}</span>
         <span class="sub-group-en font-mono">STYLE & WB</span>
       </div>
 
       <DarkroomSlider
-        label="風格套用濃度"
+        label={t("tuning.lblLutIntensity")}
         subLabel="LUT"
         bind:value={darkroomState.lutIntensity}
         defaultValue={1.0}
@@ -540,7 +541,7 @@
       />
 
       <DarkroomSlider
-        label="色溫冷暖"
+        label={t("tuning.lblTemp")}
         subLabel="Kelvin"
         bind:value={darkroomState.colorTemp}
         defaultValue={activePhoto?.asShotTemp ?? 5500}
@@ -548,13 +549,13 @@
         max={8500}
         step={50}
         customTrackGradient="linear-gradient(to right, #4578b8 0%, #83a5cf 35%, #d4a373 65%, #ea8d3b 100%)"
-        formatValue={(v) => `${v}K ${v < 4800 ? "(偏冷)" : v > 6200 ? "(偏暖)" : ""}`.trim()}
+        formatValue={(v) => `${v}K`}
         parseInput={parseCleanNumber}
       />
 
       <DarkroomSlider
-        label="色調偏移"
-        subLabel="綠 ↔ 洋紅"
+        label={t("tuning.lblTint")}
+        subLabel="Tint"
         bind:value={darkroomState.tint}
         defaultValue={activePhoto?.asShotTint ?? 0}
         min={-100}
@@ -564,10 +565,10 @@
         customTrackGradient="linear-gradient(to right, #2ba471 0%, #1a1e24 50%, #c44e91 100%)"
         formatValue={(v) =>
           v > 0
-            ? `+${Math.round(v)} (偏洋紅)`
+            ? `+${Math.round(v)}`
             : v < 0
-              ? `${Math.round(v)} (偏青綠)`
-              : "0 (中性)"}
+              ? `${Math.round(v)}`
+              : "0"}
         parseInput={parseCleanNumber}
       />
     </div>
@@ -575,12 +576,12 @@
     <!-- 子分組 B：曝光與明暗階調 -->
     <div class="sub-group-card">
       <div class="sub-group-title">
-        <span>曝光與明暗階調</span>
+        <span>{t("tuning.subExposureTitle")}</span>
         <span class="sub-group-en font-mono">EXPOSURE & TONE</span>
       </div>
 
       <DarkroomSlider
-        label="整體曝光"
+        label={t("tuning.lblExposure")}
         subLabel="EV"
         bind:value={darkroomState.exposure}
         defaultValue={0}
@@ -593,7 +594,7 @@
       />
 
       <DarkroomSlider
-        label="對比反差"
+        label={t("tuning.lblContrast")}
         subLabel="Contrast"
         bind:value={darkroomState.contrast}
         defaultValue={0}
@@ -606,7 +607,7 @@
       />
 
       <DarkroomSlider
-        label="高光細節修復"
+        label="Highlights"
         subLabel="Highlights"
         bind:value={darkroomState.highlights}
         defaultValue={0}
@@ -619,7 +620,7 @@
       />
 
       <DarkroomSlider
-        label="暗部提亮 (啞光感)"
+        label={t("tuning.lblShadows")}
         subLabel="Shadows"
         bind:value={darkroomState.shadows}
         defaultValue={0}
@@ -632,7 +633,7 @@
       />
 
       <DarkroomSlider
-        label="黑階紮實度"
+        label="Blacks"
         subLabel="Blacks"
         bind:value={darkroomState.blacks}
         defaultValue={0}
@@ -648,12 +649,12 @@
     <!-- 子分組 C：色彩活潑度與細節 -->
     <div class="sub-group-card last">
       <div class="sub-group-title">
-        <span>飽和度與細節</span>
-        <span class="sub-group-en font-mono">PRESENCE & DETAIL</span>
+        <span>PRESENCE & DETAIL</span>
+        <span class="sub-group-en font-mono">DETAIL</span>
       </div>
 
       <DarkroomSlider
-        label={darkroomState.monochrome ? "自然飽和度 (黑白停用)" : "自然飽和度 (護膚色)"}
+        label="Vibrance"
         subLabel="Vibrance"
         bind:value={darkroomState.vibrance}
         defaultValue={0}
@@ -667,7 +668,7 @@
       />
 
       <DarkroomSlider
-        label="清晰度 (中頻立體感)"
+        label={t("tuning.lblClarity")}
         subLabel="Clarity"
         bind:value={darkroomState.clarity}
         defaultValue={0}
@@ -680,7 +681,7 @@
       />
 
       <DarkroomSlider
-        label="邊緣銳利度"
+        label={t("tuning.lblSharpness")}
         subLabel="Sharpness"
         bind:value={darkroomState.sharpness}
         defaultValue={0}
@@ -709,15 +710,15 @@
       }}
       aria-expanded={hslExpanded}
       title={darkroomState.monochrome
-        ? "展開或收合黑白 6 色光學濾鏡混色器"
-        : "展開或收合 6 種顏色獨立微調 (紅/橙/黃/綠/青/藍)"}
+        ? t("tuning.sec2ToggleTitleMono")
+        : t("tuning.sec2ToggleTitleColor")}
     >
       <span class="step-num-badge font-mono">2</span>
       <span class="section-main-title">
-        {darkroomState.monochrome ? "黑白濾鏡混色" : "分色獨立微調 (HSL)"}
+        {darkroomState.monochrome ? t("tuning.sec2TitleMono") : t("tuning.sec2TitleColor")}
       </span>
       {#if darkroomState.monochrome ? hasAnyBwLumAdjustment : hasAnyHslAdjustment}
-        <span class="section-dirty-dot" title="已有色域調整"></span>
+        <span class="section-dirty-dot" title={t("tuning.sec2DirtyDot")}></span>
       {/if}
       <span class="material-symbols-outlined section-chevron">
         {hslExpanded ? "expand_more" : "chevron_right"}
@@ -736,10 +737,10 @@
             darkroomState.recordSnapshot(true);
           }
         }}
-        title={darkroomState.monochrome ? "歸零黑白光學濾鏡混色權重" : "歸零全部 6 色 HSL 調整"}
+        title={darkroomState.monochrome ? t("tuning.resetHslTitleMono") : t("tuning.resetHslTitleColor")}
       >
         <span class="material-symbols-outlined" style="font-size: 12px;">restart_alt</span>
-        <span>全部歸零</span>
+        <span>{t("tuning.resetAllZero")}</span>
       </button>
     {/if}
   </div>
@@ -747,7 +748,7 @@
   {#if hslExpanded}
     {#if darkroomState.monochrome}
       <p class="section-helper-desc">
-        模擬傳統黑白攝影在鏡頭前加裝有色濾鏡，控制不同顏色轉換為灰階時的明暗反差：
+        {t("tuning.bwFilterHint")}
       </p>
       <div class="bw-filter-presets">
         {#each BW_FILTER_PRESETS as preset}
@@ -755,9 +756,9 @@
             type="button"
             class="bw-filter-chip"
             onclick={() => darkroomState.applyBwFilterPreset(preset.key)}
-            title={preset.title}
+            title={t(preset.titleKey)}
           >
-            {preset.label}
+            {t(preset.labelKey)}
           </button>
         {/each}
       </div>
@@ -765,7 +766,7 @@
       <div class="sub-group-card last">
         {#each HSL_BAND_META as band}
           <DarkroomSlider
-            label={`${band.label}色區域明暗`}
+            label={t("tuning.bwBandLabel", { label: t(band.labelKey) })}
             subLabel={band.key.toUpperCase()}
             bind:value={darkroomState.hsl[band.key].lum}
             defaultValue={0}
@@ -789,10 +790,10 @@
               selectedHslBand = band.key;
               saveTuningPanelUi();
             }}
-            title={`切換調整「${band.label}色」的色相、彩度與明度`}
+            title={t("tuning.hslBandBtnTitle", { label: t(band.labelKey) })}
           >
             <span class="hsl-dot" style="background: {band.color};"></span>
-            <span>{band.label}</span>
+            <span>{t(band.labelKey)}</span>
             {#if isHslBandDirty(band.key)}
               <span class="hsl-band-dirty-dot"></span>
             {/if}
@@ -803,13 +804,13 @@
       <div class="sub-group-card last">
         <div class="hsl-band-subbar">
           <span class="hsl-current-label">
-            正在調整：<strong style="color: {selectedHslMeta.color};">{selectedHslMeta.label}色域 ({selectedHslMeta.key.toUpperCase()})</strong>
+            {t("tuning.hslAdjustingPrefix")}<strong style="color: {selectedHslMeta.color};">{t("tuning.hslBandTitle", { label: t(selectedHslMeta.labelKey), code: selectedHslMeta.key.toUpperCase() })}</strong>
             {#if selectedHslBand === "orange" || selectedHslBand === "red"}
-              <span class="hsl-skin-tip">· 常用於膚色微調</span>
+              <span class="hsl-skin-tip">{t("tuning.hslTipSkin")}</span>
             {:else if selectedHslBand === "green" || selectedHslBand === "yellow"}
-              <span class="hsl-skin-tip">· 常用於植物草木</span>
+              <span class="hsl-skin-tip">{t("tuning.hslTipPlant")}</span>
             {:else if selectedHslBand === "blue" || selectedHslBand === "cyan"}
-              <span class="hsl-skin-tip">· 常用於天空水面</span>
+              <span class="hsl-skin-tip">{t("tuning.hslTipSky")}</span>
             {/if}
           </span>
           {#if isHslBandDirty(selectedHslBand)}
@@ -821,13 +822,13 @@
                 darkroomState.recordSnapshot(true);
               }}
             >
-              歸零{selectedHslMeta.label}色
+              {t("tuning.hslResetBand", { label: t(selectedHslMeta.labelKey) })}
             </button>
           {/if}
         </div>
 
         <DarkroomSlider
-          label={`${selectedHslMeta.label}色 · 色相偏移`}
+          label={t("tuning.hslHue", { label: t(selectedHslMeta.labelKey) })}
           subLabel="Hue"
           bind:value={darkroomState.hsl[selectedHslBand].hue}
           defaultValue={0}
@@ -847,7 +848,7 @@
           }}
         />
         <DarkroomSlider
-          label={`${selectedHslMeta.label}色 · 鮮豔彩度`}
+          label={t("tuning.hslSat", { label: t(selectedHslMeta.labelKey) })}
           subLabel="Saturation"
           bind:value={darkroomState.hsl[selectedHslBand].sat}
           defaultValue={0}
@@ -859,7 +860,7 @@
           parseInput={parsePercentage}
         />
         <DarkroomSlider
-          label={`${selectedHslMeta.label}色 · 明暗亮度`}
+          label={t("tuning.hslLum", { label: t(selectedHslMeta.labelKey) })}
           subLabel="Luminance"
           bind:value={darkroomState.hsl[selectedHslBand].lum}
           defaultValue={0}
@@ -888,12 +889,12 @@
         saveTuningPanelUi();
       }}
       aria-expanded={toningExpanded}
-      title="展開或收合底片顆粒、高光紅暈與冷暖分區染色"
+      title={t("tuning.sec3ToggleTitle")}
     >
       <span class="step-num-badge font-mono">3</span>
-      <span class="section-main-title">底片質感與冷暖染色</span>
+      <span class="section-main-title">{t("tuning.sec3Title")}</span>
       {#if hasAnyToningAdjustment}
-        <span class="section-dirty-dot" title="此區塊已有微調項目"></span>
+        <span class="section-dirty-dot" title={t("tuning.sec3DirtyDot")}></span>
       {/if}
       <span class="material-symbols-outlined section-chevron">
         {toningExpanded ? "expand_more" : "chevron_right"}
@@ -915,10 +916,10 @@
           darkroomState.vignette = 0.0;
           darkroomState.recordSnapshot(true);
         }}
-        title="將底片質感與冷暖染色還原為預設值"
+        title={t("tuning.resetSec3Title")}
       >
         <span class="material-symbols-outlined" style="font-size: 12px;">restart_alt</span>
-        <span>歸零質感</span>
+        <span>{t("tuning.resetSec3")}</span>
       </button>
     {/if}
   </div>
@@ -927,12 +928,12 @@
     <!-- 子分組 A：光學底片質感 -->
     <div class="sub-group-card">
       <div class="sub-group-title">
-        <span>傳統底片光學效應</span>
+        <span>{t("tuning.subFilmTitle")}</span>
         <span class="sub-group-en font-mono">FILM TEXTURE</span>
       </div>
 
       <DarkroomSlider
-        label={darkroomState.monochrome ? "色彩濃厚感 (黑白停用)" : "色彩濃厚感 (減色密度)"}
+        label={darkroomState.monochrome ? t("tuning.lblColorDensityMono") : t("tuning.lblColorDensity")}
         subLabel="Color Density"
         bind:value={darkroomState.colorDensity}
         defaultValue={0}
@@ -946,7 +947,7 @@
       />
 
       <DarkroomSlider
-        label="高光邊緣紅暈"
+        label={t("tuning.lblHalation")}
         subLabel="Halation"
         bind:value={darkroomState.halation}
         defaultValue={0}
@@ -959,7 +960,7 @@
       />
 
       <DarkroomSlider
-        label="銀鹽顆粒粗細"
+        label={t("tuning.lblGrain")}
         subLabel="Silver Grain"
         bind:value={darkroomState.grainAmount}
         defaultValue={0.15}
@@ -971,7 +972,7 @@
       />
 
       <DarkroomSlider
-        label="四周光學暗角"
+        label={t("tuning.lblVignette")}
         subLabel="Vignette"
         bind:value={darkroomState.vignette}
         defaultValue={0}
@@ -987,7 +988,7 @@
     <!-- 子分組 B：暗部與亮部分區染色 (Split Toning) -->
     <div class="sub-group-card last">
       <div class="sub-group-title">
-        <span>{darkroomState.monochrome ? "暗房調色液染色 (硒調/棕調)" : "明暗冷暖分區染色"}</span>
+        <span>{darkroomState.monochrome ? t("tuning.subSplitTitleMono") : t("tuning.subSplitTitleColor")}</span>
         <span class="sub-group-en font-mono">SPLIT TONING</span>
       </div>
 
@@ -999,16 +1000,16 @@
             style:background={`hsl(${darkroomState.shadowHue}, 70%, 55%)`}
             style:opacity={Math.max(0.35, darkroomState.shadowTintAmount)}
           ></span>
-          <span class="split-tone-label">暗部色調：{describeHueName(darkroomState.shadowHue)}</span>
+          <span class="split-tone-label">{t("tuning.splitShadowLabel", { name: describeHueName(darkroomState.shadowHue) })}</span>
           <span class="split-tone-status font-mono">
             {darkroomState.shadowTintAmount > 0.005
-              ? `濃度 ${Math.round(darkroomState.shadowTintAmount * 100)}%`
-              : "未啟用 (0%)"}
+              ? t("tuning.splitAmountPct", { pct: Math.round(darkroomState.shadowTintAmount * 100) })
+              : t("tuning.splitAmountOff")}
           </span>
         </div>
 
         <DarkroomSlider
-          label="暗部染色強度"
+          label={t("tuning.lblShadowStrength")}
           subLabel="Amount"
           bind:value={darkroomState.shadowTintAmount}
           defaultValue={0}
@@ -1020,7 +1021,7 @@
         />
 
         <DarkroomSlider
-          label="暗部色相選擇"
+          label={t("tuning.lblShadowHue")}
           subLabel="Hue"
           bind:value={darkroomState.shadowHue}
           defaultValue={200}
@@ -1041,16 +1042,16 @@
             style:background={`hsl(${darkroomState.highlightHue}, 75%, 60%)`}
             style:opacity={Math.max(0.35, darkroomState.highlightTintAmount)}
           ></span>
-          <span class="split-tone-label">亮部色調：{describeHueName(darkroomState.highlightHue)}</span>
+          <span class="split-tone-label">{t("tuning.splitHighlightLabel", { name: describeHueName(darkroomState.highlightHue) })}</span>
           <span class="split-tone-status font-mono">
             {darkroomState.highlightTintAmount > 0.005
-              ? `濃度 ${Math.round(darkroomState.highlightTintAmount * 100)}%`
-              : "未啟用 (0%)"}
+              ? t("tuning.splitAmountPct", { pct: Math.round(darkroomState.highlightTintAmount * 100) })
+              : t("tuning.splitAmountOff")}
           </span>
         </div>
 
         <DarkroomSlider
-          label="亮部染色強度"
+          label={t("tuning.lblHighlightStrength")}
           subLabel="Amount"
           bind:value={darkroomState.highlightTintAmount}
           defaultValue={0}
@@ -1062,7 +1063,7 @@
         />
 
         <DarkroomSlider
-          label="亮部色相選擇"
+          label={t("tuning.lblHighlightHue")}
           subLabel="Hue"
           bind:value={darkroomState.highlightHue}
           defaultValue={40}
@@ -1091,12 +1092,12 @@
         saveTuningPanelUi();
       }}
       aria-expanded={cropExpanded}
-      title="展開或收合構圖比例裁切、地平線旋轉與透視校正"
+      title={t("tuning.sec4ToggleTitle")}
     >
       <span class="step-num-badge font-mono">4</span>
-      <span class="section-main-title">構圖裁切與水平</span>
+      <span class="section-main-title">{t("tuning.sec4Title")}</span>
       {#if hasAnyCropAdjustment}
-        <span class="section-dirty-dot" title="已套用裁切或水平校正"></span>
+        <span class="section-dirty-dot" title={t("tuning.sec4DirtyDot")}></span>
       {/if}
       <span class="material-symbols-outlined section-chevron">
         {cropExpanded ? "expand_more" : "chevron_right"}
@@ -1110,10 +1111,10 @@
           class="quick-ai-btn"
           onclick={onQuickAiCrop}
           disabled={isAiAnalyzing || !activePhoto}
-          title="讓 AI 判讀畫面主體重心並自動套用最佳裁切框"
+          title={t("tuning.aiCropTitle")}
         >
           <span class="material-symbols-outlined ai-icon">auto_fix_high</span>
-          <span>AI 裁切</span>
+          <span>{t("tuning.aiCrop")}</span>
         </button>
       {/if}
 
@@ -1123,10 +1124,10 @@
           class="quick-ai-btn"
           onclick={onQuickAiHorizon}
           disabled={isAiAnalyzing || !activePhoto}
-          title="讓 AI 自動偵測地平線傾角與垂直建築線條並拉平"
+          title={t("tuning.aiLevelTitle")}
         >
           <span class="material-symbols-outlined ai-icon">straighten</span>
-          <span>AI 拉平</span>
+          <span>{t("tuning.aiLevel")}</span>
         </button>
       {/if}
     </div>
@@ -1135,7 +1136,7 @@
   {#if cropExpanded}
     <div class="sub-group-card last">
       <div class="sub-group-title">
-        <span>畫面長寬比例</span>
+        <span>{t("tuning.aspectRatioLabel")}</span>
         <div class="crop-title-actions">
           {#if hasAnyCropAdjustment}
             <button
@@ -1146,10 +1147,10 @@
                 darkroomState.isCropMode = false;
                 darkroomState.recordSnapshot(true);
               }}
-              title="重設所有裁切、旋轉與透視變形"
+              title={t("tuning.resetCropTitle")}
             >
               <span class="material-symbols-outlined" style="font-size: 12px;">restart_alt</span>
-              <span>重設構圖</span>
+              <span>{t("tuning.resetCrop")}</span>
             </button>
           {/if}
           <button
@@ -1159,7 +1160,7 @@
             onclick={() => (darkroomState.isCropMode = !darkroomState.isCropMode)}
           >
             <span class="material-symbols-outlined" style="font-size: 12px;">crop</span>
-            <span>{darkroomState.isCropMode ? "完成調整" : "顯示裁切框"}</span>
+            <span>{darkroomState.isCropMode ? t("tuning.cropBoxDone") : t("tuning.cropBoxShow")}</span>
           </button>
         </div>
       </div>
@@ -1172,16 +1173,16 @@
             class="ratio-chip"
             class:active={darkroomState.cropAspectRatio === item.key}
             onclick={() => darkroomState.applyAspectRatioPreset(item.key)}
-            title={`切換為 ${item.label} 並開啟畫布裁切框`}
+            title={t("tuning.cropPresetTitle", { label: t(item.labelKey) })}
           >
-            {item.label}
+            {t(item.labelKey)}
           </button>
         {/each}
       </div>
 
       <!-- Rotation Slider -->
       <DarkroomSlider
-        label="水平旋轉校正"
+        label={t("tuning.lblRotation")}
         subLabel="Rotation"
         bind:value={darkroomState.cropRotation}
         defaultValue={0}
@@ -1195,7 +1196,7 @@
 
       <!-- Vertical Keystone Slider -->
       <DarkroomSlider
-        label="垂直透視校正 (建築仰拍)"
+        label={t("tuning.lblKeystoneV")}
         subLabel="Keystone"
         bind:value={darkroomState.keystoneV}
         defaultValue={0}
@@ -1214,23 +1215,23 @@
           class="geom-btn"
           class:active={darkroomState.flipH}
           onclick={() => (darkroomState.flipH = !darkroomState.flipH)}
-          title="左右水平鏡像翻轉"
+          title={t("tuning.flipHTitle")}
         >
           <span class="material-symbols-outlined" style="font-size: 13px;">flip</span>
-          <span>水平翻轉</span>
+          <span>{t("tuning.flipH")}</span>
         </button>
         <button
           type="button"
           class="geom-btn"
           class:active={darkroomState.flipV}
           onclick={() => (darkroomState.flipV = !darkroomState.flipV)}
-          title="上下垂直鏡像翻轉"
+          title={t("tuning.flipVTitle")}
         >
           <span
             class="material-symbols-outlined"
             style="font-size: 13px; transform: rotate(90deg);">flip</span
           >
-          <span>垂直翻轉</span>
+          <span>{t("tuning.flipV")}</span>
         </button>
       </div>
     </div>
@@ -1245,7 +1246,7 @@
     <span class="material-symbols-outlined" style="font-size: 14px; color: var(--amber-highlight);">
       task_alt
     </span>
-    <span>微調滿意後，可立即輸出成片或進入批次匯出</span>
+    <span>{t("tuning.footerHint")}</span>
   </div>
   <div class="export-footer-actions">
     {#if onOpenQuickExport}
@@ -1254,10 +1255,10 @@
         class="footer-export-btn quick"
         onclick={onOpenQuickExport}
         disabled={!activePhoto}
-        title="快速匯出目前這張相片 (快捷鍵 Ctrl+E)"
+        title={t("tuning.quickExportTitle")}
       >
         <span class="material-symbols-outlined" style="font-size: 15px;">download</span>
-        <span>單張快速匯出</span>
+        <span>{t("tuning.quickExportBtn")}</span>
       </button>
     {/if}
     {#if onGoToExport}
@@ -1265,9 +1266,9 @@
         type="button"
         class="footer-export-btn primary"
         onclick={onGoToExport}
-        title="前往匯出與分享頁面（支援多張批次輸出與 AI 社群文案）"
+        title={t("tuning.goExportTitle")}
       >
-        <span>前往匯出佇列</span>
+        <span>{t("tuning.goExportBtn")}</span>
         <span class="material-symbols-outlined" style="font-size: 15px;">arrow_forward</span>
       </button>
     {/if}

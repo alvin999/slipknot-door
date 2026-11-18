@@ -9,6 +9,7 @@
   import { onMount } from "svelte";
   import { darkroomState } from "$lib/stores/darkroomState.svelte";
   import type { PhotoPlateItem } from "$lib/stores/photoLibrary.svelte";
+  import { t } from "$lib/i18n";
 
   interface Props {
     activePhoto?: PhotoPlateItem | null;
@@ -193,7 +194,7 @@
   <div class="hist-header">
     <div class="hist-title">
       <span class="material-symbols-outlined hist-icon">equalizer</span>
-      <span class="hist-title-main">光學直方圖</span>
+      <span class="hist-title-main">{t("histogram.title")}</span>
       <span class="hist-title-sub font-mono">HISTOGRAM</span>
     </div>
     <div class="hist-controls font-mono">
@@ -202,18 +203,18 @@
         class="mode-chip"
         class:active={displayMode === "rgb"}
         onclick={() => (displayMode = "rgb")}
-        title="RGB 三原色分佈波形"
+        title={t("histogram.rgbTitle")}
       >
-        RGB 色彩
+        {t("histogram.rgbLabel")}
       </button>
       <button
         type="button"
         class="mode-chip"
         class:active={displayMode === "luma"}
         onclick={() => (displayMode = "luma")}
-        title="Luma 單色明度光階波形"
+        title={t("histogram.lumaTitle")}
       >
-        明度階調
+        {t("histogram.lumaLabel")}
       </button>
     </div>
   </div>
@@ -226,9 +227,9 @@
       class="hist-canvas"
     ></canvas>
     <div class="scale-readout">
-      <span>暗部 0</span>
-      <span>中間調 128</span>
-      <span>高光 255</span>
+      <span>{t("histogram.shadows")}</span>
+      <span>{t("histogram.midtones")}</span>
+      <span>{t("histogram.highlights")}</span>
     </div>
   </div>
 </div>

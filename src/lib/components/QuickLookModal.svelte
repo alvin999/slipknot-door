@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { CatalogPhotoItem } from '$lib/components/views/CatalogView.svelte';
+  import { t } from '$lib/i18n';
 
   interface Props {
     isOpen?: boolean;
@@ -57,12 +58,12 @@
           class="pick-btn hairline-all" 
           class:picked={photo.flagged}
           onclick={() => onToggleFlag && onToggleFlag(photo)}
-          title="按下鍵盤 P 鍵切換挑選狀態"
+          title={t('quickLook.togglePickTitle')}
         >
           <span class="material-symbols-outlined icon">
             {photo.flagged ? 'bookmark_added' : 'bookmark_add'}
           </span>
-          <span class="pick-label">{photo.flagged ? '已挑選 (PICKED)' : '挑選此幀'}</span>
+          <span class="pick-label">{photo.flagged ? t('quickLook.pickedLabel') : t('quickLook.pickLabel')}</span>
           <kbd class="kbd-chip">P</kbd>
         </button>
 
@@ -70,7 +71,7 @@
           type="button" 
           class="close-btn hairline-all" 
           onclick={onClose}
-          title="關閉預覽 (Space 或 Esc)"
+          title={t('quickLook.closeTitle')}
         >
           <span class="material-symbols-outlined">close</span>
           <kbd class="kbd-chip">Space</kbd>
@@ -87,7 +88,7 @@
         class:disabled={!hasPrev}
         onclick={onPrev}
         disabled={!hasPrev}
-        title="上一張 (H 或 ←)"
+        title={t('quickLook.prevTitle')}
       >
         <span class="material-symbols-outlined">chevron_left</span>
       </button>
@@ -114,7 +115,7 @@
         class:disabled={!hasNext}
         onclick={onNext}
         disabled={!hasNext}
-        title="下一張 (L 或 →)"
+        title={t('quickLook.nextTitle')}
       >
         <span class="material-symbols-outlined">chevron_right</span>
       </button>
@@ -125,17 +126,17 @@
       <div class="shortcuts-guide">
         <span class="guide-item">
           <kbd class="kbd-chip">H</kbd><kbd class="kbd-chip">L</kbd>
-          <span class="guide-desc">翻頁瀏覽</span>
+          <span class="guide-desc">{t('quickLook.navHint')}</span>
         </span>
         <span class="guide-sep">·</span>
         <span class="guide-item">
           <kbd class="kbd-chip">P</kbd>
-          <span class="guide-desc">挑選 / 取消挑選</span>
+          <span class="guide-desc">{t('quickLook.pickHint')}</span>
         </span>
         <span class="guide-sep">·</span>
         <span class="guide-item">
-          <kbd class="kbd-chip">Space</kbd> 或 <kbd class="kbd-chip">Esc</kbd>
-          <span class="guide-desc">關閉大圖</span>
+          <kbd class="kbd-chip">Space</kbd> {t('quickLook.or')} <kbd class="kbd-chip">Esc</kbd>
+          <span class="guide-desc">{t('quickLook.closeHint')}</span>
         </span>
       </div>
     </footer>

@@ -4,6 +4,7 @@
     getExportExtension,
     type ExportFormat,
   } from "$lib/services/exportService";
+  import { t } from "$lib/i18n";
 
   export interface QuickExportOptions {
     mode: "modeA" | "modeB";
@@ -129,9 +130,9 @@
         <div class="header-title">
           <span class="material-symbols-outlined bolt-icon">bolt</span>
           <div>
-            <h3 class="title font-headline">快速匯出這張相片</h3>
+            <h3 class="title font-headline">{t("quickExport.title")}</h3>
             <span class="subtitle font-mono"
-              >選擇輸出用途與畫質後即可立即儲存</span
+              >{t("quickExport.subtitle")}</span
             >
           </div>
         </div>
@@ -139,7 +140,7 @@
           type="button"
           class="close-btn"
           onclick={onClose}
-          title="關閉 (Esc)"
+          title={t("quickExport.closeTitle")}
         >
           <span class="material-symbols-outlined">close</span>
         </button>
@@ -163,7 +164,7 @@
 
         <div class="config-column font-mono">
           <!-- Export Preset Selector -->
-          <div class="section-title">選擇輸出規格</div>
+          <div class="section-title">{t("quickExport.specTitle")}</div>
           <div class="mode-options-grid three-cols">
             <button
               type="button"
@@ -173,11 +174,11 @@
             >
               <div class="mode-head">
                 <span class="material-symbols-outlined icon amber">share</span>
-                <span class="mode-badge amber">推薦發文</span>
+                <span class="mode-badge amber">{t("quickExport.badgeSocial")}</span>
               </div>
-              <div class="mode-name">社群分享</div>
-              <div class="mode-sub">JPG · 92% · 長邊 2048 px</div>
-              <kbd class="kbd-micro">按 1</kbd>
+              <div class="mode-name">{t("quickExport.nameSocial")}</div>
+              <div class="mode-sub">{t("quickExport.subSocial")}</div>
+              <kbd class="kbd-micro">{t("quickExport.key1")}</kbd>
             </button>
 
             <button
@@ -190,11 +191,11 @@
                 <span class="material-symbols-outlined icon cyan"
                   >photo_library</span
                 >
-                <span class="mode-badge cyan">日常保存</span>
+                <span class="mode-badge cyan">{t("quickExport.badgeHigh")}</span>
               </div>
-              <div class="mode-name">高畫質相片</div>
-              <div class="mode-sub">JPG · 95% · 原始解析度</div>
-              <kbd class="kbd-micro">按 2</kbd>
+              <div class="mode-name">{t("quickExport.nameHigh")}</div>
+              <div class="mode-sub">{t("quickExport.subHigh")}</div>
+              <kbd class="kbd-micro">{t("quickExport.key2")}</kbd>
             </button>
 
             <button
@@ -207,24 +208,24 @@
                 <span class="material-symbols-outlined icon indigo"
                   >diamond</span
                 >
-                <span class="mode-badge indigo">最高品質</span>
+                <span class="mode-badge indigo">{t("quickExport.badgeArchive")}</span>
               </div>
-              <div class="mode-name">無損原圖</div>
-              <div class="mode-sub">PNG 無損 · 原始解析度</div>
-              <kbd class="kbd-micro">按 3</kbd>
+              <div class="mode-name">{t("quickExport.nameArchive")}</div>
+              <div class="mode-sub">{t("quickExport.subArchive")}</div>
+              <kbd class="kbd-micro">{t("quickExport.key3")}</kbd>
             </button>
           </div>
 
           <!-- Metadata & Destination Details -->
           <div class="metadata-box hairline-all">
             <div class="meta-row">
-              <span class="label">儲存資料夾：</span>
+              <span class="label">{t("quickExport.destLabel")}</span>
               <span class="val truncate" title={resolvedTargetDir || targetDir}
                 >{resolvedTargetDir || targetDir}</span
               >
             </div>
             <div class="meta-row">
-              <span class="label">匯出檔名：</span>
+              <span class="label">{t("quickExport.filenameLabel")}</span>
               <span class="val amber truncate"
                 >{photo.filename.replace(
                   /\.[^/.]+$/,
@@ -233,9 +234,9 @@
               >
             </div>
             <div class="meta-row">
-              <span class="label">套用風格：</span>
+              <span class="label">{t("quickExport.profileLabel")}</span>
               <span class="val"
-                >{photo.appliedProfile || "標準自然 (Natural)"}</span
+                >{photo.appliedProfile || t("quickExport.profileFallback")}</span
               >
             </div>
           </div>
@@ -246,10 +247,10 @@
       <footer class="modal-footer hairline-t font-mono">
         <div class="footer-hint">
           <kbd class="kbd-chip">Enter</kbd>
-          <span>立即匯出</span>
+          <span>{t("quickExport.exportNow")}</span>
           <span class="sep">·</span>
           <kbd class="kbd-chip">Esc</kbd>
-          <span>取消</span>
+          <span>{t("common.cancel")}</span>
         </div>
 
         <div class="footer-actions">
@@ -259,7 +260,7 @@
             onclick={onClose}
             disabled={isProcessing}
           >
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -277,10 +278,10 @@
             </span>
             <span>
               {resultSuccess
-                ? "✓ 已完成匯出！"
+                ? t("quickExport.done")
                 : isProcessing
-                  ? "正在匯出中..."
-                  : "立即匯出相片 ↵"}
+                  ? t("quickExport.exporting")
+                  : t("quickExport.exportBtn")}
             </span>
           </button>
         </div>

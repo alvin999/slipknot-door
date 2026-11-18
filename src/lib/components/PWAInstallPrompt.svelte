@@ -1,5 +1,6 @@
 <script lang="ts">
   import { pwaInstallService } from '$lib/services/pwaInstallService.svelte';
+  import { t } from '$lib/i18n';
 
   async function handleInstallClick() {
     await pwaInstallService.promptInstall();
@@ -30,44 +31,44 @@
     >
       <div class="pwa-header">
         <div class="pwa-brand">
-          <img src="./icons/icon-192.png" alt="大相無形" class="pwa-icon" />
+          <img src="./icons/icon-192.png" alt={t('nav.brandTitle')} class="pwa-icon" />
           <div class="pwa-brand-text">
-            <h3 id="pwa-title" class="pwa-title">大相無形 / Slipknot Door</h3>
-            <p class="pwa-subtitle">安裝手機工作站 · 享受全螢幕秒開體驗</p>
+            <h3 id="pwa-title" class="pwa-title">{t('pwa.title')}</h3>
+            <p class="pwa-subtitle">{t('pwa.subtitle')}</p>
           </div>
         </div>
-        <button class="pwa-close-btn" onclick={handleDismiss} aria-label="關閉提示">×</button>
+        <button class="pwa-close-btn" onclick={handleDismiss} aria-label={t('pwa.dismissAria')}>×</button>
       </div>
 
       {#if pwaInstallService.isIOS}
         <!-- iOS Safari 導引指引 -->
         <div class="pwa-ios-instructions">
-          <p class="pwa-ios-desc">iOS 裝置請透過 Safari 完成安裝：</p>
+          <p class="pwa-ios-desc">{t('pwa.iosDesc')}</p>
           <ol class="pwa-steps">
             <li>
-              點選瀏覽器底部的<strong>「分享」按鈕</strong>
+              {@html t('pwa.iosStep1')}
               <span class="pwa-symbol">⎋</span>
             </li>
             <li>
-              於分享面板中向下滑動，選擇<strong>「加入主畫面」</strong>
+              {@html t('pwa.iosStep2')}
               <span class="pwa-symbol">⊞</span>
             </li>
-            <li>確認名稱後點選右上角<strong>「新增」</strong>即可在主畫面使用</li>
+            <li>{@html t('pwa.iosStep3')}</li>
           </ol>
           <button class="pwa-btn pwa-btn-primary" onclick={handleDismiss}>
-            我知道了
+            {t('pwa.gotIt')}
           </button>
         </div>
       {:else if pwaInstallService.canInstall}
         <!-- Android / Chromium 原生安裝觸發 -->
         <div class="pwa-actions">
-          <p class="pwa-desc">支援離線 3D LUT 調色與本機即時預覽，無須下載應用程式商店版本。</p>
+          <p class="pwa-desc">{t('pwa.androidDesc')}</p>
           <div class="pwa-btn-group">
             <button class="pwa-btn pwa-btn-secondary" onclick={handleDismiss}>
-              稍後再說
+              {t('pwa.later')}
             </button>
             <button class="pwa-btn pwa-btn-primary" onclick={handleInstallClick}>
-              立即安裝至手機
+              {t('pwa.installNow')}
             </button>
           </div>
         </div>
@@ -179,7 +180,7 @@
     color: #d4d4d8;
   }
 
-  .pwa-steps strong {
+  .pwa-steps :global(strong) {
     color: #f4f4f5;
   }
 

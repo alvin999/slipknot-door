@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import { t } from "$lib/i18n";
   import {
     darkroomState,
     type DiffMode,
@@ -181,8 +182,8 @@
   );
 
   function formatProfileShortName(profileId?: string): string {
-    if (!profileId) return "原色自然";
-    if (profileId === "Profile_00_StandardNatural") return "Standard 原色";
+    if (!profileId) return t("darkroom.profileOriginal");
+    if (profileId === "Profile_00_StandardNatural") return t("darkroom.profileStandard");
     const match = profileId.match(/^Profile_\d+_(.+)$/);
     return match ? match[1] : profileId;
   }
@@ -208,14 +209,14 @@
         return {
           status: "batch" as const,
           icon: "hourglass_top",
-          text: `批次 ${cur}/${tot} · 速率冷卻 ${currentBatchProgress.countdown}s`,
+          text: t("darkroom.batchCooldown", { cur, tot, sec: currentBatchProgress.countdown }),
           progressPct: pct,
         };
       }
       return {
         status: "batch" as const,
         icon: "auto_mode",
-        text: `批次顯影 ${cur}/${tot}${snippet ? ` · ${snippet}` : " · AI 分析中..."}`,
+        text: t("darkroom.batchDeveloping", { cur, tot, snippet: snippet || t("darkroom.aiAnalyzingDefault") }),
         progressPct: pct,
       };
     }
@@ -224,7 +225,7 @@
       return {
         status: "running" as const,
         icon: "progress_activity",
-        text: snippet || "AI 正在掃描光影與智慧調色...",
+        text: snippet || t("darkroom.aiScanning"),
         progressPct: null,
       };
     }
@@ -242,7 +243,7 @@
       return {
         status: "done" as const,
         icon: "auto_awesome",
-        text: `${sceneLabel || "AI 已顯影"} · ${profLabel}`,
+        text: `${sceneLabel || t("darkroom.aiDeveloped")} · ${profLabel}`,
         progressPct: null,
       };
     }
@@ -250,7 +251,7 @@
     return {
       status: "idle" as const,
       icon: "auto_awesome",
-      text: "待機中 · 點擊下方「一鍵 AI」自動顯影",
+      text: t("darkroom.idleHint"),
       progressPct: null,
     };
   });
@@ -1002,7 +1003,7 @@
       ontouchstart={handleTouchStart}
       ontouchend={handleTouchEnd}
       role="region"
-      aria-label="暗房畫布視窗 (滾輪縮放 / 拖曳平移 / 雙擊切換視角)"
+      aria-label={t("darkroom.canvasAria")}
     >
       <!-- 頂部浮動列 (整齊置頂於照片上方中央，唯一的 plate-tag-bar) -->
       <div class="plate-tag-bar font-mono">
@@ -1022,31 +1023,31 @@
                 class:active={currentDiffMode === "off"}
                 onclick={() => darkroomState.setDiffMode("off")}
               >
-                單幀顯影
+                {t("darkroom.viewSingle")}
               </button>
               <button
                 type="button"
                 class="diff-mode-btn"
                 class:active={currentDiffMode === "split"}
                 onclick={() => darkroomState.setDiffMode("split")}
-                title="簾幕滑桿比對 (可左右拖曳分割線)"
+                title={t("darkroom.viewSplitTitle")}
               >
                 <span class="material-symbols-outlined" style="font-size: 13px;"
                   >vertical_split</span
                 >
-                <span>簾幕滑桿</span>
+                <span>{t("darkroom.viewSplit")}</span>
               </button>
               <button
                 type="button"
                 class="diff-mode-btn"
                 class:active={currentDiffMode === "sideBySide"}
                 onclick={() => darkroomState.setDiffMode("sideBySide")}
-                title="雙聯幅並排比對"
+                title={t("darkroom.viewDiptychTitle")}
               >
                 <span class="material-symbols-outlined" style="font-size: 13px;"
                   >view_column</span
                 >
-                <span>雙聯並排</span>
+                <span>{t("darkroom.viewDiptych")}</span>
               </button>
             </div>
           </div>
@@ -1059,8 +1060,8 @@
               class:zoomed={desktopZoom > 1.0}
               onclick={resetDesktopZoom}
               title={desktopZoom > 1.0
-                ? "目前已放大，點擊恢復全幅 (FIT)"
-                : "雙擊畫布或滾輪可自由放大 (100%~400%)"}
+                ? t("darkroom.zoomResetTitle")
+                : t("darkroom.zoomHintTitle")}
             >
               <span class="material-symbols-outlined" style="font-size: 13px;">
                 {desktopZoom > 1.0 ? "zoom_out_map" : "fit_screen"}
@@ -1079,12 +1080,12 @@
               class="crop-toggle-btn"
               class:active={currentIsCropMode}
               onclick={() => (darkroomState.isCropMode = !currentIsCropMode)}
-              title="開啟/關閉互動構圖裁切框"
+              title={t("darkroom.cropToggleTitle")}
             >
               <span class="material-symbols-outlined" style="font-size: 14px;"
                 >crop</span
               >
-              <span>{currentIsCropMode ? "完成裁切" : "構圖裁切"}</span>
+              <span>{currentIsCropMode ? t("darkroom.cropDone") : t("darkroom.cropStart")}</span>
             </button>
           </div>
         </div>
@@ -1112,7 +1113,7 @@
       <!-- DIPTYCH LEFT PANE (雙聯並排時顯示的原圖) -->
       {#if currentDiffMode === "sideBySide"}
         <div class="diptych-pane left hairline-all">
-          <div class="diptych-badge font-mono">ORIGINAL // 本相 RAW</div>
+          <div class="diptych-badge font-mono">{t("darkroom.diptychOriginal")}</div>
           <img
             src={activePhoto.thumbnail}
             alt="Original RAW"
@@ -1129,7 +1130,7 @@
       >
         {#if currentDiffMode === "sideBySide"}
           <div class="diptych-badge font-mono amber">
-            GRADED // 顯影 {activePhoto.appliedProfile}
+            {t("darkroom.diptychGraded", { profile: activePhoto.appliedProfile })}
           </div>
         {/if}
 
@@ -1177,9 +1178,9 @@
                     class="plate-render-img"
                     style:transform={viewportImageTransform}
                   />
-                  <div class="split-label original font-mono">ORIGINAL 本相</div>
+                  <div class="split-label original font-mono">{t("darkroom.splitOriginal")}</div>
                 </div>
-                <div class="split-label graded font-mono">GRADED 顯影</div>
+                <div class="split-label graded font-mono">{t("darkroom.splitGraded")}</div>
 
                 <!-- Interactive Divider Handle -->
                 <div
@@ -1187,7 +1188,7 @@
                   style:left={`${currentSplitPosition}%`}
                   onmousedown={handleSplitPointerDown}
                   role="slider"
-                  aria-label="比對簾幕分割線"
+                  aria-label={t("darkroom.splitDividerAria")}
                   aria-valuenow={currentSplitPosition}
                   tabindex="0"
                 >
@@ -1210,7 +1211,7 @@
                   style:height={`${currentCropHeight * 100}%`}
                   onmousedown={(e) => handleCropStart("move", e)}
                   role="region"
-                  aria-label="可拖曳調整之裁切構圖框"
+                  aria-label={t("darkroom.cropBoxAria")}
                 >
                   <!-- Thirds Grid Lines -->
                   <div class="crop-grid-line v1"></div>
@@ -1224,56 +1225,56 @@
                     onmousedown={(e) => handleCropStart("nw", e)}
                     role="button"
                     tabindex="0"
-                    aria-label="左上角裁切把手"
+                    aria-label={t("darkroom.cropHandleNW")}
                   ></div>
                   <div
                     class="crop-handle ne"
                     onmousedown={(e) => handleCropStart("ne", e)}
                     role="button"
                     tabindex="0"
-                    aria-label="右上角裁切把手"
+                    aria-label={t("darkroom.cropHandleNE")}
                   ></div>
                   <div
                     class="crop-handle se"
                     onmousedown={(e) => handleCropStart("se", e)}
                     role="button"
                     tabindex="0"
-                    aria-label="右下角裁切把手"
+                    aria-label={t("darkroom.cropHandleSE")}
                   ></div>
                   <div
                     class="crop-handle sw"
                     onmousedown={(e) => handleCropStart("sw", e)}
                     role="button"
                     tabindex="0"
-                    aria-label="左下角裁切把手"
+                    aria-label={t("darkroom.cropHandleSW")}
                   ></div>
                   <div
                     class="crop-handle edge-n"
                     onmousedown={(e) => handleCropStart("n", e)}
                     role="button"
                     tabindex="0"
-                    aria-label="上緣裁切把手"
+                    aria-label={t("darkroom.cropHandleN")}
                   ></div>
                   <div
                     class="crop-handle edge-s"
                     onmousedown={(e) => handleCropStart("s", e)}
                     role="button"
                     tabindex="0"
-                    aria-label="下緣裁切把手"
+                    aria-label={t("darkroom.cropHandleS")}
                   ></div>
                   <div
                     class="crop-handle edge-w"
                     onmousedown={(e) => handleCropStart("w", e)}
                     role="button"
                     tabindex="0"
-                    aria-label="左緣裁切把手"
+                    aria-label={t("darkroom.cropHandleW")}
                   ></div>
                   <div
                     class="crop-handle edge-e"
                     onmousedown={(e) => handleCropStart("e", e)}
                     role="button"
                     tabindex="0"
-                    aria-label="右緣裁切把手"
+                    aria-label={t("darkroom.cropHandleE")}
                   ></div>
 
                   <div class="crop-readout font-mono">
@@ -1317,9 +1318,9 @@
           >
           <span>
             {#if currentShowABComparison}
-              原始本相 (RAW)
+              {t("darkroom.abOriginal")}
             {:else}
-              按住比對原圖<span class="ab-shortcut-hint"> (Space)</span>
+              {t("darkroom.abHoldHint")}<span class="ab-shortcut-hint"> (Space)</span>
             {/if}
           </span>
         </button>
@@ -1373,7 +1374,7 @@
             class="rebate-detail-btn"
             class:active={isExifSlateOpen}
             onclick={() => (isExifSlateOpen = !isExifSlateOpen)}
-            title="檢視完整 EXIF 測光模式與曝光程式"
+            title={t("darkroom.exifBtnTitle")}
           >
             <span class="material-symbols-outlined" style="font-size: 13px;"
               >info</span
@@ -1385,7 +1386,7 @@
         {#if isExifSlateOpen}
           <div class="rebate-exif-popover hairline-all font-mono">
             <div class="popover-title">
-              <span>OPTICAL TELEMETRY // 完整光學數據</span>
+              <span>{t("darkroom.exifTitle")}</span>
               <button
                 type="button"
                 class="popover-close-btn"
@@ -1398,27 +1399,27 @@
             </div>
             <div class="popover-grid">
               <div class="pop-row">
-                <span>相機機身</span>
+                <span>{t("darkroom.exifCamera")}</span>
                 <strong class="truncate">{activePhoto.camera || "--"}</strong>
               </div>
               <div class="pop-row">
-                <span>搭配鏡頭</span>
+                <span>{t("darkroom.exifLens")}</span>
                 <strong class="truncate">{activePhoto.lens || "--"}</strong>
               </div>
               <div class="pop-row">
-                <span>曝光程式</span>
+                <span>{t("darkroom.exifProgram")}</span>
                 <strong>{activePhoto.exposureProgram || "--"}</strong>
               </div>
               <div class="pop-row">
-                <span>測光模式</span>
+                <span>{t("darkroom.exifMetering")}</span>
                 <strong>{activePhoto.meteringMode || "--"}</strong>
               </div>
               <div class="pop-row">
-                <span>閃光燈</span>
-                <strong>{activePhoto.flash || "未擊發"}</strong>
+                <span>{t("darkroom.exifFlash")}</span>
+                <strong>{activePhoto.flash || t("darkroom.exifFlashOff")}</strong>
               </div>
               <div class="pop-row">
-                <span>原生色溫</span>
+                <span>{t("darkroom.exifTemp")}</span>
                 <strong
                   >{activePhoto.asShotTemp
                     ? `${activePhoto.asShotTemp}K`
@@ -1426,7 +1427,7 @@
                 >
               </div>
               <div class="pop-row">
-                <span>色偏 Tint</span>
+                <span>{t("darkroom.exifTint")}</span>
                 <strong
                   >{activePhoto.asShotTint
                     ? `${activePhoto.asShotTint.toFixed(1)}`
@@ -1434,7 +1435,7 @@
                 >
               </div>
               <div class="pop-row">
-                <span>色彩空間</span>
+                <span>{t("darkroom.exifColorSpace")}</span>
                 <strong>{activePhoto.colorSpace || "sRGB"}</strong>
               </div>
             </div>
@@ -1454,7 +1455,7 @@
         type="button"
         class="ai-pill-main"
         onclick={() => onOpenAiDrawer?.()}
-        title="點擊展開 AI 風格與後製理念面板"
+        title={t("darkroom.aiCapsuleTitle")}
       >
         <span
           class="material-symbols-outlined ai-pill-icon"
@@ -1471,12 +1472,12 @@
           type="button"
           class="ai-pill-restore-btn font-mono"
           onclick={onRestoreAiTuning}
-          title="還原為 AI 顯影基準"
+          title={t("darkroom.restoreAiTitle")}
         >
           <span class="material-symbols-outlined" style="font-size: 12px;"
             >settings_backup_restore</span
           >
-          <span>還原 AI</span>
+          <span>{t("darkroom.restoreAi")}</span>
         </button>
       {:else if mobileAiPill.status === "done"}
         <span
@@ -1499,17 +1500,16 @@
       >
       <h3 class="font-headline empty-stage-title">
         {#if (propsPhotos && propsPhotos.length > 0) || photoLibrary.photoPlates.length > 0}
-          尚未選取暗房底片幀
+          {t("darkroom.emptySelectedTitle")}
         {:else}
-          等待相機裝置連接或底片匯入
+          {t("darkroom.emptyWaitTitle")}
         {/if}
       </h3>
       <p class="font-body empty-stage-desc">
         {#if (propsPhotos && propsPhotos.length > 0) || photoLibrary.photoPlates.length > 0}
-          目錄中已有底片檔案。請前往膠卷目錄挑選底片，或於下方底片滾軸點選任意幀以啟動顯影。
+          {t("darkroom.emptySelectedDesc")}
         {:else}
-          接上相機 USB/Type-C 傳輸線開機自動載入，或手動指定本機 DCIM / RAW
-          目錄開啟底片作業。
+          {t("darkroom.emptyWaitDesc")}
         {/if}
       </p>
       <div class="empty-actions">
@@ -1522,7 +1522,7 @@
             <span class="material-symbols-outlined" style="font-size: 16px;"
               >photo_library</span
             >
-            <span>返回膠卷目錄挑選底片 →</span>
+            <span>{t("darkroom.backToCatalogBtn")}</span>
           </button>
         {:else if onPickDirectory}
           <button
@@ -1536,8 +1536,8 @@
             >
             <span
               >{isLoadingPhotos
-                ? "正在解析 RAW/JPG..."
-                : "開啟相片目錄 (RAW / JPG)"}</span
+                ? t("darkroom.parsingRaw")
+                : t("darkroom.openPhotoDir")}</span
             >
           </button>
         {/if}
@@ -1553,8 +1553,8 @@
             >
             <span
               >{isScanningMounts
-                ? "正在搜尋掛載..."
-                : "重新偵測隨插即讀設備"}</span
+                ? t("darkroom.searchingMounts")
+                : t("darkroom.rescanMounts")}</span
             >
           </button>
         {/if}
@@ -1567,10 +1567,9 @@
               >vpn_key_alert</span
             >
             <div class="banner-texts">
-              <span class="banner-title">尚未配置 AI 雲端金鑰</span>
+              <span class="banner-title">{t("darkroom.noKeyTitle")}</span>
               <span class="banner-desc"
-                >可預先配置 Gemini / Groq API 金鑰，載入相片後隨即可享受 AI
-                智慧光學顯影</span
+                >{t("darkroom.noKeyDesc")}</span
               >
             </div>
           </div>
@@ -1579,7 +1578,7 @@
             class="banner-action-hint font-mono"
             onclick={onOpenVault}
           >
-            <span>立即配置 →</span>
+            <span>{t("darkroom.configNow")}</span>
           </button>
         </div>
       {/if}
@@ -1597,8 +1596,8 @@
       <span class="strip-label">CONTACT SHEET // EXPOSURE RACK</span>
       <span class="strip-count" class:amber={flaggedCount > 0}>
         {activeQueue.length} FRAMES {flaggedCount > 0
-          ? "(已挑選精修佇列)"
-          : "(全量底片佇列)"}
+          ? t("darkroom.queuePicked")
+          : t("darkroom.queueAll")}
       </span>
     </div>
     <div class="strip-actions-right">
@@ -1606,20 +1605,20 @@
         type="button"
         class="strip-ctrl-btn"
         onclick={() => photoLibrary.selectAdjacentPhoto(-1)}
-        title="前一張底片 (H / ← 鍵)"
+        title={t("darkroom.prevTitle")}
       >
         <span class="material-symbols-outlined" style="font-size: 14px;"
           >arrow_back</span
         >
-        <span>前一張 [H]</span>
+        <span>{t("darkroom.prevBtn")}</span>
       </button>
       <button
         type="button"
         class="strip-ctrl-btn"
         onclick={() => photoLibrary.selectAdjacentPhoto(1)}
-        title="下一張底片 (L / → 鍵)"
+        title={t("darkroom.nextTitle")}
       >
-        <span>下一張 [L]</span>
+        <span>{t("darkroom.nextBtn")}</span>
         <span class="material-symbols-outlined" style="font-size: 14px;"
           >arrow_forward</span
         >
@@ -1629,12 +1628,12 @@
           type="button"
           class="strip-ctrl-btn highlight"
           onclick={onGoToCatalog}
-          title="返回第一步目錄重新選取"
+          title={t("darkroom.reselectTitle")}
         >
           <span class="material-symbols-outlined" style="font-size: 14px;"
             >grid_view</span
           >
-          <span>返回挑圖</span>
+          <span>{t("darkroom.reselectBtn")}</span>
         </button>
       {/if}
     </div>
@@ -1663,10 +1662,10 @@
               class="film-frame-thumb"
             />
             {#if isGraded}
-              <span class="frame-graded-badge" title="已顯影/已調色"></span>
+              <span class="frame-graded-badge" title={t("darkroom.badgeGradedTitle")}></span>
             {/if}
             {#if plate.flagged}
-              <span class="frame-flag-badge" title="已挑選精修">★</span>
+              <span class="frame-flag-badge" title={t("darkroom.badgeFlaggedTitle")}>★</span>
             {/if}
           </div>
           <div class="film-frame-meta font-mono">
@@ -1682,7 +1681,7 @@
         <span class="material-symbols-outlined" style="font-size: 14px;"
           >exposure_zero</span
         >
-        <span>尚無載入幀數 · 請點擊上方「開啟相片目錄」載入 RAW 檔</span>
+        <span>{t("darkroom.stripEmptyHint")}</span>
       </div>
     {/if}
   </div>

@@ -8,6 +8,7 @@
   } from '$lib/services/modelDiscoveryService';
   import { AiEngineFactory } from '$lib/services/ai/engineFactory';
   import type { AiProviderId } from '$lib/services/ai/types';
+  import { t, type TranslationKey } from '$lib/i18n';
   import { aiPipeline } from '$lib/stores/aiPipeline.svelte';
   import { toastStore } from '$lib/stores/toastStore.svelte';
 
@@ -240,7 +241,7 @@
       if (defId && defId !== currentModelId) {
         items.push({
           id: defId,
-          displayName: `${defId} (預設推薦)`,
+          displayName: t('keyVault.defaultRecommended', { id: defId }),
           provider: prov,
           isVisionCapable: true,
           score: 90,
@@ -364,7 +365,7 @@
             keyOrUrl = loaded.apiKey || '';
           } else if (isManual) {
             statusMessage = {
-              text: st.mode === 'password' ? '請先輸入主密碼以解鎖金鑰' : `請先輸入 ${getProviderMeta(prov).name} API Key`,
+              text: st.mode === 'password' ? t('keyVault.unlockPasswordPrompt') : t('keyVault.enterApiKeyPrompt', { name: getProviderMeta(prov).name }),
               type: 'info',
             };
             return;
@@ -383,7 +384,7 @@
     isDiscoveringProvider = { ...isDiscoveringProvider, [prov]: true };
     if (isManual) {
       statusMessage = {
-        text: `正在向 ${getProviderMeta(prov).name} 探測可用模型清單...`,
+        text: t('keyVault.discovering', { name: getProviderMeta(prov).name }),
         type: 'info',
       };
     }
@@ -396,8 +397,8 @@
           refreshStatus();
         }
         if (isManual) {
-          statusMessage = { text: `連線或探測異常：${res.error}`, type: 'error' };
-          toastStore.show(`${getProviderMeta(prov).name} 探測失敗：${res.error}`, 'error', 4200);
+          statusMessage = { text: t('keyVault.discoverError', { error: res.error ?? '' }), type: 'error' };
+          toastStore.show(t('keyVault.discoverFailedToast', { name: getProviderMeta(prov).name, error: res.error ?? '' }), 'error', 4200);
         }
       } else {
         if (prov === 'ollama') {
@@ -426,11 +427,11 @@
         if (isManual) {
           const visionCount = res.models.filter((m) => m.isVisionCapable).length;
           statusMessage = {
-            text: `✓ ${getProviderMeta(prov).name} 連線成功！共載入 ${res.models.length} 個模型（含 ${visionCount} 個視覺多模態模型）`,
+            text: t('keyVault.discoverSuccess', { name: getProviderMeta(prov).name, total: res.models.length, vision: visionCount }),
             type: 'success',
           };
           toastStore.show(
-            `${getProviderMeta(prov).name} 已載入 ${res.models.length} 個可用模型 ✓`,
+            t('keyVault.discoverSuccessToast', { name: getProviderMeta(prov).name, total: res.models.length }),
             'success',
             3000
           );
@@ -467,7 +468,7 @@
 
     const trimmed = apiKeyInput.trim();
     if (!trimmed) {
-      statusMessage = { text: `請輸入 ${currentProviderMeta.name} API Key`, type: 'error' };
+      statusMessage = { text: t('keyVault.enterApiKeyPrompt', { name: currentProviderMeta.name }), type: 'error' };
       return;
     }
 
@@ -477,13 +478,13 @@
       masterPassword = '';
       refreshStatus();
       statusMessage = {
-        text: `✓ ${currentProviderMeta.name} 金鑰已安全儲存（${getModeLabel(currentMode)}）`,
+        text: t('keyVault.keySaved', { name: currentProviderMeta.name, mode: getModeLabel(currentMode) }),
         type: 'success',
       };
-      toastStore.show(`${currentProviderMeta.name} 金鑰已儲存 ✓`, 'success', 2500);
+      toastStore.show(t('keyVault.keySavedToast', { name: currentProviderMeta.name }), 'success', 2500);
       await probeProviderModels(selectedProvider, false);
     } catch (err: any) {
-      statusMessage = { text: err?.message || '金鑰儲存失敗', type: 'error' };
+      statusMessage = { text: err?.message || t('keyVault.keySaveFailed'), type: 'error' };
     }
   }
 
@@ -531,14 +532,14 @@
 
       refreshStatus();
       aiPipeline.reloadEngineSettings();
-      toastStore.show('AI 模型指派與金鑰設定已同步生效 ✓', 'success', 2800);
+      toastStore.show(t('keyVault.allSavedToast'), 'success', 2800);
 
       if (autoClose) {
         isOpen = false;
         onClose?.();
       }
     } catch (err: any) {
-      statusMessage = { text: err?.message || '儲存失敗', type: 'error' };
+      statusMessage = { text: err?.message || t('keyVault.saveFailed'), type: 'error' };
     } finally {
       isSaving = false;
     }
@@ -547,7 +548,7 @@
   function handleDeleteKey() {
     KeyVaultService.deleteKey(selectedProvider);
     refreshStatus();
-    statusMessage = { text: `${currentProviderMeta.name} 設定已重設清除`, type: 'info' };
+    statusMessage = { text: t('keyVault.resetCleared', { name: currentProviderMeta.name }), type: 'info' };
     apiKeyInput = '';
     masterPassword = '';
   }
@@ -555,11 +556,11 @@
   function getModeLabel(m: KeyEncryptionMode): string {
     switch (m) {
       case 'plain':
-        return '無加密（明文）';
+        return t('keyVault.modeLabelNone');
       case 'transparent':
-        return '透明加密（本機安全綁定）';
+        return t('keyVault.modeLabelTransparent');
       case 'password':
-        return '密碼加密（PBKDF2）';
+        return t('keyVault.modeLabelPassword');
     }
   }
 
@@ -577,13 +578,13 @@
         <div class="header-title-box">
           <span class="material-symbols-outlined vault-icon">hub</span>
           <div>
-            <h2 class="modal-title font-headline">AI 模型調度中心與金鑰保險庫 (AI Model & Key Hub)</h2>
+            <h2 class="modal-title font-headline">{t('keyVault.modalTitle')}</h2>
             <p class="modal-subtitle font-mono">
-              管理雲端模型 (Gemini / OpenAI / Claude / Groq / OpenRouter) 與本地端 Ollama
+              {t('keyVault.modalSubtitle')}
             </p>
           </div>
         </div>
-        <button type="button" class="close-btn" onclick={closeModal} title="關閉視窗">
+        <button type="button" class="close-btn" onclick={closeModal} title={t('keyVault.closeWindow')}>
           <span class="material-symbols-outlined">close</span>
         </button>
       </div>
@@ -597,7 +598,7 @@
           <div class="role-header-row">
             <div class="role-header font-mono">
               <span class="material-symbols-outlined role-header-icon">tune</span>
-              <span>STEP 1 · 任務模型指派 (MODEL ASSIGNMENT)</span>
+              <span>{t('keyVault.step1Title')}</span>
             </div>
           </div>
 
@@ -607,19 +608,19 @@
               <div class="role-card-top font-mono">
                 <div class="role-title-left">
                   <span class="material-symbols-outlined" style="font-size: 15px; color: var(--amber-highlight);">camera</span>
-                  <span>影像視覺顯影主引擎 (Vision Grading)</span>
+                  <span>{t('keyVault.visionEngineLabel')}</span>
                 </div>
                 <button
                   type="button"
                   class="mini-probe-btn font-mono"
                   onclick={() => probeProviderModels(roleVisionProvider, true)}
                   disabled={isDiscoveringProvider[roleVisionProvider]}
-                  title="從該供應商端點刷新最新模型清單"
+                  title={t('keyVault.refreshModelsTitle')}
                 >
                   <span class="material-symbols-outlined" class:spin={isDiscoveringProvider[roleVisionProvider]} style="font-size: 12px;">
                     refresh
                   </span>
-                  <span>{isDiscoveringProvider[roleVisionProvider] ? '探測中' : '刷新模型'}</span>
+                  <span>{isDiscoveringProvider[roleVisionProvider] ? t('keyVault.probing') : t('keyVault.refreshModels')}</span>
                 </button>
               </div>
 
@@ -649,11 +650,11 @@
 
               {#if roleVisionProvider === 'ollama'}
                 <div class="inline-local-input font-mono">
-                  <span class="local-tag">無清單時可手輸模型 ID：</span>
+                  <span class="local-tag">{t('keyVault.manualModelLabel')}</span>
                   <input
                     type="text"
                     class="inline-model-input font-mono"
-                    placeholder="例如 qwen2.5vl:latest 或 gemma3:12b"
+                    placeholder={t('keyVault.manualModelPlaceholder')}
                     bind:value={roleVisionModelId}
                   />
                 </div>
@@ -665,7 +666,7 @@
               <div class="role-card-top font-mono">
                 <div class="role-title-left">
                   <span class="material-symbols-outlined" style="font-size: 15px; color: var(--amber-highlight);">edit_note</span>
-                  <span>社群文案與智慧目錄規劃 (Text & IPTC)</span>
+                  <span>{t('keyVault.copyEngineLabel')}</span>
                 </div>
                 <button
                   type="button"
@@ -676,7 +677,7 @@
                   <span class="material-symbols-outlined" class:spin={isDiscoveringProvider[roleCopywritingProvider]} style="font-size: 12px;">
                     refresh
                   </span>
-                  <span>{isDiscoveringProvider[roleCopywritingProvider] ? '探測中' : '刷新模型'}</span>
+                  <span>{isDiscoveringProvider[roleCopywritingProvider] ? t('keyVault.probing') : t('keyVault.refreshModels')}</span>
                 </button>
               </div>
 
@@ -708,16 +709,16 @@
               <div class="role-card-top font-mono">
                 <div class="role-title-left">
                   <span class="material-symbols-outlined" style="font-size: 15px; color: var(--amber-highlight);">fact_check</span>
-                  <span>雙圖覆審品控模型 (Pass 2 Critic · 開關與溫度於設定／暗房調整)</span>
+                  <span>{t('keyVault.criticEngineLabel')}</span>
                 </div>
                 {#if !aiPipeline.criticEnabled}
-                  <span class="critic-locked-badge">未啟用 Pass 2</span>
+                  <span class="critic-locked-badge">{t('keyVault.criticDisabledBadge')}</span>
                 {/if}
               </div>
 
               {#if !aiPipeline.criticEnabled}
                 <p class="critic-locked-hint font-mono">
-                  尚未啟用「二階審美批評家」，請先至設定頁或暗房 AI 面板勾選啟用後再設定覆審模型。
+                  {t('keyVault.criticDisabledHint')}
                 </p>
               {/if}
 
@@ -730,7 +731,7 @@
                     bind:group={roleCriticUseCustom}
                     disabled={!aiPipeline.criticEnabled}
                   />
-                  <span>沿用上方視覺主引擎 ({roleVisionModelId})</span>
+                  <span>{t('keyVault.criticFollowVision', { model: roleVisionModelId })}</span>
                 </label>
                 <label>
                   <input
@@ -740,7 +741,7 @@
                     bind:group={roleCriticUseCustom}
                     disabled={!aiPipeline.criticEnabled}
                   />
-                  <span>指定異質覆審模型 (Cross-Model Check)</span>
+                  <span>{t('keyVault.criticCrossModel')}</span>
                 </label>
               </div>
 
@@ -783,7 +784,7 @@
           <div class="role-header-row">
             <div class="role-header font-mono">
               <span class="material-symbols-outlined role-header-icon">vpn_key</span>
-              <span>STEP 2 · 供應商金鑰與本地端連線設定 (CREDENTIALS & ENDPOINT)</span>
+              <span>{t('keyVault.step2Title')}</span>
             </div>
             <span class="provider-doc-hint font-body">{currentProviderMeta.docHint}</span>
           </div>
@@ -812,13 +813,13 @@
             <!-- Ollama 專屬免金鑰設定介面 -->
             <div class="ollama-panel hairline-all">
               <div class="input-header font-mono">
-                <span>🖥️ OLLAMA 伺服器端點 (LOCAL / LAN ENDPOINT)</span>
+                <span>{t('keyVault.ollamaEndpointTitle')}</span>
                 <button
                   type="button"
                   class="text-toggle font-mono"
                   onclick={() => (showOllamaCorsHelp = !showOllamaCorsHelp)}
                 >
-                  {showOllamaCorsHelp ? '收合 CORS 指引' : '⚠️ 連線失敗？查看 CORS 設定'}
+                  {showOllamaCorsHelp ? t('keyVault.hideCorsHelp') : t('keyVault.showCorsHelp')}
                 </button>
               </div>
 
@@ -841,18 +842,18 @@
                   <span class="material-symbols-outlined" class:spin={isDiscoveringProvider['ollama']} style="font-size: 14px;">
                     sync
                   </span>
-                  <span>偵測本機模型</span>
+                  <span>{t('keyVault.detectLocalModels')}</span>
                 </button>
               </div>
 
               {#if showOllamaCorsHelp}
                 <div class="cors-help-box font-mono hairline-all">
-                  <div>1. 推薦下載視覺多模態模型：<code>ollama pull qwen2.5vl</code> 或 <code>ollama pull gemma3:12b</code></div>
-                  <div>2. 允許瀏覽器跨域存取 (Windows PowerShell)：</div>
+                  <div>{@html t('keyVault.ollamaCorsStep1')}</div>
+                  <div>{t('keyVault.ollamaCorsStep2')}</div>
                   <code>[Environment]::SetEnvironmentVariable("OLLAMA_ORIGINS", "*", "User")</code>
-                  <div>3. 若要讓手機透過區網連線電腦 Ollama，請額外設定對外監聽：</div>
+                  <div>{t('keyVault.ollamaCorsStep3')}</div>
                   <code>[Environment]::SetEnvironmentVariable("OLLAMA_HOST", "0.0.0.0:11434", "User")</code>
-                  <div>（設定後請完全關閉並重啟系統列 Ollama 圖示，手機端點填寫電腦區網 IP，例如 http://192.168.1.100:11434）</div>
+                  <div>{t('keyVault.ollamaCorsNote')}</div>
                 </div>
               {/if}
             </div>
@@ -861,16 +862,16 @@
             <div class="cloud-key-panel">
               <div class="status-inline-bar font-mono">
                 <span>
-                  {currentProviderMeta.name} 狀態：
+                  {t('keyVault.providerStatus', { name: currentProviderMeta.name })}
                   {#if vaultStatus.exists}
-                    <strong class="text-green">● 已儲存 ({getModeLabel(vaultStatus.mode!)})</strong>
+                    <strong class="text-green">{t('keyVault.statusSaved', { mode: getModeLabel(vaultStatus.mode!) })}</strong>
                   {:else}
-                    <span class="text-dim">○ 尚未設定金鑰</span>
+                    <span class="text-dim">{t('keyVault.statusUnset')}</span>
                   {/if}
                 </span>
                 {#if vaultStatus.exists}
                   <button type="button" class="danger-link font-mono" onclick={handleDeleteKey}>
-                    清除此金鑰
+                    {t('keyVault.clearKey')}
                   </button>
                 {/if}
               </div>
@@ -897,13 +898,13 @@
                   <span class="material-symbols-outlined input-icon">vpn_key</span>
                   <input
                     type={showKey ? 'text' : 'password'}
-                    placeholder={`輸入 ${currentProviderMeta.name} API Key (${currentProviderMeta.keyPlaceholder})`}
+                    placeholder={t('keyVault.inputKeyPlaceholder', { name: currentProviderMeta.name, hint: currentProviderMeta.keyPlaceholder })}
                     value={apiKeyInput}
                     oninput={(e) => handleKeyInputChange((e.target as HTMLInputElement).value)}
                     class="vault-input font-mono"
                   />
                   <button type="button" class="text-toggle font-mono" onclick={() => (showKey = !showKey)}>
-                    {showKey ? '隱藏' : '顯示'}
+                    {showKey ? t('keyVault.hide') : t('keyVault.show')}
                   </button>
                 </div>
                 <button
@@ -915,7 +916,7 @@
                   <span class="material-symbols-outlined" class:spin={isDiscoveringProvider[selectedProvider]} style="font-size: 14px;">
                     network_check
                   </span>
-                  <span>驗證並載入模型</span>
+                  <span>{t('keyVault.verifyAndLoad')}</span>
                 </button>
               </div>
 
@@ -924,7 +925,7 @@
                   <span class="material-symbols-outlined input-icon">pin</span>
                   <input
                     type="password"
-                    placeholder="請輸入主密碼 (至少 4 字元，用於 PBKDF2 加密與解鎖)"
+                    placeholder={t('keyVault.masterPasswordPlaceholder')}
                     bind:value={masterPassword}
                     class="vault-input font-mono"
                   />
@@ -948,15 +949,15 @@
       <!-- Modal Footer Actions -->
       <div class="modal-footer hairline-t">
         <span class="footer-active-summary font-mono">
-          當前視覺：{getProviderMeta(roleVisionProvider).shortName} · {roleVisionModelId}
+          {t('keyVault.footerCurrentVision', { provider: getProviderMeta(roleVisionProvider).shortName, model: roleVisionModelId })}
         </span>
         <div class="spacer"></div>
         <button type="button" class="archival-btn-secondary" onclick={closeModal}>
-          取消
+          {t('common.cancel')}
         </button>
         <button type="button" class="archival-btn-primary" onclick={() => handleSaveAll(true)} disabled={isSaving}>
           <span class="material-symbols-outlined" style="font-size: 15px;">{isSaving ? 'sync' : 'save'}</span>
-          {isSaving ? '儲存中...' : '套用模型與儲存設定'}
+          {isSaving ? t('keyVault.saving') : t('keyVault.applyAndSave')}
         </button>
       </div>
     </div>

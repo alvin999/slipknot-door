@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
+
   interface Props {
     isOpen?: boolean;
     onClose: () => void;
@@ -54,8 +56,8 @@
           <div>
             <h2 class="title font-headline">
               {isMobile
-                ? "大相無形 · AI 顯影與流水線指引"
-                : "大相無形 · 系統操作與快捷鍵指南"}
+                ? t('helpGuide.titleMobile')
+                : t('helpGuide.titleDesktop')}
             </h2>
             <p class="subtitle font-mono">
               {isMobile
@@ -69,7 +71,7 @@
           type="button"
           class="close-btn"
           onclick={onClose}
-          title={isMobile ? "關閉指引" : "關閉 (Esc 或 ?)"}
+          title={isMobile ? t('helpGuide.closeMobile') : t('helpGuide.closeDesktop')}
         >
           <span class="material-symbols-outlined">close</span>
         </button>
@@ -85,7 +87,7 @@
             onclick={() => (activeSection = "guide")}
           >
             <span class="material-symbols-outlined tab-icon">keyboard</span>
-            <span>鍵盤快捷鍵速查 (SHORTCUTS)</span>
+            <span>{t('helpGuide.tabShortcuts')}</span>
           </button>
           <button
             type="button"
@@ -94,7 +96,7 @@
             onclick={() => (activeSection = "workflow")}
           >
             <span class="material-symbols-outlined tab-icon">schema</span>
-            <span>3 步驟流水線指引 (WORKFLOW)</span>
+            <span>{t('helpGuide.tabWorkflow')}</span>
           </button>
         </div>
       {/if}
@@ -799,15 +801,13 @@
             >tips_and_updates</span
           >
           {#if isMobile}
-            <span>提示：點擊右上角「?」圖示可隨時開啟或關閉此指引。</span>
+            <span>{t('helpGuide.footerHintMobile')}</span>
           {:else}
-            <span
-              >提示：在任何介面隨時按下 <kbd class="kbd-chip">?</kbd> 鍵即可快速叫出或關閉此說明視窗。</span
-            >
+            <span>{@html t('helpGuide.footerHintDesktop')}</span>
           {/if}
         </div>
         <button type="button" class="archival-btn-primary" onclick={onClose}>
-          <span>{isMobile ? "瞭解並關閉" : "瞭解並關閉 (Esc)"}</span>
+          <span>{isMobile ? t('helpGuide.ackMobile') : t('helpGuide.ackDesktop')}</span>
         </button>
       </footer>
     </div>

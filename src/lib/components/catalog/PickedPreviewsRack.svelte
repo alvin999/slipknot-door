@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
+
   interface Props {
     flaggedPhotos: any[];
     activePhotoId?: string;
@@ -27,16 +29,16 @@
 <div class="telemetry-box curatorial-preview-box">
   <div class="curatorial-preview-header">
     <div class="box-title font-mono" style="margin-bottom: 0;">
-      PICKED PREVIEWS ({flaggedCount} 幀)
+      {t('pickedRack.header', { count: flaggedCount })}
     </div>
     {#if flaggedCount > 0}
       <button
         type="button"
         class="clear-flags-btn font-mono"
         onclick={onClearAllFlags}
-        title="清空所有挑圖勾選"
+        title={t('pickedRack.clearTitle')}
       >
-        清空勾選
+        {t('pickedRack.clearBtn')}
       </button>
     {/if}
   </div>
@@ -49,7 +51,7 @@
           class:active={activePhotoId === item.id}
           onclick={() => onSelectPhoto(item)}
           ondblclick={() => onOpenRetouch(item)}
-          title="點擊聚焦預覽，雙擊前往精修"
+          title={t('pickedRack.itemTitle')}
           role="button"
           tabindex="0"
           onkeydown={(e) => {
@@ -77,7 +79,7 @@
             type="button"
             class="thumb-unflag-btn"
             onclick={(e) => onToggleFlag(item, e)}
-            title="取消勾選此張相片"
+            title={t('pickedRack.removeTitle')}
           >
             <span class="material-symbols-outlined" style="font-size: 14px;">close</span>
           </button>
@@ -88,12 +90,12 @@
     <!-- Empty state when no photo is flagged yet -->
     <div class="empty-curatorial-card hairline-all font-mono">
       <span class="material-symbols-outlined empty-guide-icon">bookmarks</span>
-      <div class="empty-guide-title">尚未勾選任何相片</div>
+      <div class="empty-guide-title">{t('pickedRack.emptyTitle')}</div>
       <p class="empty-guide-desc">
-        在目錄中按 <kbd class="kbd-chip">Space</kbd> 或點擊右上角書籤標記挑圖。
+        {@html t('pickedRack.emptyDesc')}
       </p>
       <div class="empty-guide-sub">
-        ※ 若未特別勾選，前往精修時將自動帶入全部 ({totalPhotos} 幀)
+        {t('pickedRack.emptyFallback', { count: totalPhotos })}
       </div>
     </div>
   {/if}
@@ -106,13 +108,13 @@
     class="archival-btn-primary w-full step-cta-btn"
     onclick={onGoToRetouch}
     disabled={totalPhotos === 0}
-    title="下一個步驟：前往暗房精修"
+    title={t('pickedRack.goRetouchTitle')}
   >
     <span class="material-symbols-outlined" style="font-size: 16px;">tonality</span>
     <span>
       {flaggedCount > 0
-        ? `前往暗房精修 (已選 ${flaggedCount} 幀) →`
-        : `前往暗房精修 (全量 ${totalPhotos} 幀) →`}
+        ? t('pickedRack.goRetouchPicked', { count: flaggedCount })
+        : t('pickedRack.goRetouchAll', { count: totalPhotos })}
     </span>
   </button>
 </div>
@@ -283,7 +285,7 @@
     line-height: 1.5;
     margin: 0;
   }
-  .kbd-chip {
+  :global(.kbd-chip) {
     background: var(--canvas-base);
     border: 1px solid var(--hairline-slate);
     border-radius: 3px;

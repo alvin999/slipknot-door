@@ -3,6 +3,7 @@
   import type { StyleKeywordId } from "$lib/services/ai/types";
   import { styleKeywordCatalog } from "$lib/stores/styleKeywordCatalog.svelte";
   import { toastStore } from "$lib/stores/toastStore.svelte";
+  import { t } from "$lib/i18n";
 
   interface Props {
     isOpen?: boolean;
@@ -95,11 +96,11 @@
     const promptEnglish = formPrompt.trim();
 
     if (!shortTag) {
-      formError = "請輸入關鍵字標籤名稱";
+      formError = t("keywordManager.errorEmptyName");
       return;
     }
     if (!promptEnglish) {
-      formError = "請輸入 AI 調色指令內容";
+      formError = t("keywordManager.errorEmptyPrompt");
       return;
     }
 
@@ -110,7 +111,7 @@
         promptEnglish,
       });
       if (created) {
-        toastStore.show(`已儲存自訂關鍵字「${created.shortTag}」`, "success");
+        toastStore.show(t("keywordManager.savedCustom", { name: created.shortTag }), "success");
         onSavedCustomKeyword?.(created);
         cancelForm();
       }
@@ -124,7 +125,7 @@
         promptEnglish,
       });
       if (ok) {
-        toastStore.show(`已儲存「${shortTag}」設定`, "success");
+        toastStore.show(t("keywordManager.savedSetting", { name: shortTag }), "success");
         cancelForm();
       }
     }
@@ -142,7 +143,7 @@
 
   function handleResetSingleBuiltin(entry: StyleKeywordEntry) {
     if (styleKeywordCatalog.resetBuiltinKeyword(entry.id)) {
-      toastStore.show(`已還原預設關鍵字「${entry.shortTag}」`, "info");
+      toastStore.show(t("keywordManager.restoredOne", { name: entry.shortTag }), "info");
       if (editingTargetId === entry.id) {
         cancelForm();
       }
@@ -151,7 +152,7 @@
 
   function handleResetAllBuiltins() {
     styleKeywordCatalog.resetAllBuiltins();
-    toastStore.show("已將全部預設關鍵字還原為原廠設定", "info");
+    toastStore.show(t("keywordManager.restoredAll"), "info");
     if (editingIsBuiltin) {
       cancelForm();
     }
@@ -168,7 +169,7 @@
   function handleConfirmDelete(entry: StyleKeywordEntry) {
     if (styleKeywordCatalog.deleteCustomKeyword(entry.id)) {
       onKeywordHiddenOrDeleted?.(entry.id);
-      toastStore.show(`已刪除自訂關鍵字「${entry.shortTag}」`, "info");
+      toastStore.show(t("keywordManager.deletedCustom", { name: entry.shortTag }), "info");
       if (editingTargetId === entry.id) {
         cancelForm();
       }
@@ -202,7 +203,7 @@
           <span class="material-symbols-outlined kw-header-icon">bookmarks</span>
           <div>
             <div id="kw-modal-title" class="kw-title font-headline">
-              關鍵字儲存管理
+              {t("keywordManager.title")}
             </div>
             <div class="kw-subtitle font-mono">
               STYLE KEYWORD VAULT // EXPLICIT LOCAL SAVE
@@ -213,7 +214,7 @@
           type="button"
           class="kw-close-btn"
           onclick={closeModal}
-          aria-label="關閉關鍵字管理視窗"
+          aria-label={t("keywordManager.closeAria")}
         >
           <span class="material-symbols-outlined" style="font-size: 16px;"
             >close</span
@@ -228,11 +229,11 @@
             <div class="kw-editor-head">
               <span class="kw-editor-title font-mono">
                 {#if editorMode === "create"}
-                  ＋ 新增自訂調色關鍵字
+                  {t("keywordManager.formCreateTitle")}
                 {:else if editingIsBuiltin}
-                  編修預設關鍵字
+                  {t("keywordManager.formEditBuiltinTitle")}
                 {:else}
-                  編修自訂關鍵字
+                  {t("keywordManager.formEditCustomTitle")}
                 {/if}
               </span>
               {#if editingIsBuiltin}
@@ -240,50 +241,50 @@
                   type="button"
                   class="kw-mini-btn font-mono"
                   onclick={handleRestoreEditingBuiltin}
-                  title="將表單欄位帶回原廠預設內容（仍需點擊儲存才套用）"
+                  title={t("keywordManager.fillFactoryTitle")}
                 >
-                  帶入原廠內容
+                  {t("keywordManager.fillFactoryBtn")}
                 </button>
               {/if}
             </div>
 
             <div class="kw-field">
               <label class="kw-field-label font-mono" for="kw-short-tag">
-                標籤名稱 <span class="kw-required">*</span>
+                {t("keywordManager.labelName")} <span class="kw-required">*</span>
               </label>
               <input
                 id="kw-short-tag"
                 type="text"
                 class="kw-input font-body"
                 maxlength="28"
-                placeholder="例如：富士負片、清透青橙、港風夜色"
+                placeholder={t("keywordManager.placeholderName")}
                 bind:value={formShortTag}
               />
             </div>
 
             <div class="kw-field">
               <label class="kw-field-label font-mono" for="kw-tooltip">
-                效果說明（選填，滑鼠懸停與明細顯示）
+                {t("keywordManager.labelTooltip")}
               </label>
               <input
                 id="kw-tooltip"
                 type="text"
                 class="kw-input font-body"
                 maxlength="120"
-                placeholder="例如：暗部偏冷青、膚色通透暖調、高光柔和滾降"
+                placeholder={t("keywordManager.placeholderTooltip")}
                 bind:value={formTooltip}
               />
             </div>
 
             <div class="kw-field">
               <label class="kw-field-label font-mono" for="kw-prompt">
-                AI 調色指令 Prompt <span class="kw-required">*</span>
+                {t("keywordManager.labelPrompt")} <span class="kw-required">*</span>
               </label>
               <textarea
                 id="kw-prompt"
                 class="kw-textarea font-mono"
                 rows="3"
-                placeholder="輸入注入 AI 的風格指令，例如：Clean daylight teal-orange separation, smooth highlight roll-off, warm skin tone"
+                placeholder={t("keywordManager.placeholderPrompt")}
                 bind:value={formPrompt}
               ></textarea>
             </div>
@@ -298,7 +299,7 @@
                 class="archival-btn-secondary kw-btn font-mono"
                 onclick={cancelForm}
               >
-                取消
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -308,14 +309,14 @@
                 <span class="material-symbols-outlined" style="font-size: 14px;"
                   >save</span
                 >
-                <span>儲存至本地</span>
+                <span>{t("keywordManager.saveLocal")}</span>
               </button>
             </div>
           </section>
         {:else}
           <div class="kw-top-bar">
             <span class="kw-hint font-body">
-              編輯或新增後需點擊「儲存」才會永久保存於此瀏覽器。
+              {t("keywordManager.saveHint")}
             </span>
             <button
               type="button"
@@ -325,7 +326,7 @@
               <span class="material-symbols-outlined" style="font-size: 14px;"
                 >add</span
               >
-              <span>新增關鍵字</span>
+              <span>{t("keywordManager.addBtn")}</span>
             </button>
           </div>
         {/if}
@@ -333,12 +334,12 @@
         <!-- 自訂關鍵字清單 -->
         <section class="kw-group">
           <div class="kw-group-header font-mono">
-            <span>自訂關鍵字 ({customList.length})</span>
+            <span>{t("keywordManager.customListTitle", { count: customList.length })}</span>
           </div>
 
           {#if customList.length === 0}
             <div class="kw-empty-box font-body">
-              尚未儲存任何自訂關鍵字。可點擊上方「新增關鍵字」，或在暗房面板輸入描述後點「存為關鍵字」。
+              {t("keywordManager.customEmpty")}
             </div>
           {:else}
             <div class="kw-list">
@@ -350,7 +351,7 @@
                   <div class="kw-row-main">
                     <div class="kw-row-title-line">
                       <span class="kw-row-tag">{entry.shortTag}</span>
-                      <span class="kw-badge custom font-mono">自訂</span>
+                      <span class="kw-badge custom font-mono">{t("keywordManager.badgeCustom")}</span>
                     </div>
                     {#if entry.tooltip}
                       <div class="kw-row-desc">{entry.tooltip}</div>
@@ -364,7 +365,7 @@
                       type="button"
                       class="kw-icon-btn"
                       onclick={() => styleKeywordCatalog.moveKeywordOrder(entry.id, "up")}
-                      title="上移"
+                      title={t("keywordManager.moveUp")}
                     >
                       ↑
                     </button>
@@ -372,7 +373,7 @@
                       type="button"
                       class="kw-icon-btn"
                       onclick={() => styleKeywordCatalog.moveKeywordOrder(entry.id, "down")}
-                      title="下移"
+                      title={t("keywordManager.moveDown")}
                     >
                       ↓
                     </button>
@@ -381,7 +382,7 @@
                       class="kw-mini-btn"
                       onclick={() => openEditForm(entry)}
                     >
-                      編輯
+                      {t("keywordManager.edit")}
                     </button>
                     {#if confirmDeleteId === entry.id}
                       <button
@@ -389,14 +390,14 @@
                         class="kw-mini-btn danger-solid"
                         onclick={() => handleConfirmDelete(entry)}
                       >
-                        確定刪除
+                        {t("keywordManager.confirmDelete")}
                       </button>
                       <button
                         type="button"
                         class="kw-mini-btn"
                         onclick={() => (confirmDeleteId = null)}
                       >
-                        取消
+                        {t("common.cancel")}
                       </button>
                     {:else}
                       <button
@@ -404,7 +405,7 @@
                         class="kw-mini-btn danger"
                         onclick={() => (confirmDeleteId = entry.id)}
                       >
-                        刪除
+                        {t("keywordManager.delete")}
                       </button>
                     {/if}
                   </div>
@@ -417,14 +418,14 @@
         <!-- 內建預設關鍵字清單 -->
         <section class="kw-group">
           <div class="kw-group-header font-mono">
-            <span>預設關鍵字 ({builtinList.length})</span>
+            <span>{t("keywordManager.builtinListTitle", { count: builtinList.length })}</span>
             {#if styleKeywordCatalog.modifiedOrHiddenBuiltinCount > 0}
               <button
                 type="button"
                 class="kw-mini-btn font-mono"
                 onclick={handleResetAllBuiltins}
               >
-                全部還原預設 ({styleKeywordCatalog.modifiedOrHiddenBuiltinCount})
+                {t("keywordManager.restoreAllBtn", { count: styleKeywordCatalog.modifiedOrHiddenBuiltinCount })}
               </button>
             {/if}
           </div>
@@ -440,10 +441,10 @@
                   <div class="kw-row-title-line">
                     <span class="kw-row-tag">{entry.shortTag}</span>
                     {#if entry.isModified}
-                      <span class="kw-badge modified font-mono">已編修</span>
+                      <span class="kw-badge modified font-mono">{t("keywordManager.badgeModified")}</span>
                     {/if}
                     {#if entry.hidden}
-                      <span class="kw-badge hidden-badge font-mono">已隱藏</span>
+                      <span class="kw-badge hidden-badge font-mono">{t("keywordManager.badgeHidden")}</span>
                     {/if}
                   </div>
                   {#if entry.tooltip}
@@ -458,7 +459,7 @@
                     type="button"
                     class="kw-icon-btn"
                     onclick={() => styleKeywordCatalog.moveKeywordOrder(entry.id, "up")}
-                    title="上移"
+                    title={t("keywordManager.moveUp")}
                   >
                     ↑
                   </button>
@@ -466,7 +467,7 @@
                     type="button"
                     class="kw-icon-btn"
                     onclick={() => styleKeywordCatalog.moveKeywordOrder(entry.id, "down")}
-                    title="下移"
+                    title={t("keywordManager.moveDown")}
                   >
                     ↓
                   </button>
@@ -475,14 +476,14 @@
                     class="kw-mini-btn"
                     onclick={() => openEditForm(entry)}
                   >
-                    編輯
+                    {t("keywordManager.edit")}
                   </button>
                   <button
                     type="button"
                     class="kw-mini-btn"
                     onclick={() => handleToggleHide(entry)}
                   >
-                    {entry.hidden ? "顯示" : "隱藏"}
+                    {entry.hidden ? t("keywordManager.show") : t("keywordManager.hide")}
                   </button>
                   {#if entry.isModified || entry.hidden}
                     <button
@@ -490,7 +491,7 @@
                       class="kw-mini-btn restore"
                       onclick={() => handleResetSingleBuiltin(entry)}
                     >
-                      還原預設
+                      {t("keywordManager.restoreDefault")}
                     </button>
                   {/if}
                 </div>
@@ -502,14 +503,18 @@
 
       <footer class="kw-modal-footer hairline-t">
         <span class="kw-footer-status font-mono">
-          已存 {styleKeywordCatalog.customCount} 組自訂 · 顯示 {styleKeywordCatalog.visibleKeywords.length}/{styleKeywordCatalog.allKeywords.length} 組關鍵字
+          {t("keywordManager.footerStats", {
+            custom: styleKeywordCatalog.customCount,
+            visible: styleKeywordCatalog.visibleKeywords.length,
+            total: styleKeywordCatalog.allKeywords.length,
+          })}
         </span>
         <button
           type="button"
           class="archival-btn-secondary kw-btn font-mono"
           onclick={closeModal}
         >
-          完成關閉
+          {t("keywordManager.doneClose")}
         </button>
       </footer>
     </div>

@@ -8,6 +8,8 @@
    * 4. 雙向滑桿中點填色條 (Bipolar Track Fill) 與零點微磁吸附。
    * 5. 參數變更指示燈 (Modified Dot Indicator)，點擊亦可單項還原。
    */
+  import { t } from "$lib/i18n";
+
   interface Props {
     label: string;
     subLabel?: string;
@@ -163,7 +165,7 @@
         role="button"
         tabindex="-1"
         ondblclick={resetToDefault}
-        title="點兩下歸零 / 還原為標準基準值"
+        title={t("slider.dblClickReset")}
       >
         {label}
       </span>
@@ -175,8 +177,8 @@
           type="button"
           class="modified-dot"
           onclick={resetToDefault}
-          title={`已修改，點擊還原為預設值 (${defaultValue})`}
-          aria-label="還原為預設值"
+          title={t("slider.modifiedReset", { value: defaultValue })}
+          aria-label={t("slider.resetAria")}
         ></button>
       {/if}
     </div>
@@ -200,7 +202,7 @@
           class:modified={isModified}
           onclick={startEditing}
           ondblclick={resetToDefault}
-          title="單擊輸入數值，點兩下歸零"
+          title={t("slider.clickToEdit")}
         >
           {displayString}
         </button>
@@ -220,14 +222,14 @@
       ondblclick={resetToDefault}
       class="darkroom-slider"
       style:background={trackBackground}
-      title={disabled ? "黑白模式下停用此色彩通道" : "拖曳滑動，懸停滾輪微調，點兩下歸零"}
+      title={disabled ? t("slider.disabledMono") : t("slider.dragHint")}
     />
     {#if isBipolar}
       <!-- 中心 0 刻度指示點 -->
       <div
         class="center-detent"
         style:left={`${((0 - min) / (max - min)) * 100}%`}
-        title="零點基準"
+        title={t("slider.zeroMark")}
       ></div>
     {/if}
   </div>

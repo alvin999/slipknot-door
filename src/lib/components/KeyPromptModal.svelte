@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
+
   interface Props {
     isOpen?: boolean;
     onOpenVault: () => void;
@@ -39,7 +41,7 @@
           <span class="material-symbols-outlined prompt-icon amber">vpn_key_off</span>
           <div>
             <div id="prompt-modal-title" class="prompt-title font-headline">
-              尚未配置 AI 雲端金鑰
+              {t('keyPrompt.title')}
             </div>
             <div class="prompt-subtitle font-mono">
               NEURAL DEVELOP // API KEY REQUIRED
@@ -50,7 +52,7 @@
           type="button"
           class="prompt-close-btn"
           onclick={handleClose}
-          aria-label="關閉對話框"
+          aria-label={t('common.closeDialog')}
         >
           <span class="material-symbols-outlined" style="font-size: 16px;">close</span>
         </button>
@@ -58,17 +60,17 @@
 
       <div class="prompt-body">
         <p class="prompt-desc">
-          目前尚未檢測到已配置的 AI 雲端金鑰。您可前往模型調度中心配置 <strong>Google Gemini</strong>、<strong>OpenAI</strong>、<strong>Anthropic Claude</strong>、<strong>Groq</strong>、<strong>OpenRouter</strong> 金鑰，或直接切換為免金鑰的本地端 <strong>Ollama</strong> 進行離線顯影。
+          {@html t('keyPrompt.body')}
         </p>
 
         <div class="prompt-modes-grid">
           <div class="prompt-mode-card highlight">
             <div class="mode-card-header font-mono amber">
               <span class="material-symbols-outlined">psychology</span>
-              <span>雲端主流模型 & 本地端 Ollama 雙軌支援</span>
+              <span>{t('keyPrompt.featureTitle')}</span>
             </div>
             <p class="mode-card-text">
-              支援六大主流 AI 供應商與本地端 Ollama 視覺多模態模型（如 Qwen2.5-VL、Gemma 3），可在單一面板隨時切換模型與管理金鑰。
+              {t('keyPrompt.featureDesc')}
             </p>
           </div>
         </div>
@@ -80,7 +82,7 @@
           class="archival-btn-secondary prompt-action-btn font-mono"
           onclick={handleClose}
         >
-          取消
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -88,7 +90,7 @@
           onclick={handleGoToVault}
         >
           <span class="material-symbols-outlined" style="font-size: 15px;">vpn_key</span>
-          <span>前往配置金鑰 🔑</span>
+          <span>{t('keyPrompt.goConfig')}</span>
         </button>
       </div>
     </div>

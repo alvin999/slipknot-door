@@ -6,6 +6,7 @@
   import { toastStore } from "$lib/stores/toastStore.svelte";
   import { PROVIDER_DEFAULT_MODELS } from "$lib/services/modelDiscoveryService";
   import type { AiProviderId } from "$lib/services/ai/types";
+  import { t } from "$lib/i18n";
   import type { StyleKeywordEntry } from "$lib/services/ai/styleDirectives";
   import KeywordManagerModal from "./KeywordManagerModal.svelte";
   import {
@@ -378,7 +379,7 @@
     <div class="ai-brand-row">
       <div class="ai-title-group">
         <span class="material-symbols-outlined ai-sparkle">auto_awesome</span>
-        <span class="font-headline ai-title">AI 顯影調色</span>
+        <span class="font-headline ai-title">{t("aiAssist.title")}</span>
         {#if currentIsBatchRunning}
           <span class="ai-batch-badge font-mono amber">BATCH</span>
         {/if}
@@ -392,11 +393,11 @@
           onclick={onOpenVault}
           title={geminiKeyStatus.exists
             ? geminiKeyStatus.mode === "password"
-              ? "金鑰保險庫 (密碼保護) · 點擊管理"
+              ? t("aiAssist.vaultPasswordTitle")
               : geminiKeyStatus.mode === "transparent"
-                ? "金鑰保險庫 (透明加密) · 點擊管理"
-                : "金鑰保險庫 (已就緒) · 點擊管理"
-            : "尚未設定 AI 金鑰 · 點擊設定"}
+                ? t("aiAssist.vaultTransparentTitle")
+                : t("aiAssist.vaultReadyTitle")
+            : t("aiAssist.vaultUnsetTitle")}
         >
           <span class="material-symbols-outlined" style="font-size: 13px;">
             {geminiKeyStatus.exists ? "verified_user" : "vpn_key"}
@@ -440,7 +441,7 @@
       <div class="quick-engine-drawer hairline-all">
         <div class="qe-row">
           <div class="qe-head font-mono">
-            <span>AI 調色干預強度</span>
+            <span>{t("aiAssist.strengthDrawerLabel")}</span>
             <span class="qe-val">{Math.round(aiPipeline.aiTuningStrength * 100)}%</span>
           </div>
           <input
@@ -462,7 +463,7 @@
               class:active={Math.abs(aiPipeline.aiTuningStrength - 0.7) < 0.03}
               onclick={() => aiPipeline.setAiTuningStrength(0.7)}
             >
-              70% 輕柔
+              {t("aiAssist.strengthSoft")}
             </button>
             <button
               type="button"
@@ -470,7 +471,7 @@
               class:active={Math.abs(aiPipeline.aiTuningStrength - 1.0) < 0.03}
               onclick={() => aiPipeline.setAiTuningStrength(1.0)}
             >
-              100% 標準
+              {t("aiAssist.strengthStd")}
             </button>
             <button
               type="button"
@@ -478,7 +479,7 @@
               class:active={Math.abs(aiPipeline.aiTuningStrength - 1.3) < 0.03}
               onclick={() => aiPipeline.setAiTuningStrength(1.3)}
             >
-              130% 濃烈
+              {t("aiAssist.strengthStrong")}
             </button>
           </div>
         </div>
@@ -491,7 +492,7 @@
               onchange={(e) =>
                 aiPipeline.setCriticEnabled((e.target as HTMLInputElement).checked)}
             />
-            <span>雙圖閉環覆審 (Pass 2 品控)</span>
+            <span>{t("aiAssist.criticToggleLabel")}</span>
           </label>
           {#if onOpenVault}
             <button
@@ -502,7 +503,7 @@
                 onOpenVault?.();
               }}
             >
-              模型與金鑰 →
+              {t("aiAssist.modelsAndKeysBtn")}
             </button>
           {/if}
         </div>
@@ -533,9 +534,9 @@
             ></span>
             <span class="report-heading font-mono">
               {#if currentIsAiAnalyzing || currentIsBatchRunning}
-                AI 正在判讀顯影中...
+                {t("aiAssist.reportRunning")}
               {:else}
-                AI 顯影判讀報告
+                {t("aiAssist.reportTitle")}
               {/if}
             </span>
             {#if currentRecommendedMood && !currentIsAiAnalyzing}
@@ -575,7 +576,7 @@
                   <span class="material-symbols-outlined" style="font-size: 14px;"
                     >lightbulb</span
                   >
-                  <span>後製調色理念</span>
+                  <span>{t("aiAssist.rationaleTitle")}</span>
                 </div>
                 <p class="insight-paragraph font-body">{currentStyleInsight}</p>
               </div>
@@ -588,7 +589,7 @@
                   <span class="material-symbols-outlined" style="font-size: 14px;"
                     >crop</span
                   >
-                  <span>構圖與裁切診斷</span>
+                  <span>{t("aiAssist.cropAdviceTitle")}</span>
                 </div>
                 <p class="insight-paragraph font-body">{currentCropRationale}</p>
               </div>
@@ -994,9 +995,9 @@
           type="button"
           class="vibe-keyword-chip add-chip font-mono"
           onclick={() => openCreateKeywordModal("")}
-          title="新增自訂調色關鍵字"
+          title={t("aiAssist.addKeywordTitle")}
         >
-          <span>＋ 新增</span>
+          <span>{t("aiAssist.addKeyword")}</span>
         </button>
       </div>
 
@@ -1160,7 +1161,7 @@
           <textarea
             class="vibe-custom-input font-body"
             rows="2"
-            placeholder="輸入自訂調色想法..."
+            placeholder={t("aiAssist.customPromptPlaceholder")}
             bind:value={darkroomState.customStylePrompt}
             onfocus={() => (isCustomInputFocused = true)}
             onblur={() => (isCustomInputFocused = false)}
@@ -1214,7 +1215,7 @@
       >
         <div class="step-title-group">
           <span class="step-badge font-mono">STEP 3</span>
-          <span class="section-title">AI 自動調整項目</span>
+          <span class="section-title">{t("aiAssist.step3Title")}</span>
           <span class="scope-count-pill font-mono">{aiScopeActiveCount}/{SCOPE_ITEMS.length}</span>
         </div>
         <span
@@ -1242,7 +1243,7 @@
             }
           }}
         >
-          {activeScopeSummary || "尚未勾選任何項目"}
+          {activeScopeSummary || t("aiAssist.noScopeSelected")}
         </div>
       {:else}
         <div class="scope-grid-2col">
@@ -1303,7 +1304,7 @@
             terminal
           </span>
           <span class="log-bar-text">
-            上次顯影紀錄 ({currentLogs.length})
+            {t("aiAssist.logsTitle", { count: currentLogs.length })}
           </span>
           <span
             class="material-symbols-outlined"
@@ -1369,7 +1370,7 @@
             error_outline
           </span>
           <span>
-            批次顯影有 {aiPipeline.batchFailedPhotos.length} 張失敗
+            {t("aiAssist.batchFailedMsg", { count: aiPipeline.batchFailedPhotos.length })}
           </span>
         </div>
         <div class="batch-failed-actions">

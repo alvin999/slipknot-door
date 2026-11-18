@@ -1,5 +1,6 @@
 <script lang="ts">
   import { toastStore, type ToastType } from '$lib/stores/toastStore.svelte';
+  import { t } from '$lib/i18n';
 
   function getBadgeLabel(type: ToastType): string {
     switch (type) {
@@ -32,7 +33,7 @@
       <button
         class="toast-close"
         onclick={() => toastStore.dismiss(toast.id)}
-        aria-label="關閉通知"
+        aria-label={t('common.closeToast')}
       >×</button>
     </div>
   {/each}
