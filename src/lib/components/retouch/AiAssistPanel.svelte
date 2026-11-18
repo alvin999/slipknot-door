@@ -7,6 +7,49 @@
   import { PROVIDER_DEFAULT_MODELS } from "$lib/services/modelDiscoveryService";
   import type { AiProviderId } from "$lib/services/ai/types";
   import { t } from "$lib/i18n";
+
+  const LUT_I18N_MAP: Record<string, string> = {
+    Profile_00_StandardNatural: "lut.NATURAL_00",
+    Profile_01_Fieldnote: "lut.FIELD_01",
+    Profile_02_Heartland: "lut.HEART_02",
+    Profile_03_Meridian: "lut.MERIDIAN_03",
+    Profile_04_Matinee: "lut.MATINEE_04",
+    Profile_05_Postcard: "lut.POSTCARD_05",
+    Profile_06_Skylight: "lut.SKYLIGHT_06",
+    Profile_07_NightMarket: "lut.NIGHT_07",
+    Profile_08_DuskTide: "lut.DUSK_08",
+    Profile_09_Canopy: "lut.CANOPY_09",
+    Profile_10_Lowsun: "lut.LOWSUN_10",
+  };
+
+  function getPresetTitle(preset: { key: string; shortLabel?: string; title: string }): string {
+    if (preset.key === "auto") return t("lut.autoTitle");
+    return preset.shortLabel || preset.title;
+  }
+
+  function getPresetSubtitle(preset: { key: string; profileId?: string; title: string; badge?: string }): string {
+    if (preset.key === "auto") return t("lut.autoSub");
+    const lutKey = preset.profileId ? LUT_I18N_MAP[preset.profileId] : undefined;
+    if (lutKey) return t(lutKey as any);
+    return preset.title.includes("·") ? preset.title.split("·")[1].trim() : preset.badge || "";
+  }
+
+  const KEYWORD_I18N_MAP: Record<string, string> = {
+    film_like: "keywords.film_like_tag",
+    lomo: "keywords.lomo_tag",
+    airy_jp: "keywords.airy_jp_tag",
+    cinematic: "keywords.cinematic_tag",
+    faded_vintage: "keywords.faded_vintage_tag",
+    neon_wkw: "keywords.neon_wkw_tag",
+    gritty_mono: "keywords.gritty_mono_tag",
+  };
+
+  function getKeywordLabel(kw: { id: string; shortTag: string; isCustom?: boolean; isModified?: boolean }): string {
+    if (!kw.isCustom && !kw.isModified && KEYWORD_I18N_MAP[kw.id]) {
+      return t(KEYWORD_I18N_MAP[kw.id] as any);
+    }
+    return kw.shortTag;
+  }
   import type { StyleKeywordEntry } from "$lib/services/ai/styleDirectives";
   import KeywordManagerModal from "./KeywordManagerModal.svelte";
   import {
@@ -169,14 +212,14 @@
   const currentAiScope = $derived(propsAiScope ?? aiPipeline.aiScope);
 
   const SCOPE_ITEMS: { key: string; label: string; short: string; icon: string }[] = [
-    { key: "lutProfile", label: "3D LUT 風格推薦", short: "LUT", icon: "palette" },
-    { key: "tone", label: "基礎光影與動態", short: "光影", icon: "tonality" },
-    { key: "whiteBalance", label: "自動色溫與色偏", short: "白平衡", icon: "thermostat" },
-    { key: "filmPhysics", label: "色彩科學與 HSL", short: "色彩HSL", icon: "color_lens" },
-    { key: "splitToning", label: "冷暖分區色調", short: "分區調色", icon: "gradient" },
-    { key: "filmTexture", label: "顆粒光暈與暗角", short: "底片質感", icon: "grain" },
-    { key: "crop", label: "智慧構圖與裁切", short: "構圖裁切", icon: "crop" },
-    { key: "keystone", label: "梯形與水平校正", short: "水平透視", icon: "straighten" },
+    { key: "lutProfile", label: t("devices.scopeLutProfile"), short: "LUT", icon: "palette" },
+    { key: "tone", label: t("devices.scopeTone"), short: "Tone", icon: "tonality" },
+    { key: "whiteBalance", label: t("devices.scopeWhiteBalance"), short: "WB", icon: "thermostat" },
+    { key: "filmPhysics", label: t("devices.scopeFilmPhysics"), short: "HSL", icon: "color_lens" },
+    { key: "splitToning", label: t("devices.scopeSplitToning"), short: "Split", icon: "gradient" },
+    { key: "filmTexture", label: t("devices.scopeFilmTexture"), short: "Grain", icon: "grain" },
+    { key: "crop", label: t("devices.scopeCrop"), short: "Crop", icon: "crop" },
+    { key: "keystone", label: t("devices.scopeKeystone"), short: "Level", icon: "straighten" },
   ];
 
   function isScopeEnabled(key: string): boolean {
@@ -402,12 +445,12 @@
           <span class="material-symbols-outlined" style="font-size: 13px;">
             {geminiKeyStatus.exists ? "verified_user" : "vpn_key"}
           </span>
-          <span>{geminiKeyStatus.exists ? "金鑰就緒" : "設定金鑰"}</span>
+          <span>{geminiKeyStatus.exists ? t("aiAssist.keyReady") : t("aiAssist.setKey")}</span>
         </button>
       {/if}
     </div>
     <p class="ai-subtitle">
-      選取風格與意境，一鍵執行光學判讀與暗房調校
+      {t("aiAssist.subtitle")}
     </p>
 
     <!-- 推論引擎與 Temp 快速狀態膠囊 -->
@@ -417,15 +460,15 @@
       class:open={isQuickEngineOpen}
       onclick={() => (isQuickEngineOpen = !isQuickEngineOpen)}
       aria-expanded={isQuickEngineOpen}
-      title="點擊快速調整調色干預強度與雙圖覆審開關"
+      title={t("aiAssist.engineCapsuleTitle")}
     >
       <span class="engine-pill-left">
         <span class="engine-dot" class:critic={aiPipeline.criticEnabled}></span>
         <span class="engine-name">{visionModelShortName}</span>
         <span class="engine-sep">·</span>
-        <span>強度 {Math.round(aiPipeline.aiTuningStrength * 100)}%</span>
+        <span>{t("aiAssist.strengthLabel", { pct: Math.round(aiPipeline.aiTuningStrength * 100) })}</span>
         {#if aiPipeline.criticEnabled}
-          <span class="critic-mini-tag">覆審</span>
+          <span class="critic-mini-tag">{t("aiAssist.criticMiniTag")}</span>
         {/if}
       </span>
       <span
@@ -793,7 +836,7 @@
       <div class="section-header">
         <div class="step-title-group">
           <span class="step-badge font-mono">STEP 1</span>
-          <span class="section-title">顯影風格與色彩模式</span>
+          <span class="section-title">{t("aiAssist.step1Heading")}</span>
         </div>
         <button
           type="button"
@@ -808,9 +851,9 @@
               },
             );
           }}
-          title={isExpandedStyles ? "切換為精簡捲軸檢視" : "展開全部風格卡片"}
+          title={isExpandedStyles ? t("aiAssist.collapseList") : t("aiAssist.expandAll", { count: styleGradingPresets.length })}
         >
-          <span>{isExpandedStyles ? "精簡檢視" : `展開全部 (${styleGradingPresets.length})`}</span>
+          <span>{isExpandedStyles ? t("aiAssist.collapseList") : t("aiAssist.expandAll", { count: styleGradingPresets.length })}</span>
           <span class="material-symbols-outlined" style="font-size: 14px;">
             {isExpandedStyles ? "unfold_less" : "unfold_more"}
           </span>
@@ -819,11 +862,11 @@
 
       <!-- 彩色 / 黑白輸出切換 -->
       <div class="style-output-sync-bar font-mono">
-        <span class="style-output-sync-label">輸出管線</span>
+        <span class="style-output-sync-label">{t("aiAssist.outputPipeline")}</span>
         <div
           class="style-output-sync-switch"
           role="group"
-          aria-label="顯影輸出色彩模式"
+          aria-label={t("tuning.outputModeAria")}
         >
           <button
             type="button"
@@ -835,10 +878,10 @@
                 darkroomState.recordSnapshot(true);
               }
             }}
-            title="標準彩色 3D LUT 顯影管線"
+            title={t("tuning.colorModeTitle")}
           >
             <span class="sync-dot color"></span>
-            <span>彩色 COLOR</span>
+            <span>{t("aiAssist.pipelineColor")}</span>
           </button>
           <button
             type="button"
@@ -850,10 +893,10 @@
                 darkroomState.recordSnapshot(true);
               }
             }}
-            title="黑白暗房管線（保留所選 LUT 階調曲線，並與右側面板同步）"
+            title={t("tuning.monoModeTitle")}
           >
             <span class="sync-dot mono"></span>
-            <span>黑白 B&W</span>
+            <span>{t("aiAssist.pipelineMono")}</span>
           </button>
         </div>
       </div>
@@ -866,9 +909,15 @@
               class="banner-dot"
               style:background={selectedPresetObj.accent || "var(--amber-highlight)"}
             ></span>
-            <span class="banner-name font-headline">{selectedPresetObj.title}</span>
+            <span class="banner-name font-headline">
+              {selectedPresetObj.key === "auto"
+                ? `${t("lut.autoTitle")} · ${t("lut.autoSub")}`
+                : `${getPresetTitle(selectedPresetObj)} · ${getPresetSubtitle(selectedPresetObj)}`}
+            </span>
           </div>
-          <p class="banner-desc">{selectedPresetObj.subtitle}</p>
+          <p class="banner-desc">
+            {selectedPresetObj.key === "auto" ? t("lut.autoDesc") : selectedPresetObj.subtitle}
+          </p>
         </div>
       {/if}
 
@@ -926,12 +975,10 @@
             </span>
             <div class="style-card-meta">
               <span class="style-card-title font-headline">
-                {preset.shortLabel || preset.title}
+                {getPresetTitle(preset)}
               </span>
               <span class="style-card-sub">
-                {preset.title.includes("·")
-                  ? preset.title.split("·")[1].trim()
-                  : preset.badge}
+                {getPresetSubtitle(preset)}
               </span>
             </div>
           </button>
@@ -946,7 +993,7 @@
       <div class="section-header">
         <div class="step-title-group">
           <span class="step-badge font-mono">STEP 2</span>
-          <span class="section-title">調色意境與自訂描述</span>
+          <span class="section-title">{t("aiAssist.step2Heading")}</span>
         </div>
         <div class="vibe-header-actions">
           {#if darkroomState.selectedStyleKeywords.length > 0 || hasCustomPrompt}
@@ -964,12 +1011,12 @@
             type="button"
             class="vibe-manage-btn font-mono"
             onclick={openKeywordManager}
-            title="管理自訂與預設關鍵字"
+            title={t("aiAssist.manageKeywordsTitle")}
           >
             <span class="material-symbols-outlined" style="font-size: 12px;"
               >bookmarks</span
             >
-            <span>管理</span>
+            <span>{t("aiAssist.manageKeywords")}</span>
           </button>
         </div>
       </div>
@@ -988,7 +1035,7 @@
             onclick={() => darkroomState.toggleStyleKeyword(kw.id)}
           >
             <span class="vibe-chip-dot"></span>
-            <span>{kw.shortTag}</span>
+            <span>{getKeywordLabel(kw)}</span>
           </button>
         {/each}
         <button
@@ -1192,7 +1239,7 @@
                 <span class="material-symbols-outlined" style="font-size: 12px;"
                   >casino</span
                 >
-                <span>試試範例</span>
+                <span>{t("aiAssist.tryExample")}</span>
               </button>
             </div>
           </div>
@@ -1283,9 +1330,9 @@
             <span class="material-symbols-outlined" style="font-size: 13px;">
               {currentAiScope?.lockCropAspectRatio ? "lock" : "aspect_ratio"}
             </span>
-            <span>裁切時鎖定原始長寬比</span>
+            <span>{t("aiAssist.lockAspectLabel")}</span>
             <span class="sub-opt-state">
-              {currentAiScope?.lockCropAspectRatio ? "已鎖定" : "自動"}
+              {currentAiScope?.lockCropAspectRatio ? t("aiAssist.locked") : t("aiAssist.auto")}
             </span>
           </button>
         {/if}
@@ -1451,7 +1498,7 @@
             class:custom-driven={hasCustomPrompt}
             onclick={onRunAiAnalysis}
             disabled={currentIsAiAnalyzing || !activePhoto}
-            title="以選定風格與調色關鍵字執行 AI 調色"
+            title={t("aiAssist.runAiTitle")}
           >
             <span
               class="material-symbols-outlined"
@@ -1466,14 +1513,14 @@
             </span>
             <span>
               {currentIsAiAnalyzing
-                ? "正在顯影調校..."
+                ? t("aiAssist.developing")
                 : hasAiBaseline
-                  ? "重新 AI 顯影"
+                  ? t("aiAssist.reRunAi")
                   : hasCustomPrompt
-                    ? "依自訂意境 AI 顯影"
+                    ? t("aiAssist.runWithCustomPrompt")
                     : darkroomState.activeStylePreset === "auto"
-                      ? "AI 智慧顯影調色"
-                      : `以 ${selectedPresetObj?.shortLabel || "選定風格"} AI 顯影`}
+                      ? t("aiAssist.runAutoAi")
+                      : t("aiAssist.runWithPreset", { name: selectedPresetObj?.shortLabel || "AI" })}
             </span>
           </button>
         {/if}
@@ -1484,13 +1531,13 @@
             class="archival-btn-secondary batch-cta-btn font-mono"
             onclick={onRequestBatchAi}
             disabled={currentIsAiAnalyzing}
-            title="以目前選定的風格，對所有已標記（或全部）相片循序進行 AI 批次調色"
+            title={t("aiAssist.batchAiTitle")}
           >
             <span class="material-symbols-outlined" style="font-size: 15px;"
               >auto_mode</span
             >
             <span>
-              批次 ({flaggedCount > 0 ? flaggedCount : photoPlates.length})
+              {t("aiAssist.batchAiBtn", { count: flaggedCount > 0 ? flaggedCount : photoPlates.length })}
             </span>
           </button>
         {/if}

@@ -2,6 +2,40 @@
   import { type CustomLutRecord, parseCubeMetadata } from '$lib/services/customLutService';
   import { t } from '$lib/i18n';
 
+  const LUT_BADGE_TO_KEY: Record<string, string> = {
+    NATURAL_00: 'NATURAL_00',
+    FIELD_01: 'FIELD_01',
+    HEART_02: 'HEART_02',
+    MERIDIAN_03: 'MERIDIAN_03',
+    MATINEE_04: 'MATINEE_04',
+    POSTCARD_05: 'POSTCARD_05',
+    SKYLIGHT_06: 'SKYLIGHT_06',
+    NIGHT_07: 'NIGHT_07',
+    DUSK_08: 'DUSK_08',
+    CANOPY_09: 'CANOPY_09',
+    LOWSUN_10: 'LOWSUN_10',
+  };
+
+  function getProfileTitle(prof: ProfileItem): string {
+    if (prof.isCustom) return prof.title;
+    const key = LUT_BADGE_TO_KEY[prof.badge];
+    if (!key) return prof.title;
+    const prefix = prof.title.includes('·') ? prof.title.split('·')[0].trim() : prof.title;
+    return `${prefix} · ${t(`lut.${key}` as any)}`;
+  }
+
+  function getProfileTone(prof: ProfileItem): string {
+    if (prof.isCustom) return prof.tone;
+    const key = LUT_BADGE_TO_KEY[prof.badge];
+    return key ? t(`lut.${key}_tone` as any) : prof.tone;
+  }
+
+  function getProfileScene(prof: ProfileItem): string {
+    if (prof.isCustom) return prof.recommendedScene || '';
+    const key = LUT_BADGE_TO_KEY[prof.badge];
+    return key ? t(`lut.${key}_scene` as any) : (prof.recommendedScene || '');
+  }
+
   export interface ProfileItem {
     id: string;
     title: string;
@@ -266,8 +300,8 @@
                 {/if}
               </div>
             </div>
-            <h3 class="profile-card-title font-headline">{prof.title}</h3>
-            <p class="profile-card-tone font-body">{prof.tone}</p>
+            <h3 class="profile-card-title font-headline">{getProfileTitle(prof)}</h3>
+            <p class="profile-card-tone font-body">{getProfileTone(prof)}</p>
           </div>
 
           <!-- Color Swatch Spectrum Strip -->
@@ -298,7 +332,7 @@
             </div>
             <div class="spec-cell">
               <span class="spec-label">OPTIMAL SCENE</span>
-              <span class="spec-val truncate">{prof.recommendedScene}</span>
+              <span class="spec-val truncate">{getProfileScene(prof)}</span>
             </div>
           </div>
 
