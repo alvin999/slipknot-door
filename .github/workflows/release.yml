@@ -59,6 +59,10 @@ jobs:
           npm run check:i18n
           npm run test:darkroom
 
+      - name: Generate release notes
+        id: release_notes
+        run: node ./scripts/extract-release-notes.mjs "${{ github.ref_name }}"
+
       - name: Build Tauri Desktop Bundle
         uses: tauri-apps/tauri-action@v0
         env:
@@ -66,7 +70,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "大相無形 Slipknotting on Heaven's Door ${{ github.ref_name }}"
-          releaseBody: "請參見 CHANGELOG.md 取得本次發行的完整更新詳情。"
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
