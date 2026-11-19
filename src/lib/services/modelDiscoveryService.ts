@@ -91,7 +91,11 @@ export class ModelDiscoveryService {
     apiKeyOrUrl: string
   ): Promise<DiscoveryResult> {
     if (provider !== 'ollama' && (!apiKeyOrUrl || apiKeyOrUrl.trim().length < 6)) {
-      return { models: this.getCachedModels(provider), recommendedModelId: null };
+      return {
+        models: this.getCachedModels(provider),
+        recommendedModelId: null,
+        error: 'API 金鑰格式無效或長度不足',
+      };
     }
 
     try {

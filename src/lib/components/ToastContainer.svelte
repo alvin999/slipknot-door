@@ -123,4 +123,20 @@
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  @keyframes toast-slide-down {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (max-width: 768px) {
+    .toast-container {
+      top: calc(12px + env(safe-area-inset-top, 0px));
+      bottom: auto;
+      left: 12px;
+      right: 12px;
+      max-width: none;
+    }
+    .toast-item {
+      animation: toast-slide-down 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+  }
 </style>

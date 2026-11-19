@@ -350,6 +350,10 @@
   }
 
   async function probeProviderModels(prov: AiProviderId, isManual: boolean) {
+    if (isManual) {
+      clearTimeout(discoveryTimer);
+    }
+
     let keyOrUrl = '';
     if (prov === 'ollama') {
       keyOrUrl = (selectedProvider === 'ollama' ? ollamaUrlInput : KeyVaultService.getOllamaEndpoint()).trim();
@@ -361,25 +365,53 @@
         const st = KeyVaultService.getKeyStatus(prov);
         if (!st.exists || st.mode === 'password') {
           if (isManual && st.mode === 'password' && masterPassword) {
-            const loaded = await KeyVaultService.loadKey(prov, masterPassword);
-            keyOrUrl = loaded.apiKey || '';
+            try {
+              const loaded = await KeyVaultService.loadKey(prov, masterPassword);
+              keyOrUrl = loaded.apiKey || '';
+            } catch (err: any) {
+              const errMsg = err?.message || t('keyVault.unlockPasswordPrompt');
+              statusMessage = { text: errMsg, type: 'error' };
+              toastStore.show(errMsg, 'error', 4000);
+              return;
+            }
           } else if (isManual) {
+            const promptMsg =
+              st.mode === 'password'
+                ? t('keyVault.unlockPasswordPrompt')
+                : t('keyVault.enterApiKeyPrompt', { name: getProviderMeta(prov).name });
             statusMessage = {
-              text: st.mode === 'password' ? t('keyVault.unlockPasswordPrompt') : t('keyVault.enterApiKeyPrompt', { name: getProviderMeta(prov).name }),
+              text: promptMsg,
               type: 'info',
             };
+            toastStore.show(promptMsg, 'warning', 3200);
             return;
           } else {
             return;
           }
         } else {
-          const loaded = await KeyVaultService.loadKey(prov);
-          keyOrUrl = loaded.apiKey || '';
+          try {
+            const loaded = await KeyVaultService.loadKey(prov);
+            keyOrUrl = loaded.apiKey || '';
+          } catch (err: any) {
+            if (isManual) {
+              const errMsg = err?.message || t('keyVault.discoverError', { error: '' });
+              statusMessage = { text: errMsg, type: 'error' };
+              toastStore.show(errMsg, 'error', 4000);
+            }
+            return;
+          }
         }
       }
     }
 
-    if (prov !== 'ollama' && !keyOrUrl) return;
+    if (prov !== 'ollama' && !keyOrUrl) {
+      if (isManual) {
+        const promptMsg = t('keyVault.enterApiKeyPrompt', { name: getProviderMeta(prov).name });
+        statusMessage = { text: promptMsg, type: 'info' };
+        toastStore.show(promptMsg, 'warning', 3200);
+      }
+      return;
+    }
 
     isDiscoveringProvider = { ...isDiscoveringProvider, [prov]: true };
     if (isManual) {
