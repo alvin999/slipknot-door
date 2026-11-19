@@ -161,6 +161,35 @@
   const flaggedCount = $derived(
     activeQueue.filter((p) => p.flagged).length || photoLibrary.flaggedCount,
   );
+  const activeQueueIndex = $derived(
+    activePhoto ? activeQueue.findIndex((p) => p.id === activePhoto.id) : -1,
+  );
+  let isMobileStripCollapsed = $state(false);
+
+  /**
+   * 切換目前主畫布相片的挑選書籤狀態；若取消選取後該相片離開佇列，自動補位鄰近相片
+   */
+  function toggleActivePhotoFlag(event?: MouseEvent): void {
+    if (event) event.stopPropagation();
+    if (!activePhoto) return;
+    const prevIdx = activeQueueIndex;
+    photoLibrary.togglePhotoFlag(activePhoto);
+
+    const nextQueue =
+      propsPhotos && propsPhotos.length > 0
+        ? propsPhotos
+        : photoLibrary.activeQueue.length > 0
+          ? photoLibrary.activeQueue
+          : photoLibrary.photoPlates;
+
+    if (
+      nextQueue.length > 0 &&
+      !nextQueue.some((p) => p.id === activePhoto.id)
+    ) {
+      const fallbackIdx = Math.min(Math.max(0, prevIdx), nextQueue.length - 1);
+      onSelectPhoto(nextQueue[fallbackIdx]);
+    }
+  }
   const isLoadingPhotos = $derived(photoLibrary.isLoadingPhotos);
   const isScanningMounts = $derived(photoLibrary.isScanningMounts);
 
@@ -1075,6 +1104,22 @@
           </div>
 
           <div class="hud-right">
+            {#if activePhoto}
+              <button
+                type="button"
+                class="flag-toggle-btn"
+                class:active={activePhoto.flagged}
+                onclick={toggleActivePhotoFlag}
+                title={activePhoto.flagged
+                  ? t("darkroom.badgeFlaggedTitle")
+                  : t("catalog.touchTapOrHold")}
+                aria-label={activePhoto.flagged ? "Unpick photo" : "Pick photo"}
+              >
+                <span class="material-symbols-outlined" style="font-size: 14px;"
+                  >{activePhoto.flagged ? "bookmark" : "bookmark_border"}</span
+                >
+              </button>
+            {/if}
             <button
               type="button"
               class="crop-toggle-btn"
@@ -1590,7 +1635,24 @@
 <footer
   class="contact-sheet-strip hairline-t"
   class:mobile-drawer-split={isMobileDrawerOpen}
+  class:mobile-collapsed={isMobileStripCollapsed}
 >
+  <button
+    type="button"
+    class="mobile-strip-toggle font-mono"
+    onclick={() => (isMobileStripCollapsed = !isMobileStripCollapsed)}
+    aria-expanded={!isMobileStripCollapsed}
+  >
+    <span class="mobile-strip-count" class:amber={flaggedCount > 0}>
+      {activeQueueIndex >= 0 ? activeQueueIndex + 1 : 0} / {activeQueue.length}
+      {flaggedCount > 0 ? t("darkroom.queuePicked") : t("darkroom.queueAll")}
+    </span>
+    <span class="material-symbols-outlined mobile-strip-chevron"
+      >{isMobileStripCollapsed
+        ? "keyboard_arrow_up"
+        : "keyboard_arrow_down"}</span
+    >
+  </button>
   <div class="strip-header font-mono">
     <div class="strip-info-left">
       <span class="strip-label">CONTACT SHEET // EXPOSURE RACK</span>
@@ -2035,6 +2097,10 @@
     font-weight: 500;
   }
 
+  .mobile-strip-toggle {
+    display: none;
+  }
+
   /* BOTTOM CONTACT SHEET STRIP */
   .contact-sheet-strip {
     height: var(--contact-strip-height);
@@ -2326,7 +2392,8 @@
     gap: 4px;
   }
 
-  .crop-toggle-btn {
+  .crop-toggle-btn,
+  .flag-toggle-btn {
     display: flex;
     align-items: center;
     gap: 4px;
@@ -2339,11 +2406,16 @@
     cursor: pointer;
     transition: all 0.15s ease;
   }
-  .crop-toggle-btn:hover {
+  .flag-toggle-btn {
+    padding: 3px 6px;
+  }
+  .crop-toggle-btn:hover,
+  .flag-toggle-btn:hover {
     color: var(--parchment-bright);
     border-color: var(--parchment-dim);
   }
-  .crop-toggle-btn.active {
+  .crop-toggle-btn.active,
+  .flag-toggle-btn.active {
     background-color: rgba(212, 163, 115, 0.18);
     color: var(--amber-highlight);
     border-color: var(--amber-highlight);
@@ -2780,7 +2852,8 @@
 
     .diff-mode-btn,
     .zoom-hud-btn,
-    .crop-toggle-btn {
+    .crop-toggle-btn,
+    .flag-toggle-btn {
       font-size: 10px;
       padding: 3px 6px;
       white-space: nowrap;
@@ -2837,28 +2910,77 @@
       display: none;
     }
 
-    /* 底部底片軌道：緊湊直覺 */
+    /* 底部底片軌道：手機版移除按鈕列，改為可收合大縮圖軌 */
     .contact-sheet-strip {
-      height: 86px;
+      height: auto;
+      padding: 0;
     }
 
     .strip-header {
-      padding: 4px 10px;
-      font-size: 10px;
+      display: none;
     }
 
-    .strip-info-left .strip-label {
+    .mobile-strip-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      height: 26px;
+      padding: 0 10px;
+      background: transparent;
+      border: none;
+      color: var(--parchment-dim);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .mobile-strip-count.amber {
+      color: var(--amber-highlight);
+      font-weight: 600;
+    }
+
+    .mobile-strip-chevron {
+      font-size: 16px;
+      color: var(--parchment-muted);
+    }
+
+    .contact-sheet-strip.mobile-collapsed .strip-frames-scroll {
       display: none;
     }
 
     .strip-frames-scroll {
-      padding: 4px 8px;
+      padding: 2px 8px 8px;
       gap: 6px;
     }
 
     .film-frame-card {
-      width: 58px;
-      height: 52px;
+      position: relative;
+      width: 84px;
+      height: auto;
+    }
+
+    .film-frame-outer {
+      width: 84px;
+      height: 64px;
+    }
+
+    .film-frame-meta {
+      position: absolute;
+      left: 3px;
+      bottom: 3px;
+      margin-top: 0;
+      padding: 1px 4px;
+      background: rgba(12, 13, 16, 0.72);
+      border-radius: 2px;
+      font-size: 9px;
+      line-height: 1.2;
+      pointer-events: none;
+    }
+
+    .film-frame-meta .frame-tag {
+      display: none;
     }
 
     /* 手機版展開微調／風格抽屜時，隱藏非必要底欄以最大化上方照片預覽區 */
