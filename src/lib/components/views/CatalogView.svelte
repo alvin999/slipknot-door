@@ -111,6 +111,10 @@
 
   // ── 裝置與指標能力動態感應 (Adaptive Input & Device Sensing) ──
   let isCoarsePointer = $state(false);
+  let isMobileViewport = $state(false);
+  const useGalleryAsPrimaryHero = $derived(
+    Boolean(onPickGallery && (isCoarsePointer || isMobileViewport)),
+  );
   let hasDetectedPhysicalKeyboard = $state(false);
   const showKeyboardHints = $derived(!isCoarsePointer || hasDetectedPhysicalKeyboard);
 
@@ -541,12 +545,18 @@
 
     if (typeof window !== 'undefined') {
       const coarseMq = window.matchMedia('(pointer: coarse)');
+      const mobileMq = window.matchMedia('(max-width: 768px)');
       isCoarsePointer = coarseMq.matches || (navigator.maxTouchPoints > 0);
+      isMobileViewport = mobileMq.matches;
 
       const updatePointer = (e: MediaQueryListEvent) => {
         isCoarsePointer = e.matches;
       };
+      const updateMobileViewport = (e: MediaQueryListEvent) => {
+        isMobileViewport = e.matches;
+      };
       coarseMq.addEventListener?.('change', updatePointer);
+      mobileMq.addEventListener?.('change', updateMobileViewport);
 
       // 動態偵測：一旦使用者在平板或電腦按下實體鍵盤，立即點亮快捷鍵導引
       const onFirstKey = (e: KeyboardEvent) => {
@@ -558,6 +568,7 @@
 
       return () => {
         coarseMq.removeEventListener?.('change', updatePointer);
+        mobileMq.removeEventListener?.('change', updateMobileViewport);
         window.removeEventListener('keydown', onFirstKey);
       };
 
@@ -1148,22 +1159,31 @@
           <div
             class="hero-dropzone-pod hairline-all font-mono"
             class:loading={isLoadingPhotos}
-            onclick={onPickDirectory}
+            onclick={() => (useGalleryAsPrimaryHero && onPickGallery ? onPickGallery() : onPickDirectory())}
             role="button"
             tabindex="0"
-            onkeydown={(e) => { if (e.key === 'Enter') onPickDirectory(); }}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') {
+                if (useGalleryAsPrimaryHero && onPickGallery) onPickGallery();
+                else onPickDirectory();
+              }
+            }}
           >
             <div class="pod-icon-box">
               <span class="material-symbols-outlined pod-main-icon">
-                {isLoadingPhotos ? 'hourglass_top' : 'folder_open'}
+                {isLoadingPhotos
+                  ? 'hourglass_top'
+                  : (useGalleryAsPrimaryHero ? 'photo_library' : 'folder_open')}
               </span>
             </div>
             <div class="pod-meta-info">
               <div class="pod-headline font-headline">
-                {isLoadingPhotos ? t('catalog.heroLoading') : t('catalog.heroPrompt')}
+                {isLoadingPhotos
+                  ? t('catalog.heroLoading')
+                  : (useGalleryAsPrimaryHero ? t('catalog.heroPickGallery') : t('catalog.heroPrompt'))}
               </div>
               <div class="pod-formats">
-                {t('catalog.heroSub')}
+                {useGalleryAsPrimaryHero ? t('catalog.heroGallerySub') : t('catalog.heroSub')}
               </div>
             </div>
             <div class="pod-action-hint">
@@ -1192,28 +1212,10 @@
 
           <!-- 次要動作列 -->
           <div class="hero-sub-actions font-mono">
-            {#if onPickGallery}
-              <button type="button" class="hero-ghost-btn mobile-pick-files-btn" onclick={onPickGallery}>
-                <span class="material-symbols-outlined" style="font-size: 15px;">photo_library</span>
-                <span>{t('catalog.heroPickGallery')}</span>
-              </button>
-            {/if}
-            {#if onAppendFiles}
-              <button type="button" class="hero-ghost-btn" onclick={onAppendFiles}>
-                <span class="material-symbols-outlined" style="font-size: 15px;">add_photo_alternate</span>
-                <span>{t('catalog.appendFiles')} (RAW+JPG)</span>
-              </button>
-            {/if}
             <button type="button" class="hero-ghost-btn" onclick={onRefreshMounts}>
               <span class="material-symbols-outlined" style="font-size: 15px;">cable</span>
               <span>{t('catalog.rescanCamera')}</span>
             </button>
-            {#if !hasApiKey && onOpenVault}
-              <button type="button" class="hero-ghost-btn amber" onclick={onOpenVault}>
-                <span class="material-symbols-outlined" style="font-size: 15px;">vpn_key</span>
-                <span>{t('catalog.configAiKey')}</span>
-              </button>
-            {/if}
           </div>
 
           <!-- 系統工藝指標遙測條 (Curatorial Specifications) -->

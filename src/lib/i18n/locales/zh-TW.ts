@@ -130,6 +130,7 @@ export const zhTW = {
     appendGalleryTitle: '從內建相簿瀏覽挑選相片追加至現有相卷',
     appendGallery: '相簿追加',
     heroPickGallery: '從相簿瀏覽選取相片',
+    heroGallerySub: '點擊開啟內建相簿挑選相片（支援 JPG / HEIC / PNG / WebP）',
     appendDirTitle: '追加資料夾底片至現有相卷',
     appendDir: '追加目錄',
     appendFilesTitle: '追加個別相片檔案至現有相卷',

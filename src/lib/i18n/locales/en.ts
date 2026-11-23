@@ -137,6 +137,7 @@ export const en: DeepString<TranslationSchema> = {
     appendGalleryTitle: 'Append photos from native photo gallery',
     appendGallery: 'Append Gallery',
     heroPickGallery: 'Browse Photo Gallery',
+    heroGallerySub: 'Tap to pick photos from your device gallery (JPG / HEIC / PNG / WebP)',
     appendDirTitle: 'Append folder negatives to current roll',
     appendDir: 'Append Folder',
     appendFilesTitle: 'Append individual photos to current roll',

@@ -136,6 +136,7 @@ export const ja: DeepString<TranslationSchema> = {
     appendGalleryTitle: 'フォトライブラリから写真を現在のロールに追加',
     appendGallery: '写真を追加(アルバム)',
     heroPickGallery: 'フォトライブラリから写真を選択',
+    heroGallerySub: '端末のアルバムから写真を選択（JPG / HEIC / PNG / WebP 対応）',
     appendDirTitle: '別フォルダの写真を現在のロールに追加',
     appendDir: 'フォルダ追加',
     appendFilesTitle: '個別の写真ファイルを現在のロールに追加',

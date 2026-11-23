@@ -218,7 +218,7 @@
             </button>
           {/if}
 
-          {#if onAppendGallery}
+          {#if totalPhotos > 0 && onAppendGallery}
             <button
               type="button"
               class="dir-menu-item"
@@ -251,7 +251,7 @@
             </div>
           </button>
 
-          {#if onAppendDirectory}
+          {#if totalPhotos > 0 && onAppendDirectory}
             <button
               type="button"
               class="dir-menu-item"
@@ -270,7 +270,7 @@
             </button>
           {/if}
 
-          {#if onAppendFiles}
+          {#if totalPhotos > 0 && onAppendFiles}
             <button
               type="button"
               class="dir-menu-item"
