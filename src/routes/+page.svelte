@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onMount } from "svelte";
   import { type CameraMountInfo } from "$lib/services/ingestionService";
   import KeyVaultModal from "$lib/components/KeyVaultModal.svelte";
   import HelpGuideModal from "$lib/components/HelpGuideModal.svelte";
@@ -11,7 +11,6 @@
   import MobileBottomNav from "$lib/components/navigation/MobileBottomNav.svelte";
   import PickedPreviewsRack from "$lib/components/catalog/PickedPreviewsRack.svelte";
   import AiProgressHud from "$lib/components/AiProgressHud.svelte";
-  import { toastStore } from "$lib/stores/toastStore.svelte";
   import CatalogView from "$lib/components/views/CatalogView.svelte";
   import RetouchView from "$lib/components/views/RetouchView.svelte";
   import AiAssistPanel from "$lib/components/retouch/AiAssistPanel.svelte";
@@ -36,11 +35,8 @@
   import { drawerScrollPullDown } from "$lib/actions/drawerScrollPullDown";
   import { workspaceUi } from "$lib/stores/workspaceUi.svelte";
   import { createWorkspaceShortcuts } from "$lib/controllers/workspaceShortcuts";
-  import {
-    HSL_BAND_KEYS,
-    cloneHslAdjustments,
-    type AiScopePreferences,
-  } from "$lib/types/photo";
+  import { darkroomSync } from "$lib/stores/darkroomSync.svelte";
+  import { type AiScopePreferences } from "$lib/types/photo";
 
   const drawerPullDownOptions = {
     isEnabled: () =>
@@ -52,7 +48,7 @@
   };
 
   const shortcuts = createWorkspaceShortcuts({
-    applyProfile: (profileId) => applyProfile(profileId),
+    applyProfile: darkroomSync.applyProfile,
     handleDeletePhotoFromDisk: (photo) => handleDeletePhotoFromDisk(photo),
     handleRemovePhoto: (photoId) => handleRemovePhoto(photoId),
     triggerExport: () => triggerExport(),
@@ -131,13 +127,6 @@
     await photoLibrary.refreshCameraMounts();
   }
 
-  // 專業暗房光影與色彩參數由 darkroomState 作為單一真相來源
-  type DiffMode = "off" | "split" | "sideBySide";
-
-  function isDiffModeActive(mode: DiffMode): boolean {
-    return darkroomState.isDiffModeActive(mode);
-  }
-
   // AI 職責範圍偏好矩陣與推論狀態（由 aiPipeline Store 統一管理）
   const aiScope = $derived(aiPipeline.aiScope);
   const isAiScopeOpen = $derived(aiPipeline.isAiScopeOpen);
@@ -156,33 +145,6 @@
   function toggleAiScope(key: keyof AiScopePreferences) {
     aiPipeline.toggleAiScope(key);
   }
-
-  function resetCropState() {
-    darkroomState.resetCropState();
-    syncCropToActivePhoto();
-  }
-
-  function syncCropToActivePhoto() {
-    if (!activePhoto) return;
-    const targetCrop = darkroomState.buildCropSnapshot();
-
-    if (JSON.stringify(activePhoto.crop) === JSON.stringify(targetCrop)) {
-      return;
-    }
-
-    activePhoto.crop = targetCrop;
-    photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
-      p.id === activePhoto!.id
-        ? {
-            ...p,
-            crop: activePhoto!.crop,
-          }
-        : p,
-    );
-  }
-
-  // AI 風格調色預覽狀態
-  let previewHoverProfileId = $state<string | null>(null);
 
   // 3D LUT 典藏與自訂 LUT 清單（由 lutCatalog Store 統一管理）
   const profiles = lutCatalog.builtinProfiles;
@@ -249,349 +211,14 @@
 
   // 保持 darkroomState 變更同步持久化到 activePhoto.tuning 與 activePhoto.crop
   $effect(() => {
-    // 響應式追蹤 darkroomState 數值
-    void darkroomState.exposure;
-    void darkroomState.contrast;
-    void darkroomState.shadows;
-    void darkroomState.colorTemp;
-    void darkroomState.tint;
-    void darkroomState.lutIntensity;
-    void darkroomState.clarity;
-    void darkroomState.sharpness;
-    void darkroomState.colorDensity;
-    void darkroomState.shadowHue;
-    void darkroomState.shadowTintAmount;
-    void darkroomState.highlightHue;
-    void darkroomState.highlightTintAmount;
-    void darkroomState.halation;
-    void darkroomState.grainAmount;
-    void darkroomState.highlights;
-    void darkroomState.blacks;
-    void darkroomState.vibrance;
-    void darkroomState.vignette;
-    void darkroomState.monochrome;
-    void cloneHslAdjustments(darkroomState.hsl);
-
-    void darkroomState.cropX;
-    void darkroomState.cropY;
-    void darkroomState.cropWidth;
-    void darkroomState.cropHeight;
-    void darkroomState.cropRotation;
-    void darkroomState.keystoneV;
-    void darkroomState.keystoneH;
-    void darkroomState.cropAspectRatio;
-    void darkroomState.flipH;
-    void darkroomState.flipV;
-    void darkroomState.isCropMode;
-    void darkroomState.aiCropRationale;
-
-    if (!isBatchAiRunning) {
-      untrack(() => {
-        syncActivePhotoTuning();
-        syncCropToActivePhoto();
-      });
-    }
+    darkroomSync.trackAndSync();
   });
-
-  function applyProfile(profileId: string) {
-    if (!activePhoto) return;
-    activePhoto.appliedProfile = profileId;
-    photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
-      p.id === activePhoto!.id ? { ...p, appliedProfile: profileId } : p,
-    );
-    darkroomState.applyProfileDefaults(profileId);
-    workspaceUi.triggerWebglRender();
-    enqueueThumbnailRender(activePhoto);
-  }
-
-  function applyProfileToAll(profileId: string) {
-    photoLibrary.photoPlates.forEach((p) => {
-      p.appliedProfile = profileId;
-      enqueueThumbnailRender(p);
-    });
-    if (activePhoto) {
-      applyProfile(profileId);
-    }
-  }
-
-  function enqueueThumbnailRender(plate: PhotoPlate) {
-    thumbnailRenderService.enqueueThumbnailRender(plate);
-  }
 
   $effect(() => {
     thumbnailRenderService.updateStylePreviewsForThumbnail(
       activePhoto?.thumbnail,
     );
   });
-
-  /**
-   * 一鍵還原為相機原生拍攝參數（As Shot WB & Exposure）
-   */
-  function resetToAsShot() {
-    if (!activePhoto) return;
-    darkroomState.resetToAsShot(activePhoto as any);
-    workspaceUi.triggerWebglRender();
-  }
-
-  /**
-   * 同步當前滑桿調色狀態至 activePhoto 與 photoPlates
-   * 若所有滑桿為預設值且為標準風格，則判定為未調色 (tuning = undefined)
-   * 包含 dirty check 保護，避免數值無變化時重複重建陣列造成反應式無窮迴圈
-   */
-  function syncActivePhotoTuning() {
-    if (!activePhoto) return;
-
-    const targetTuning = darkroomState.buildTuningSnapshot(activePhoto as any);
-    const currentPlate = photoPlates.find((p) => p.id === activePhoto!.id);
-    const hslMatches =
-      !!currentPlate?.tuning &&
-      !!targetTuning &&
-      HSL_BAND_KEYS.every((k) => {
-        const a = currentPlate.tuning!.hsl?.[k];
-        const b = targetTuning.hsl?.[k];
-        return (
-          Math.abs((a?.hue ?? 0) - (b?.hue ?? 0)) < 0.001 &&
-          Math.abs((a?.sat ?? 0) - (b?.sat ?? 0)) < 0.001 &&
-          Math.abs((a?.lum ?? 0) - (b?.lum ?? 0)) < 0.001
-        );
-      });
-    const tuningMatches =
-      (!currentPlate?.tuning && !targetTuning) ||
-      (hslMatches &&
-        !!currentPlate?.tuning &&
-        !!targetTuning &&
-        Math.abs(currentPlate.tuning.exposure - targetTuning.exposure) <
-          0.001 &&
-        Math.abs(
-          (currentPlate.tuning.highlights ?? 0) -
-            (targetTuning.highlights ?? 0),
-        ) < 0.001 &&
-        Math.abs(currentPlate.tuning.contrast - targetTuning.contrast) <
-          0.001 &&
-        Math.abs(
-          (currentPlate.tuning.shadows ?? 0) - (targetTuning.shadows ?? 0),
-        ) < 0.001 &&
-        Math.abs(
-          (currentPlate.tuning.blacks ?? 0) - (targetTuning.blacks ?? 0),
-        ) < 0.001 &&
-        Math.abs(currentPlate.tuning.lutIntensity - targetTuning.lutIntensity) <
-          0.001 &&
-        Math.abs(currentPlate.tuning.colorTemp - targetTuning.colorTemp) < 1 &&
-        Math.abs(currentPlate.tuning.tint - targetTuning.tint) < 0.001 &&
-        Math.abs(
-          (currentPlate.tuning.vibrance ?? 0) - (targetTuning.vibrance ?? 0),
-        ) < 0.001 &&
-        Math.abs(
-          (currentPlate.tuning.clarity ?? 0) - (targetTuning.clarity ?? 0),
-        ) < 0.001 &&
-        Math.abs(
-          (currentPlate.tuning.sharpness ?? 0) - (targetTuning.sharpness ?? 0),
-        ) < 0.001 &&
-        Math.abs(
-          (currentPlate.tuning.colorDensity ?? 0) -
-            (targetTuning.colorDensity ?? 0),
-        ) < 0.001 &&
-        Math.abs(
-          (currentPlate.tuning.shadowHue ?? 200) -
-            (targetTuning.shadowHue ?? 200),
-        ) < 0.5 &&
-        Math.abs(
-          (currentPlate.tuning.shadowTintAmount ?? 0) -
-            (targetTuning.shadowTintAmount ?? 0),
-        ) < 0.001 &&
-        Math.abs(
-          (currentPlate.tuning.highlightHue ?? 40) -
-            (targetTuning.highlightHue ?? 40),
-        ) < 0.5 &&
-        Math.abs(
-          (currentPlate.tuning.highlightTintAmount ?? 0) -
-            (targetTuning.highlightTintAmount ?? 0),
-        ) < 0.001 &&
-        Math.abs(
-          (currentPlate.tuning.halation ?? 0) - (targetTuning.halation ?? 0),
-        ) < 0.001 &&
-        Math.abs(
-          (currentPlate.tuning.grainAmount ?? 0.15) -
-            (targetTuning.grainAmount ?? 0.15),
-        ) < 0.001 &&
-        Math.abs(
-          (currentPlate.tuning.vignette ?? 0) - (targetTuning.vignette ?? 0),
-        ) < 0.001 &&
-        (currentPlate.tuning.monochrome ?? false) ===
-          (targetTuning.monochrome ?? false));
-
-    const profileMatches =
-      currentPlate?.appliedProfile === activePhoto.appliedProfile;
-    const cropMatches =
-      JSON.stringify(currentPlate?.crop) === JSON.stringify(activePhoto.crop);
-    const aiDecisionMatches =
-      JSON.stringify(currentPlate?.aiDecision) ===
-      JSON.stringify(activePhoto.aiDecision);
-    const sceneTagMatches = currentPlate?.sceneTag === activePhoto.sceneTag;
-
-    // 若底片屬性完全一致，短路返回，絕不重複指派 activePhoto 與 photoPlates 觸發連鎖效應
-    if (
-      tuningMatches &&
-      profileMatches &&
-      cropMatches &&
-      aiDecisionMatches &&
-      sceneTagMatches
-    ) {
-      return;
-    }
-
-    activePhoto.tuning = targetTuning;
-
-    photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
-      p.id === activePhoto!.id
-        ? {
-            ...p,
-            tuning: targetTuning,
-            crop: activePhoto!.crop,
-            appliedProfile: activePhoto!.appliedProfile,
-            aiDecision: activePhoto!.aiDecision,
-            sceneTag: activePhoto!.sceneTag,
-          }
-        : p,
-    );
-  }
-
-  // 判定目前焦點相片是否有 AI 基準可還原
-  const hasAiBaseline = $derived(!!activePhoto?.aiTuningSnapshot);
-
-  // 判定目前調色是否相較於 AI 基準已被使用者手動更動過
-  const isModifiedFromAi = $derived.by(() =>
-    darkroomState.isModifiedFromAi(activePhoto as any),
-  );
-
-  /**
-   * 一鍵恢復為 AI 顯影基準參數 (Restore AI Tuning Baseline)
-   * 當使用者在 AI 顯影後進行微調，但想要還原回 AI 最初調好狀態時呼叫
-   */
-  function restoreAiTuning() {
-    if (!activePhoto || !activePhoto.aiTuningSnapshot) return;
-    const snapshot = activePhoto.aiTuningSnapshot;
-
-    if (
-      snapshot.appliedProfile &&
-      snapshot.appliedProfile !== activePhoto.appliedProfile
-    ) {
-      applyProfile(snapshot.appliedProfile);
-    }
-
-    darkroomState.animateAdjustmentValues(
-      {
-        exposure: snapshot.tuning.exposure,
-        highlights: snapshot.tuning.highlights ?? 0.0,
-        contrast: snapshot.tuning.contrast,
-        shadows: snapshot.tuning.shadows ?? 0.0,
-        blacks: snapshot.tuning.blacks ?? 0.0,
-        lutIntensity: snapshot.tuning.lutIntensity,
-        colorTemp: snapshot.tuning.colorTemp,
-        tint: snapshot.tuning.tint ?? 0.0,
-        vibrance: snapshot.tuning.vibrance ?? 0.0,
-        clarity: snapshot.tuning.clarity ?? 0.0,
-        sharpness: snapshot.tuning.sharpness ?? 0.0,
-        colorDensity: snapshot.tuning.colorDensity ?? 0.0,
-        shadowHue: snapshot.tuning.shadowHue ?? 200,
-        shadowTintAmount: snapshot.tuning.shadowTintAmount ?? 0.0,
-        highlightHue: snapshot.tuning.highlightHue ?? 40,
-        highlightTintAmount: snapshot.tuning.highlightTintAmount ?? 0.0,
-        halation: snapshot.tuning.halation ?? 0.0,
-        grainAmount: snapshot.tuning.grainAmount ?? 0.15,
-        vignette: snapshot.tuning.vignette ?? 0.0,
-        hsl: cloneHslAdjustments(snapshot.tuning.hsl),
-      },
-      450,
-    );
-
-    darkroomState.monochrome = snapshot.tuning.monochrome ?? false;
-    darkroomState.hsl = cloneHslAdjustments(snapshot.tuning.hsl);
-
-    if (snapshot.crop) {
-      darkroomState.cropX = snapshot.crop.x;
-      darkroomState.cropY = snapshot.crop.y;
-      darkroomState.cropWidth = snapshot.crop.width;
-      darkroomState.cropHeight = snapshot.crop.height;
-      darkroomState.cropRotation = snapshot.crop.rotation;
-      darkroomState.keystoneV = snapshot.crop.keystoneV ?? 0;
-      darkroomState.keystoneH = snapshot.crop.keystoneH ?? 0;
-      darkroomState.cropAspectRatio = snapshot.crop.aspectRatio;
-      darkroomState.flipH = snapshot.crop.flipH;
-      darkroomState.flipV = snapshot.crop.flipV;
-    }
-
-    activePhoto.tuning = { ...snapshot.tuning };
-    if (snapshot.crop) activePhoto.crop = { ...snapshot.crop };
-    activePhoto.appliedProfile = snapshot.appliedProfile;
-    activePhoto.aiLatestBaseline = {
-      ...snapshot,
-      tuning: { ...snapshot.tuning, hsl: cloneHslAdjustments(snapshot.tuning.hsl) },
-      crop: snapshot.crop ? { ...snapshot.crop } : undefined,
-    };
-    activePhoto.aiIterationHistory = [];
-    aiPipeline.lockManualAdjustments = true;
-
-    workspaceUi.triggerWebglRender();
-    toastStore.show("已恢復為 AI 顯影基準調色 ✓", "success", 2500);
-  }
-
-  /**
-   * 一鍵完全重設底片（恢復原廠未修原始狀態：清除所有調色、風格濾鏡與構圖裁切）
-   * 執行後該照片即刻自「已調色」清單與匯出佇列中排除
-   */
-  function resetTuningParams() {
-    darkroomState.resetTuningParams();
-    darkroomState.resetCropState();
-    resetCropState();
-    aiPipeline.resetDecisionState();
-    aiPipeline.iterativeFeedbackPrompt = "";
-    aiPipeline.lockManualAdjustments = true;
-
-    if (activePhoto) {
-      activePhoto.appliedProfile = "Profile_00_StandardNatural";
-      activePhoto.tuning = undefined;
-      activePhoto.crop = undefined;
-      activePhoto.gradedThumbnail = undefined;
-      activePhoto.aiDecision = undefined;
-      activePhoto.aiTuningSnapshot = undefined;
-      activePhoto.aiLatestBaseline = undefined;
-      activePhoto.aiIterationHistory = undefined;
-      activePhoto.sceneTag = "本機相簿幀";
-      photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
-        p.id === activePhoto!.id
-          ? {
-              ...p,
-              tuning: undefined,
-              crop: undefined,
-              appliedProfile: "Profile_00_StandardNatural",
-              gradedThumbnail: undefined,
-              aiDecision: undefined,
-              sceneTag: "本機相簿幀",
-            }
-          : p,
-      );
-    }
-    workspaceUi.triggerWebglRender();
-  }
-
-  async function runIterativeAiRefinement(
-    prompt?: string,
-    forceLockManual?: boolean,
-  ): Promise<boolean> {
-    const ok = await aiPipeline.runIterativeRefinement(prompt, forceLockManual);
-    if (ok) {
-      workspaceUi.triggerWebglRender();
-    }
-    return ok;
-  }
-
-  function setDiffMode(mode: DiffMode) {
-    darkroomState.setDiffMode(mode);
-    requestAnimationFrame(() => {
-      workspaceUi.triggerWebglRender();
-    });
-  }
 
   async function handleDeletePhotoFromDisk(photo: PhotoPlate) {
     await photoLibrary.handleDeletePhotoFromDisk(photo);
@@ -789,9 +416,9 @@
           geminiKeyStatus={workspaceUi.geminiKeyStatus}
           {activePhoto}
           photos={photoPlates}
-          {hasAiBaseline}
-          {isModifiedFromAi}
-          onRestoreAiTuning={restoreAiTuning}
+          hasAiBaseline={darkroomSync.hasAiBaseline}
+          isModifiedFromAi={darkroomSync.isModifiedFromAi}
+          onRestoreAiTuning={darkroomSync.restoreAiTuning}
           {isAiAnalyzing}
           {isBatchAiRunning}
           {batchProgress}
@@ -811,15 +438,16 @@
           }}
           onCopyTerminalLogs={copyTerminalLogs}
           onRunAiAnalysis={() => runAiAnalysis()}
-          onIterateAiTuning={(prompt?: string) => runIterativeAiRefinement(prompt)}
+          onIterateAiTuning={(prompt?: string) =>
+            darkroomSync.runIterativeAiRefinement(prompt)}
           onRequestBatchAi={requestBatchAiAnalysis}
           onCancelBatchAi={cancelBatchAi}
           onOpenVault={() => (workspaceUi.isVaultOpen = true)}
           onHoverProfile={(profileId) => {
-            previewHoverProfileId = profileId;
+            darkroomSync.previewHoverProfileId = profileId;
             workspaceUi.triggerWebglRender();
           }}
-          onApplyProfile={(id) => applyProfile(id)}
+          onApplyProfile={(id) => darkroomSync.applyProfile(id)}
         />
       </aside>
     {/if}
@@ -864,17 +492,17 @@
           {activeQueue}
           {exportNotice}
           showABComparison={darkroomState.showABComparison}
-          {previewHoverProfileId}
+          previewHoverProfileId={darkroomSync.previewHoverProfileId}
           hasApiKey={workspaceUi.hasKey}
           {isAiAnalyzing}
           {isBatchAiRunning}
           {batchProgress}
           {aiSceneTitle}
           {aiTerminalLogs}
-          {hasAiBaseline}
-          {isModifiedFromAi}
+          hasAiBaseline={darkroomSync.hasAiBaseline}
+          isModifiedFromAi={darkroomSync.isModifiedFromAi}
           isMobileDrawerOpen={mobileDrawerState.activeMobileDrawer !== "none"}
-          onRestoreAiTuning={restoreAiTuning}
+          onRestoreAiTuning={darkroomSync.restoreAiTuning}
           onOpenAiDrawer={() => mobileDrawerState.openMobileDrawer("ai")}
           onOpenVault={() => (workspaceUi.isVaultOpen = true)}
           onSelectPhoto={(p) => selectPhoto(p as any)}
@@ -883,8 +511,8 @@
           onPickDirectory={handlePickDirectory}
           onPickGallery={handlePickGalleryPhotos}
           onRefreshMounts={refreshCameraMounts}
-          onResetCropState={resetCropState}
-          onSyncCropToActivePhoto={syncCropToActivePhoto}
+          onResetCropState={darkroomSync.resetCropState}
+          onSyncCropToActivePhoto={darkroomSync.syncCropToActivePhoto}
         />
       {:else if workspaceUi.activeTab === "profiles"}
         <!-- MODULE 3: 3D LUT PROFILES VAULT -->
@@ -894,8 +522,8 @@
             ? activePhoto.appliedProfile
             : "Profile_01_Fieldnote"}
           activePhotoTitle={activePhoto ? activePhoto.filename : "尚未選取相片"}
-          onApplyProfile={(id) => applyProfile(id)}
-          onApplyToAll={(id) => applyProfileToAll(id)}
+          onApplyProfile={(id) => darkroomSync.applyProfile(id)}
+          onApplyToAll={(id) => darkroomSync.applyProfileToAll(id)}
           onImportCustomLut={handleImportCustomLut}
           onUpdateCustomLut={handleUpdateCustomLut}
           onDeleteCustomLut={handleDeleteCustomLut}
@@ -972,22 +600,23 @@
           <TuningPanel
             profiles={allProfiles}
             styleGradingPresets={allStyleGradingPresets}
-            {hasAiBaseline}
-            {isModifiedFromAi}
+            hasAiBaseline={darkroomSync.hasAiBaseline}
+            isModifiedFromAi={darkroomSync.isModifiedFromAi}
             {activePhoto}
             activeProfileId={activePhoto?.appliedProfile}
-            onRestoreAiTuning={restoreAiTuning}
-            onIterateAiTuning={() => runIterativeAiRefinement(undefined, true)}
+            onRestoreAiTuning={darkroomSync.restoreAiTuning}
+            onIterateAiTuning={() =>
+              darkroomSync.runIterativeAiRefinement(undefined, true)}
             onQuickAiTone={quickAiTone}
             onQuickAiWhiteBalance={quickAiWhiteBalance}
-            onResetToAsShot={resetToAsShot}
-            onResetTuningParams={resetTuningParams}
+            onResetToAsShot={darkroomSync.resetToAsShot}
+            onResetTuningParams={darkroomSync.resetTuningParams}
             onQuickAiCrop={quickAiCrop}
             onQuickAiHorizon={quickAiHorizon}
             onQuickAiProfile={quickAiProfile}
-            onApplyProfile={(id) => applyProfile(id)}
+            onApplyProfile={(id) => darkroomSync.applyProfile(id)}
             onHoverProfile={(profileId) => {
-              previewHoverProfileId = profileId;
+              darkroomSync.previewHoverProfileId = profileId;
               workspaceUi.triggerWebglRender();
             }}
             onOpenQuickExport={() => (workspaceUi.isQuickExportOpen = true)}
