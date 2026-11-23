@@ -131,12 +131,12 @@
     exportMode={exportState.exportMode}
     isExporting={exportState.isExporting}
     currentDirectoryName={photoLibrary.currentDirectoryName}
-    onSelectMount={photoLibrary.handleSelectMountOrDirectory}
-    onPickDirectory={photoLibrary.handlePickDirectory}
-    onAppendDirectory={photoLibrary.handleAppendDirectory}
-    onAppendFiles={photoLibrary.handleAppendFiles}
-    onPickGallery={photoLibrary.handlePickGalleryPhotos}
-    onAppendGallery={photoLibrary.handleAppendGalleryPhotos}
+    onSelectMount={() => photoLibrary.handleSelectMountOrDirectory()}
+    onPickDirectory={() => photoLibrary.handlePickDirectory()}
+    onAppendDirectory={() => photoLibrary.handleAppendDirectory()}
+    onAppendFiles={() => photoLibrary.handleAppendFiles()}
+    onPickGallery={() => photoLibrary.handlePickGalleryPhotos()}
+    onAppendGallery={() => photoLibrary.handleAppendGalleryPhotos()}
     onSelectRecentDirectory={(path) => photoLibrary.handleLoadDirectoryByPath(path)}
     onLoadCameraMount={(mount) => photoLibrary.handleLoadCameraMount(mount)}
     onGoToCatalog={workspaceUi.goToCatalog}
@@ -193,16 +193,16 @@
           aiScope={aiPipeline.aiScope}
           isAiScopeOpen={aiPipeline.isAiScopeOpen}
           copiedLogNotice={aiPipeline.copiedLogNotice}
-          onToggleAiScope={aiPipeline.toggleAiScope}
+          onToggleAiScope={(key) => aiPipeline.toggleAiScope(key)}
           onToggleIsAiScopeOpen={() => {
             aiPipeline.toggleAiScopeOpen();
           }}
-          onCopyTerminalLogs={aiPipeline.copyTerminalLogs}
+          onCopyTerminalLogs={() => aiPipeline.copyTerminalLogs()}
           onRunAiAnalysis={() => aiPipeline.runAiAnalysis()}
           onIterateAiTuning={(prompt?: string) =>
             darkroomSync.runIterativeAiRefinement(prompt)}
-          onRequestBatchAi={aiPipeline.requestBatchAiAnalysis}
-          onCancelBatchAi={aiPipeline.cancelBatchAi}
+          onRequestBatchAi={() => aiPipeline.requestBatchAiAnalysis()}
+          onCancelBatchAi={() => aiPipeline.cancelBatchAi()}
           onOpenVault={() => (workspaceUi.isVaultOpen = true)}
           onHoverProfile={(profileId) => {
             darkroomSync.previewHoverProfileId = profileId;
@@ -226,19 +226,19 @@
           onSelectPhoto={(p) => photoLibrary.selectPhoto(p)}
           onOpenRetouch={(p) => workspaceUi.openRetouchForPhoto(p)}
           onGoToRetouch={workspaceUi.goToRetouch}
-          onPickDirectory={photoLibrary.handlePickDirectory}
-          onAppendDirectory={photoLibrary.handleAppendDirectory}
-          onAppendFiles={photoLibrary.handleAppendFiles}
-          onPickGallery={photoLibrary.handlePickGalleryPhotos}
-          onAppendGallery={photoLibrary.handleAppendGalleryPhotos}
+          onPickDirectory={() => photoLibrary.handlePickDirectory()}
+          onAppendDirectory={() => photoLibrary.handleAppendDirectory()}
+          onAppendFiles={() => photoLibrary.handleAppendFiles()}
+          onPickGallery={() => photoLibrary.handlePickGalleryPhotos()}
+          onAppendGallery={() => photoLibrary.handleAppendGalleryPhotos()}
           onRemovePhoto={(p) => photoLibrary.handleRemovePhoto(p.id)}
           onBatchRemovePhotos={(ids) => photoLibrary.handleBatchRemovePhotos(ids)}
           onDeletePhotoFromDisk={(p) => photoLibrary.handleDeletePhotoFromDisk(p)}
           onBatchDeletePhotosFromDisk={(photos) =>
             photoLibrary.handleBatchDeletePhotosFromDisk(photos)}
-          onRefreshMounts={photoLibrary.refreshCameraMounts}
-          onToggleFlag={photoLibrary.handleFlagToggled}
-          onFilesDropped={photoLibrary.handleFilesDropped}
+          onRefreshMounts={() => photoLibrary.refreshCameraMounts()}
+          onToggleFlag={() => photoLibrary.handleFlagToggled()}
+          onFilesDropped={(dt) => photoLibrary.handleFilesDropped(dt)}
           cameraMounts={photoLibrary.cameraMounts}
           onLoadCameraMount={(m) => photoLibrary.handleLoadCameraMount(m)}
           onRetryThumbnail={(photoId) => photoLibrary.retryPhotoThumbnail(photoId)}
@@ -269,9 +269,9 @@
           onSelectPhoto={(p) => photoLibrary.selectPhoto(p as any)}
           onOpenQuickExport={() => (workspaceUi.isQuickExportOpen = true)}
           onGoToCatalog={workspaceUi.goToCatalog}
-          onPickDirectory={photoLibrary.handlePickDirectory}
-          onPickGallery={photoLibrary.handlePickGalleryPhotos}
-          onRefreshMounts={photoLibrary.refreshCameraMounts}
+          onPickDirectory={() => photoLibrary.handlePickDirectory()}
+          onPickGallery={() => photoLibrary.handlePickGalleryPhotos()}
+          onRefreshMounts={() => photoLibrary.refreshCameraMounts()}
           onResetCropState={darkroomSync.resetCropState}
           onSyncCropToActivePhoto={darkroomSync.syncCropToActivePhoto}
         />
@@ -320,10 +320,10 @@
           isScanningMounts={photoLibrary.isScanningMounts}
           geminiKeyStatus={workspaceUi.geminiKeyStatus}
           groqKeyStatus={workspaceUi.groqKeyStatus}
-          onRefreshMounts={photoLibrary.refreshCameraMounts}
+          onRefreshMounts={() => photoLibrary.refreshCameraMounts()}
           onOpenVault={() => (workspaceUi.isVaultOpen = true)}
           onLoadMount={(m: CameraMountInfo) => photoLibrary.handleLoadCameraMount(m)}
-          onPickDirectory={photoLibrary.handlePickDirectory}
+          onPickDirectory={() => photoLibrary.handlePickDirectory()}
           onGoToCatalog={workspaceUi.goToCatalog}
           onGoToRetouch={workspaceUi.goToRetouch}
         />
@@ -372,13 +372,13 @@
             onRestoreAiTuning={darkroomSync.restoreAiTuning}
             onIterateAiTuning={() =>
               darkroomSync.runIterativeAiRefinement(undefined, true)}
-            onQuickAiTone={aiPipeline.quickAiTone}
-            onQuickAiWhiteBalance={aiPipeline.quickAiWhiteBalance}
+            onQuickAiTone={() => aiPipeline.quickAiTone()}
+            onQuickAiWhiteBalance={() => aiPipeline.quickAiWhiteBalance()}
             onResetToAsShot={darkroomSync.resetToAsShot}
             onResetTuningParams={darkroomSync.resetTuningParams}
-            onQuickAiCrop={aiPipeline.quickAiCrop}
-            onQuickAiHorizon={aiPipeline.quickAiHorizon}
-            onQuickAiProfile={aiPipeline.quickAiProfile}
+            onQuickAiCrop={() => aiPipeline.quickAiCrop()}
+            onQuickAiHorizon={() => aiPipeline.quickAiHorizon()}
+            onQuickAiProfile={() => aiPipeline.quickAiProfile()}
             onApplyProfile={(id) => darkroomSync.applyProfile(id)}
             onHoverProfile={(profileId) => {
               darkroomSync.previewHoverProfileId = profileId;
@@ -396,7 +396,7 @@
             onSelectPhoto={(p) => photoLibrary.selectPhoto(p)}
             onOpenRetouch={(p) => workspaceUi.openRetouchForPhoto(p)}
             onToggleFlag={(p, e) => photoLibrary.togglePhotoFlag(p, e)}
-            onClearAllFlags={photoLibrary.clearAllFlags}
+            onClearAllFlags={() => photoLibrary.clearAllFlags()}
             onGoToRetouch={workspaceUi.goToRetouch}
           />
         {/if}
@@ -425,8 +425,8 @@
       batchProgress={aiPipeline.batchProgress}
       activeMobileDrawer={mobileDrawerState.activeMobileDrawer}
       onRunAiAnalysis={() => aiPipeline.runAiAnalysis()}
-      onCancelBatchAi={aiPipeline.cancelBatchAi}
-      onRequestBatchAi={aiPipeline.requestBatchAiAnalysis}
+      onCancelBatchAi={() => aiPipeline.cancelBatchAi()}
+      onRequestBatchAi={() => aiPipeline.requestBatchAiAnalysis()}
       onToggleDrawer={(drawer) =>
         mobileDrawerState.openMobileDrawer(
           mobileDrawerState.activeMobileDrawer === drawer ? "none" : drawer,
@@ -471,7 +471,7 @@
     photo={photoLibrary.activePhoto}
     exportMode={exportState.exportMode}
     onClose={() => (workspaceUi.isQuickExportOpen = false)}
-    onExport={exportState.handleSingleQuickExport}
+    onExport={(opts) => exportState.handleSingleQuickExport(opts)}
   />
 </div>
 
