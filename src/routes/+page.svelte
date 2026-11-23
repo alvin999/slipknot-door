@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import { type CameraMountInfo } from "$lib/services/ingestionService";
-  import { KeyVaultService } from "$lib/services/keyVaultService";
   import KeyVaultModal from "$lib/components/KeyVaultModal.svelte";
   import HelpGuideModal from "$lib/components/HelpGuideModal.svelte";
   import QuickExportModal from "$lib/components/QuickExportModal.svelte";
@@ -35,40 +34,29 @@
   import FilmFilterDefs from "$lib/components/FilmFilterDefs.svelte";
   import { mobileDrawerState } from "$lib/stores/mobileDrawer.svelte";
   import { drawerScrollPullDown } from "$lib/actions/drawerScrollPullDown";
+  import { workspaceUi } from "$lib/stores/workspaceUi.svelte";
+  import { createWorkspaceShortcuts } from "$lib/controllers/workspaceShortcuts";
   import {
     HSL_BAND_KEYS,
     cloneHslAdjustments,
     type AiScopePreferences,
   } from "$lib/types/photo";
 
-  // Active module tabs
-  type ModuleTab = "catalog" | "retouch" | "profiles" | "export" | "devices";
-  let activeTab = $state<ModuleTab>("catalog"); // Default to catalog on fresh load for curatorial overview
-  let retouchViewRef = $state<any>(null);
-
   const drawerPullDownOptions = {
     isEnabled: () =>
-      activeTab === "retouch" &&
+      workspaceUi.activeTab === "retouch" &&
       mobileDrawerState.activeMobileDrawer !== "none",
     onDragStart: mobileDrawerState.handleDrawerDragStart,
     onDragMove: mobileDrawerState.handleDrawerDragMove,
     onDragEnd: mobileDrawerState.handleDrawerDragEnd,
   };
 
-  // Key Vault & Help Modal State
-  let isVaultOpen = $state<boolean>(false);
-  let isHelpOpen = $state<boolean>(false);
-  let isQuickExportOpen = $state<boolean>(false);
-  let isKeyPromptModalOpen = $state<boolean>(false);
-  let geminiKeyStatus = $state<{ exists: boolean; mode: string | null }>({
-    exists: false,
-    mode: null,
+  const shortcuts = createWorkspaceShortcuts({
+    applyProfile: (profileId) => applyProfile(profileId),
+    handleDeletePhotoFromDisk: (photo) => handleDeletePhotoFromDisk(photo),
+    handleRemovePhoto: (photoId) => handleRemovePhoto(photoId),
+    triggerExport: () => triggerExport(),
   });
-  let groqKeyStatus = $state<{ exists: boolean; mode: string | null }>({
-    exists: false,
-    mode: null,
-  });
-  let hasKey = $state<boolean>(false);
 
   // Hardware & Photo Library State (由 photoLibrary Store 統一管理)
   type PhotoPlate = import("$lib/stores/photoLibrary.svelte").PhotoPlateItem;
@@ -82,10 +70,10 @@
 
   onMount(() => {
     refreshCameraMounts();
-    refreshKeyStatus();
+    workspaceUi.refreshKeyStatus();
 
     photoLibrary.onCatalogLoaded = () => {
-      activeTab = "catalog";
+      workspaceUi.activeTab = "catalog";
     };
 
     photoLibrary.onPhotoSelected = (plate) => {
@@ -93,7 +81,7 @@
     };
 
     aiPipeline.onRequireApiKey = () => {
-      isKeyPromptModalOpen = true;
+      workspaceUi.isKeyPromptModalOpen = true;
     };
 
     aiPipeline.onNotice = (message) => {
@@ -101,7 +89,7 @@
     };
 
     aiPipeline.onTriggerRender = () => {
-      triggerWebglRender();
+      workspaceUi.triggerWebglRender();
     };
 
     // 註冊離屏縮圖渲染完成後的狀態同步回呼
@@ -138,22 +126,6 @@
       window.removeEventListener("focus", handleFocus);
     };
   });
-
-  function refreshKeyStatus() {
-    const sGemini = KeyVaultService.getKeyStatus("gemini");
-    const sGroq = KeyVaultService.getKeyStatus("groq");
-    hasKey = hasActiveApiKey();
-    aiPipeline.reloadEngineSettings();
-    geminiKeyStatus = {
-      exists: hasKey,
-      mode: aiPipeline.visionProvider === "ollama" ? "transparent" : sGemini.mode || sGroq.mode,
-    };
-    groqKeyStatus = { exists: sGroq.exists, mode: sGroq.mode };
-  }
-
-  function hasActiveApiKey(): boolean {
-    return KeyVaultService.hasAnyConfiguredProvider(aiPipeline.visionProvider);
-  }
 
   async function refreshCameraMounts() {
     await photoLibrary.refreshCameraMounts();
@@ -321,213 +293,6 @@
     }
   });
 
-  function openRetouchForPhoto(plate: PhotoPlate) {
-    selectPhoto(plate);
-    activeTab = "retouch";
-    requestAnimationFrame(() => {
-      triggerWebglRender();
-    });
-  }
-
-  // 步驟二：前往批次導出頁面
-  // 步驟一：一鍵進入精修頁面 (優先以當前焦點或選取相片作為首幀)
-  function goToRetouch() {
-    const target =
-      activePhoto && activeQueue.some((p) => p.id === activePhoto?.id)
-        ? activePhoto
-        : activeQueue.length > 0
-          ? activeQueue[0]
-          : activePhoto;
-    if (target) {
-      selectPhoto(target);
-    }
-    activeTab = "retouch";
-    requestAnimationFrame(() => {
-      triggerWebglRender();
-    });
-  }
-
-  function goToExport() {
-    activeTab = "export";
-  }
-
-  // 返回膠卷目錄挑圖
-  function goToCatalog() {
-    activeTab = "catalog";
-  }
-
-  // 在精修佇列中循環切換上一張/下一張相片
-  function selectAdjacentPhoto(delta: number) {
-    photoLibrary.selectAdjacentPhoto(delta);
-  }
-
-  // 全域工作流程導航與精修鍵盤操作 (方案 A 流水線)
-  function handleRetouchKeydown(e: KeyboardEvent) {
-    const target = e.target as HTMLElement;
-    if (
-      target &&
-      (target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable)
-    ) {
-      return;
-    }
-
-    // 全域叫出或關閉說明指南 (? 鍵)
-    if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
-      e.preventDefault();
-      isHelpOpen = !isHelpOpen;
-      return;
-    }
-
-    // 若說明、金庫或即時出圖視窗開啟，Esc 優先關閉浮層
-    if (e.key === "Escape") {
-      if (isQuickExportOpen) {
-        e.preventDefault();
-        isQuickExportOpen = false;
-        return;
-      }
-      if (isHelpOpen) {
-        e.preventDefault();
-        isHelpOpen = false;
-        return;
-      }
-      if (isVaultOpen) {
-        e.preventDefault();
-        isVaultOpen = false;
-        return;
-      }
-    }
-
-    if (activeTab === "retouch") {
-      // 支援 Cmd/Ctrl + E 叫出單張即時出圖視窗
-      if ((e.metaKey || e.ctrlKey) && (e.key === "e" || e.key === "E")) {
-        e.preventDefault();
-        isQuickExportOpen = true;
-        return;
-      }
-
-      // 支援 Ctrl/Cmd + Shift + C 複製調色
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        e.shiftKey &&
-        (e.key === "c" || e.key === "C")
-      ) {
-        e.preventDefault();
-        if (activePhoto) {
-          darkroomState.copyCurrentTuning(activePhoto.appliedProfile);
-          toastStore.show("已複製調色參數 (Ctrl+Shift+C) ✓", "success", 2000);
-        }
-        return;
-      }
-
-      // 支援 Ctrl/Cmd + Shift + V 貼上調色
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        e.shiftKey &&
-        (e.key === "v" || e.key === "V")
-      ) {
-        e.preventDefault();
-        const pasted = darkroomState.pasteCopiedTuning();
-        if (pasted) {
-          applyProfile(pasted.appliedProfile);
-          toastStore.show(
-            "已套用貼上調色參數 (Ctrl+Shift+V) ✓",
-            "success",
-            2000,
-          );
-        }
-        return;
-      }
-
-      // 支援 P / F 鍵切換挑圖標記 (Pick / Flag)
-      if (e.key === "p" || e.key === "P" || e.key === "f" || e.key === "F") {
-        if (activePhoto) {
-          e.preventDefault();
-          togglePhotoFlag(activePhoto);
-          toastStore.show(
-            activePhoto.flagged ? "已標記為挑選底片 ★" : "已取消挑選標記",
-            "info",
-            1500,
-          );
-          return;
-        }
-      }
-
-      // 支援 Shift + Delete / Shift + Backspace 鍵實體刪除磁碟底片檔案（移至資源回收筒 / 廢紙簍）
-      if (e.shiftKey && (e.key === "Delete" || e.key === "Backspace")) {
-        if (activePhoto) {
-          e.preventDefault();
-          handleDeletePhotoFromDisk(activePhoto);
-          return;
-        }
-      }
-
-      // 支援 Delete / Backspace 鍵從相卷排除相片 (Remove / Cull)
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (activePhoto) {
-          e.preventDefault();
-          handleRemovePhoto(activePhoto.id);
-          return;
-        }
-      }
-
-      if (e.key === "h" || e.key === "ArrowLeft") {
-        e.preventDefault();
-        selectAdjacentPhoto(-1);
-      } else if (e.key === "l" || e.key === "ArrowRight") {
-        e.preventDefault();
-        selectAdjacentPhoto(1);
-      } else if (e.key === " " || e.code === "Space") {
-        e.preventDefault();
-        // 方案 1：按住 Space 顯示原始本相（避免按鍵長按自動重複 repeat 重複觸發）
-        if (!e.repeat) {
-          darkroomState.showABComparison = true;
-        }
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        if (darkroomState.isCropMode) {
-          darkroomState.isCropMode = false;
-        } else {
-          goToExport();
-        }
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        if (darkroomState.isCropMode) {
-          darkroomState.isCropMode = false;
-        } else {
-          goToCatalog();
-        }
-      }
-    } else if (activeTab === "export") {
-      // 方案 A 流水線 Step 3：按 Enter 直接觸發批次出圖，按 Esc 返回暗房精修
-      if (e.key === "Enter") {
-        e.preventDefault();
-        if (!isExporting) {
-          triggerExport();
-        }
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        goToRetouch();
-      }
-    }
-  }
-
-  function handleRetouchKeyup(e: KeyboardEvent) {
-    // 放開 Space 鍵時瞬間恢復調色本態
-    if (e.key === " " || e.code === "Space") {
-      if (darkroomState.showABComparison) {
-        e.preventDefault();
-        darkroomState.showABComparison = false;
-      }
-    }
-  }
-
-  function handleWindowBlur() {
-    // 視窗失去焦點時安全復原比對狀態，避免放開事件遺失而卡在原圖
-    darkroomState.showABComparison = false;
-  }
-
   function applyProfile(profileId: string) {
     if (!activePhoto) return;
     activePhoto.appliedProfile = profileId;
@@ -535,7 +300,7 @@
       p.id === activePhoto!.id ? { ...p, appliedProfile: profileId } : p,
     );
     darkroomState.applyProfileDefaults(profileId);
-    triggerWebglRender();
+    workspaceUi.triggerWebglRender();
     enqueueThumbnailRender(activePhoto);
   }
 
@@ -565,7 +330,7 @@
   function resetToAsShot() {
     if (!activePhoto) return;
     darkroomState.resetToAsShot(activePhoto as any);
-    triggerWebglRender();
+    workspaceUi.triggerWebglRender();
   }
 
   /**
@@ -767,7 +532,7 @@
     activePhoto.aiIterationHistory = [];
     aiPipeline.lockManualAdjustments = true;
 
-    triggerWebglRender();
+    workspaceUi.triggerWebglRender();
     toastStore.show("已恢復為 AI 顯影基準調色 ✓", "success", 2500);
   }
 
@@ -807,7 +572,7 @@
           : p,
       );
     }
-    triggerWebglRender();
+    workspaceUi.triggerWebglRender();
   }
 
   async function runIterativeAiRefinement(
@@ -816,22 +581,15 @@
   ): Promise<boolean> {
     const ok = await aiPipeline.runIterativeRefinement(prompt, forceLockManual);
     if (ok) {
-      triggerWebglRender();
+      workspaceUi.triggerWebglRender();
     }
     return ok;
-  }
-
-  /**
-   * 觸發暗房 WebGL 畫布重繪（委託 RetouchView 內部視圖）
-   */
-  function triggerWebglRender() {
-    retouchViewRef?.triggerRender();
   }
 
   function setDiffMode(mode: DiffMode) {
     darkroomState.setDiffMode(mode);
     requestAnimationFrame(() => {
-      triggerWebglRender();
+      workspaceUi.triggerWebglRender();
     });
   }
 
@@ -920,11 +678,6 @@
     aiPipeline.requestBatchAiAnalysis();
   }
 
-  function openVaultFromPrompt() {
-    isKeyPromptModalOpen = false;
-    isVaultOpen = true;
-  }
-
   function cancelBatchAi() {
     aiPipeline.cancelBatchAi();
   }
@@ -958,16 +711,16 @@
 </script>
 
 <svelte:window
-  onkeydown={handleRetouchKeydown}
-  onkeyup={handleRetouchKeyup}
-  onblur={handleWindowBlur}
+  onkeydown={shortcuts.handleKeydown}
+  onkeyup={shortcuts.handleKeyup}
+  onblur={shortcuts.handleWindowBlur}
 />
 
 <div
   class="workspace-container"
-  class:mobile-retouch-split={activeTab === "retouch" &&
+  class:mobile-retouch-split={workspaceUi.activeTab === "retouch" &&
     mobileDrawerState.activeMobileDrawer !== "none"}
-  class:mobile-drawer-expanded={activeTab === "retouch" &&
+  class:mobile-drawer-expanded={workspaceUi.activeTab === "retouch" &&
     mobileDrawerState.activeMobileDrawer !== "none" &&
     mobileDrawerState.isMobileDrawerExpanded}
   class:mobile-drawer-dragging={mobileDrawerState.mobileDrawerDragHeight !== null}
@@ -980,7 +733,7 @@
 
   <!-- TOP HEADER / TELEMETRY STATUS BAR -->
   <TopNav
-    {activeTab}
+    activeTab={workspaceUi.activeTab}
     {cameraMounts}
     {isScanningMounts}
     {latestExtractionMs}
@@ -998,20 +751,20 @@
     onAppendGallery={handleAppendGalleryPhotos}
     onSelectRecentDirectory={(path) => handleLoadDirectoryByPath(path)}
     onLoadCameraMount={(mount) => handleLoadCameraMount(mount)}
-    onGoToCatalog={goToCatalog}
-    onGoToRetouch={goToRetouch}
-    onGoToExport={goToExport}
-    onGoToProfiles={() => (activeTab = "profiles")}
-    onGoToDevices={() => (activeTab = "devices")}
-    onOpenQuickExport={() => (isQuickExportOpen = true)}
+    onGoToCatalog={workspaceUi.goToCatalog}
+    onGoToRetouch={workspaceUi.goToRetouch}
+    onGoToExport={workspaceUi.goToExport}
+    onGoToProfiles={() => (workspaceUi.activeTab = "profiles")}
+    onGoToDevices={() => (workspaceUi.activeTab = "devices")}
+    onOpenQuickExport={() => (workspaceUi.isQuickExportOpen = true)}
     onTriggerExport={() => triggerExport()}
-    onOpenHelp={() => (isHelpOpen = true)}
+    onOpenHelp={() => (workspaceUi.isHelpOpen = true)}
   />
 
   <!-- MAIN CURATORIAL WORKSPACE -->
   <main class="main-body">
     <!-- LEFT SIDEBAR: AI ASSISTANT PANEL (僅在暗房精修專屬呈現，其他頁面全幅展開) -->
-    {#if activeTab === "retouch"}
+    {#if workspaceUi.activeTab === "retouch"}
       <aside
         class="left-sidebar hairline-r"
         class:drawer-open={mobileDrawerState.activeMobileDrawer === "ai"}
@@ -1033,7 +786,7 @@
         <AiAssistPanel
           styleGradingPresets={allStyleGradingPresets}
           {stylePreviewThumbs}
-          {geminiKeyStatus}
+          geminiKeyStatus={workspaceUi.geminiKeyStatus}
           {activePhoto}
           photos={photoPlates}
           {hasAiBaseline}
@@ -1061,10 +814,10 @@
           onIterateAiTuning={(prompt?: string) => runIterativeAiRefinement(prompt)}
           onRequestBatchAi={requestBatchAiAnalysis}
           onCancelBatchAi={cancelBatchAi}
-          onOpenVault={() => (isVaultOpen = true)}
+          onOpenVault={() => (workspaceUi.isVaultOpen = true)}
           onHoverProfile={(profileId) => {
             previewHoverProfileId = profileId;
-            retouchViewRef?.triggerRender();
+            workspaceUi.triggerWebglRender();
           }}
           onApplyProfile={(id) => applyProfile(id)}
         />
@@ -1073,17 +826,17 @@
 
     <!-- CENTER STAGE: PHOTOGRAPHIC PLATE VIEWPORT -->
     <section class="center-stage">
-      {#if activeTab === "catalog"}
+      {#if workspaceUi.activeTab === "catalog"}
         <!-- MODULE 1: CATALOG MATRIX (Phase 3 Virtual Grid) -->
         <CatalogView
           photos={photoPlates}
           {activePhoto}
           {isLoadingPhotos}
-          hasApiKey={hasKey}
-          onOpenVault={() => (isVaultOpen = true)}
+          hasApiKey={workspaceUi.hasKey}
+          onOpenVault={() => (workspaceUi.isVaultOpen = true)}
           onSelectPhoto={(p) => selectPhoto(p)}
-          onOpenRetouch={(p) => openRetouchForPhoto(p)}
-          onGoToRetouch={goToRetouch}
+          onOpenRetouch={(p) => workspaceUi.openRetouchForPhoto(p)}
+          onGoToRetouch={workspaceUi.goToRetouch}
           onPickDirectory={handlePickDirectory}
           onAppendDirectory={handleAppendDirectory}
           onAppendFiles={handleAppendFiles}
@@ -1102,17 +855,17 @@
           onRetryThumbnail={(photoId) => photoLibrary.retryPhotoThumbnail(photoId)}
           onPrioritizePhotos={(ids) => photoLibrary.prioritizePhotoIds(ids)}
         />
-      {:else if activeTab === "retouch"}
+      {:else if workspaceUi.activeTab === "retouch"}
         <!-- MODULE 2: RETOUCH DARKROOM WORKBENCH -->
         <RetouchView
-          bind:this={retouchViewRef}
+          bind:this={workspaceUi.retouchViewRef}
           {activePhoto}
           photos={photoPlates}
           {activeQueue}
           {exportNotice}
           showABComparison={darkroomState.showABComparison}
           {previewHoverProfileId}
-          hasApiKey={hasKey}
+          hasApiKey={workspaceUi.hasKey}
           {isAiAnalyzing}
           {isBatchAiRunning}
           {batchProgress}
@@ -1123,17 +876,17 @@
           isMobileDrawerOpen={mobileDrawerState.activeMobileDrawer !== "none"}
           onRestoreAiTuning={restoreAiTuning}
           onOpenAiDrawer={() => mobileDrawerState.openMobileDrawer("ai")}
-          onOpenVault={() => (isVaultOpen = true)}
+          onOpenVault={() => (workspaceUi.isVaultOpen = true)}
           onSelectPhoto={(p) => selectPhoto(p as any)}
-          onOpenQuickExport={() => (isQuickExportOpen = true)}
-          onGoToCatalog={goToCatalog}
+          onOpenQuickExport={() => (workspaceUi.isQuickExportOpen = true)}
+          onGoToCatalog={workspaceUi.goToCatalog}
           onPickDirectory={handlePickDirectory}
           onPickGallery={handlePickGalleryPhotos}
           onRefreshMounts={refreshCameraMounts}
           onResetCropState={resetCropState}
           onSyncCropToActivePhoto={syncCropToActivePhoto}
         />
-      {:else if activeTab === "profiles"}
+      {:else if workspaceUi.activeTab === "profiles"}
         <!-- MODULE 3: 3D LUT PROFILES VAULT -->
         <ProfilesView
           profiles={allProfiles}
@@ -1146,10 +899,10 @@
           onImportCustomLut={handleImportCustomLut}
           onUpdateCustomLut={handleUpdateCustomLut}
           onDeleteCustomLut={handleDeleteCustomLut}
-          onGoToRetouch={goToRetouch}
-          onGoToCatalog={goToCatalog}
+          onGoToRetouch={workspaceUi.goToRetouch}
+          onGoToCatalog={workspaceUi.goToCatalog}
         />
-      {:else if activeTab === "export"}
+      {:else if workspaceUi.activeTab === "export"}
         <!-- MODULE 4: DUAL PIPELINE EXPORT DOCK (BOUND TO PHOTO PLATES WITH SCOPE SELECTOR) -->
         <ExportView
           photos={photoPlates}
@@ -1164,38 +917,38 @@
             (exportState.exportMode = m)}
           onTriggerExport={(subset, options) =>
             triggerExport(subset as PhotoPlate[], options)}
-          onGoToRetouch={goToRetouch}
-          onGoToCatalog={goToCatalog}
+          onGoToRetouch={workspaceUi.goToRetouch}
+          onGoToCatalog={workspaceUi.goToCatalog}
         />
-      {:else if activeTab === "devices"}
+      {:else if workspaceUi.activeTab === "devices"}
         <!-- MODULE 5: HARDWARE MOUNTS & STORAGE SETTINGS -->
         <DevicesView
           {cameraMounts}
           {isScanningMounts}
-          {geminiKeyStatus}
-          {groqKeyStatus}
+          geminiKeyStatus={workspaceUi.geminiKeyStatus}
+          groqKeyStatus={workspaceUi.groqKeyStatus}
           onRefreshMounts={refreshCameraMounts}
-          onOpenVault={() => (isVaultOpen = true)}
+          onOpenVault={() => (workspaceUi.isVaultOpen = true)}
           onLoadMount={(m: CameraMountInfo) => handleLoadCameraMount(m)}
           onPickDirectory={handlePickDirectory}
-          onGoToCatalog={goToCatalog}
-          onGoToRetouch={goToRetouch}
+          onGoToCatalog={workspaceUi.goToCatalog}
+          onGoToRetouch={workspaceUi.goToRetouch}
         />
       {/if}
 
       <AiProgressHud
-        {activeTab}
+        activeTab={workspaceUi.activeTab}
         activePhotoId={activePhoto?.id}
         onFocusPhoto={() => {
-          activeTab = "retouch";
+          workspaceUi.activeTab = "retouch";
           requestAnimationFrame(() => {
-            triggerWebglRender();
+            workspaceUi.triggerWebglRender();
           });
         }}
       />
     </section>
 
-    {#if activeTab === "retouch" || (activeTab === "catalog" && flaggedCount > 0)}
+    {#if workspaceUi.activeTab === "retouch" || (workspaceUi.activeTab === "catalog" && flaggedCount > 0)}
       <!-- RIGHT SIDEBAR: RETOUCH COLOR DOCK OR CATALOG SELECTION RACK (僅在精修或有挑圖時滑出) -->
       <aside
         class="right-telemetry hairline-l"
@@ -1203,11 +956,11 @@
         use:drawerScrollPullDown={drawerPullDownOptions}
       >
         <MobileDrawerHandle
-          variant={activeTab === "retouch" ? "split" : "drag"}
+          variant={workspaceUi.activeTab === "retouch" ? "split" : "drag"}
           activeMobileDrawer={mobileDrawerState.activeMobileDrawer}
           isExpanded={mobileDrawerState.isMobileDrawerExpanded}
           onSelectDrawer={(drawer) => mobileDrawerState.openMobileDrawer(drawer)}
-          onToggleExpand={activeTab === "retouch"
+          onToggleExpand={workspaceUi.activeTab === "retouch"
             ? mobileDrawerState.toggleExpanded
             : undefined}
           onClose={() => mobileDrawerState.openMobileDrawer("none")}
@@ -1215,7 +968,7 @@
           onDragMove={mobileDrawerState.handleDrawerDragMove}
           onDragEnd={mobileDrawerState.handleDrawerDragEnd}
         />
-        {#if activeTab === "retouch"}
+        {#if workspaceUi.activeTab === "retouch"}
           <TuningPanel
             profiles={allProfiles}
             styleGradingPresets={allStyleGradingPresets}
@@ -1235,29 +988,29 @@
             onApplyProfile={(id) => applyProfile(id)}
             onHoverProfile={(profileId) => {
               previewHoverProfileId = profileId;
-              retouchViewRef?.triggerRender();
+              workspaceUi.triggerWebglRender();
             }}
-            onOpenQuickExport={() => (isQuickExportOpen = true)}
-            onGoToExport={goToExport}
+            onOpenQuickExport={() => (workspaceUi.isQuickExportOpen = true)}
+            onGoToExport={workspaceUi.goToExport}
           />
-        {:else if activeTab === "catalog"}
+        {:else if workspaceUi.activeTab === "catalog"}
           <!-- CATALOG STAGE: 勾選的圖片預覽清單與前往精修導引 -->
           <PickedPreviewsRack
             {flaggedPhotos}
             activePhotoId={activePhoto?.id}
             totalPhotos={photoPlates.length}
             onSelectPhoto={(p) => selectPhoto(p)}
-            onOpenRetouch={(p) => openRetouchForPhoto(p)}
+            onOpenRetouch={(p) => workspaceUi.openRetouchForPhoto(p)}
             onToggleFlag={(p, e) => togglePhotoFlag(p, e)}
             onClearAllFlags={clearAllFlags}
-            onGoToRetouch={goToRetouch}
+            onGoToRetouch={workspaceUi.goToRetouch}
           />
         {/if}
       </aside>
     {/if}
   </main>
 
-  {#if mobileDrawerState.activeMobileDrawer !== "none" && activeTab !== "retouch"}
+  {#if mobileDrawerState.activeMobileDrawer !== "none" && workspaceUi.activeTab !== "retouch"}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -1266,7 +1019,7 @@
     ></div>
   {/if}
 
-  {#if activeTab === "retouch"}
+  {#if workspaceUi.activeTab === "retouch"}
     <MobileRetouchBar
       isHidden={mobileDrawerState.activeMobileDrawer !== "none"}
       {isAiAnalyzing}
@@ -1290,37 +1043,40 @@
   {/if}
 
   <MobileBottomNav
-    {activeTab}
+    activeTab={workspaceUi.activeTab}
     {flaggedCount}
-    isHidden={activeTab === "retouch" &&
+    isHidden={workspaceUi.activeTab === "retouch" &&
       mobileDrawerState.activeMobileDrawer !== "none"}
     onSelectTab={(tab) => {
-      activeTab = tab;
+      workspaceUi.activeTab = tab;
       mobileDrawerState.openMobileDrawer("none");
     }}
   />
 
   <!-- 未配置金鑰引導確認 Modal (API Key Required Prompt) -->
   <KeyPromptModal
-    bind:isOpen={isKeyPromptModalOpen}
-    onOpenVault={openVaultFromPrompt}
+    bind:isOpen={workspaceUi.isKeyPromptModalOpen}
+    onOpenVault={workspaceUi.openVaultFromPrompt}
   />
 
   <!-- AI Key Vault Modal -->
-  <KeyVaultModal bind:isOpen={isVaultOpen} onClose={refreshKeyStatus} />
+  <KeyVaultModal
+    bind:isOpen={workspaceUi.isVaultOpen}
+    onClose={workspaceUi.refreshKeyStatus}
+  />
 
   <!-- Curatorial Workflow & Keyboard Shortcuts Cheat Sheet Modal -->
   <HelpGuideModal
-    bind:isOpen={isHelpOpen}
-    onClose={() => (isHelpOpen = false)}
+    bind:isOpen={workspaceUi.isHelpOpen}
+    onClose={() => (workspaceUi.isHelpOpen = false)}
   />
 
   <!-- Single Photo Quick Export Modal (⌘E) -->
   <QuickExportModal
-    bind:isOpen={isQuickExportOpen}
+    bind:isOpen={workspaceUi.isQuickExportOpen}
     photo={activePhoto}
     {exportMode}
-    onClose={() => (isQuickExportOpen = false)}
+    onClose={() => (workspaceUi.isQuickExportOpen = false)}
     onExport={handleSingleQuickExport}
   />
 </div>
