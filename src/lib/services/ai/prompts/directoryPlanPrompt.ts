@@ -28,33 +28,33 @@ export function buildDirectoryPlanPrompts(
   const langName = getLocaleLanguageLabel();
   const languageInstruction = getAiResponseLanguageInstruction();
 
-  const systemPrompt = `你是一位資深的數位資產管理 (DAM) 專家與暗房策展人。
-你的任務是根據一組攝影底片相片的 EXIF 元數據、場景辨識與調色風格，規劃最直覺、乾淨、有條理的「匯出目錄結構藍圖」。
+  const systemPrompt = `You are a Digital Asset Management (DAM) directory structure planner.
+Organize the input photo metadata into a structured export directory hierarchy based on EXIF metadata, scene classification, color profile, and user preferences.
 
-【規劃原則】：
-1. 資料夾名稱採用簡潔清楚的主題與數字編號組合（例如 "01_街景日常_Street"、"02_溫潤人像_Heartland"）。
-2. 避免過多深層階層，以 1 層子資料夾分類為最佳。
-3. 必須將輸入中的每張照片 id 分配至最合適的子資料夾中的 photoIds 陣列，不遺漏任何一張。
-4. projectRootName 建議格式為 "${sessionDate}_主題名稱"。
-5. 若使用者有特別指定指示，請優先嚴格遵循其自訂要求。
+Structural Rules:
+1. Folder naming format: <NN>_<Topic> (two-digit sequential numeric prefix followed by a concise topic label in ${langName} or universal ASCII).
+2. Depth constraint: Single-level subdirectory hierarchy only; avoid nested subfolders.
+3. Completeness constraint: Every input photo id must be assigned to the photoIds array of its target folder without omission or duplication.
+4. Root naming format: "${sessionDate}_<ProjectTopic>" in ${langName} or filesystem-safe characters.
+5. Priority constraint: Strictly follow userInstruction when provided.
 
-【使用者偏好策略】：${strategy}
-${userPrompt ? `【使用者自訂分類指示】：${userPrompt}` : ''}
+Preferred Strategy: ${strategy}
+${userPrompt ? `User Custom Instruction: ${userPrompt}` : ''}
 
-語言要求 (Language Requirement)：${languageInstruction}
-請務必嚴格回傳標準 JSON 格式：
+Language Requirement: ${languageInstruction}
+Respond ONLY with valid JSON matching this schema:
 {
-  "projectRootName": "${sessionDate}_街頭光影策展集",
-  "rationale": "簡述目錄規劃的邏輯與分組考量（1-2 句，使用 ${langName}）",
+  "projectRootName": "string (Format: ${sessionDate}_<ProjectTopic>)",
+  "rationale": "string (Concise grouping rationale in ${langName})",
   "folders": [
     {
-      "subPath": "01_街頭夜景_Night",
-      "description": "該資料夾包含的主題特色（使用 ${langName}）",
-      "photoIds": ["photo_1"],
-      "renamePattern": "{original}_graded"
+      "subPath": "string (Single-level folder name following <NN>_<Topic>)",
+      "description": "string (Objective summary of photos grouped in this folder in ${langName})",
+      "photoIds": ["string (Assigned photo id values from input)"],
+      "renamePattern": "string (Filename template supporting {original} placeholder)"
     }
   ],
-  "rawBackupSubPath": "00_RAW_Originals"
+  "rawBackupSubPath": "string (Relative subdirectory path for original RAW files)"
 }`;
 
   const userContent = JSON.stringify({
@@ -65,8 +65,8 @@ ${userPrompt ? `【使用者自訂分類指示】：${userPrompt}` : ''}
     samplePhotos: payload.photos.map((p) => ({
       id: p.id,
       filename: p.filename,
-      scene: p.scene || '未標註',
-      profile: p.profile || '標準風格',
+      scene: p.scene || 'N/A',
+      profile: p.profile || 'N/A',
       focal: p.focalLength || '--',
       iso: p.iso || 100,
       shutter: p.shutter || '--',
