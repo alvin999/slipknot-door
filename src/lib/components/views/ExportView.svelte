@@ -49,7 +49,7 @@
     format: ExportFormat;
     quality: number;
     maxLongEdge: number | null;
-    colorSpace: "sRGB" | "DisplayP3" | "ProPhotoRGB";
+    colorSpace: "sRGB" | "DisplayP3";
     preserveExif: boolean;
   }
 
@@ -204,11 +204,9 @@
   const initialSizePreset =
     (getStored(STORAGE_KEY_SIZE_PRESET) as ExportSizePreset) || "original";
   const initialCustomEdge = Number(getStored(STORAGE_KEY_CUSTOM_EDGE)) || 2048;
-  const initialColorSpace =
-    (getStored(STORAGE_KEY_COLOR_SPACE) as
-      | "sRGB"
-      | "DisplayP3"
-      | "ProPhotoRGB") || "DisplayP3";
+  const storedColorSpace = getStored(STORAGE_KEY_COLOR_SPACE);
+  const initialColorSpace: "sRGB" | "DisplayP3" =
+    storedColorSpace === "sRGB" ? "sRGB" : "DisplayP3";
   const initialPreserveExif = getStored(STORAGE_KEY_PRESERVE_EXIF) !== "false";
 
   let targetDirectory = $state<string>(initialDir);
@@ -220,9 +218,7 @@
   let sizePreset = $state<ExportSizePreset>(initialSizePreset);
   let customLongEdge = $state<number>(initialCustomEdge);
   let preserveExif = $state<boolean>(initialPreserveExif);
-  let colorSpace = $state<"sRGB" | "DisplayP3" | "ProPhotoRGB">(
-    initialColorSpace,
-  );
+  let colorSpace = $state<"sRGB" | "DisplayP3">(initialColorSpace);
 
   let effectiveMaxLongEdge = $derived<number | null>(
     sizePreset === "original"
@@ -268,7 +264,7 @@
       exportFormat = "png";
       exportQuality = 1.0;
       sizePreset = "original";
-      colorSpace = "ProPhotoRGB";
+      colorSpace = "DisplayP3";
       onSetExportMode("modeB");
     }
     saveSettings();
@@ -1050,23 +1046,44 @@
               </div>
 
               <!-- 色彩空間 -->
-              <div class="spec-row">
+              <div class="spec-row spec-row-top">
                 <span class="spec-label">{t("export.colorSpaceLabel")}</span>
-                <select
-                  bind:value={colorSpace}
-                  onchange={markCustomPreset}
-                  class="spec-select font-mono"
-                >
-                  <option value="sRGB"
-                    >{t("export.csSrgb")}</option
-                  >
-                  <option value="DisplayP3"
-                    >{t("export.csP3")}</option
-                  >
-                  <option value="ProPhotoRGB"
-                    >{t("export.csProPhoto")}</option
-                  >
-                </select>
+                <div class="spec-control-col">
+                  <div class="segmented-group cols-2">
+                    <button
+                      type="button"
+                      class="seg-btn"
+                      class:active={colorSpace === "sRGB"}
+                      onclick={() => {
+                        colorSpace = "sRGB";
+                        markCustomPreset();
+                      }}
+                    >
+                      {t("export.csSrgb")}
+                    </button>
+                    <button
+                      type="button"
+                      class="seg-btn"
+                      class:active={colorSpace === "DisplayP3"}
+                      onclick={() => {
+                        colorSpace = "DisplayP3";
+                        markCustomPreset();
+                      }}
+                    >
+                      {t("export.csP3")}
+                    </button>
+                  </div>
+                  <div class="spec-dynamic-hint" class:wide-gamut={colorSpace === "DisplayP3"}>
+                    <span class="material-symbols-outlined hint-icon">
+                      {colorSpace === "sRGB" ? "verified" : "palette"}
+                    </span>
+                    <span>
+                      {colorSpace === "sRGB"
+                        ? t("export.csSrgbHint")
+                        : t("export.csP3Hint")}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               <!-- 附加保留選項 -->
@@ -2018,6 +2035,19 @@
     align-items: center;
     gap: 8px;
   }
+  .spec-row.spec-row-top {
+    align-items: flex-start;
+  }
+  .spec-row.spec-row-top .spec-label {
+    padding-top: 6px;
+  }
+  .spec-control-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
   .spec-label {
     color: var(--parchment-dim);
     min-width: 72px;
@@ -2041,6 +2071,30 @@
     padding: 3px;
     border-radius: 4px;
     border: 1px solid var(--hairline-slate);
+  }
+  .segmented-group.cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .spec-dynamic-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    line-height: 1.45;
+    color: var(--parchment-muted);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .spec-dynamic-hint .hint-icon {
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--emerald-accent, #52b788);
+    flex-shrink: 0;
+  }
+  .spec-dynamic-hint.wide-gamut .hint-icon {
+    color: var(--cyan-accent, #4cc9f0);
   }
   .seg-btn {
     padding: 4px 6px;

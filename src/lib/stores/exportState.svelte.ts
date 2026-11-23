@@ -26,7 +26,7 @@ export interface BatchExportOptions {
   format?: ExportFormat;
   quality?: number;
   maxLongEdge?: number | null;
-  colorSpace?: "sRGB" | "DisplayP3" | "ProPhotoRGB";
+  colorSpace?: "sRGB" | "DisplayP3";
   preserveExif?: boolean;
 }
 
