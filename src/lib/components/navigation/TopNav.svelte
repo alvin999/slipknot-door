@@ -150,7 +150,8 @@
         {:else if cameraMounts.length > 0}
           📷 {cameraMounts[0].volume_name} // {t("nav.cameraOneClick")}
         {:else}
-          📁 {t("nav.openDirOrCamera")}
+          <span class="btn-text-full">📁 {t("nav.openDirOrCamera")}</span>
+          <span class="btn-text-short">📁 {t("nav.openDirShort")}</span>
         {/if}
       </span>
       <span class="divider">|</span>
@@ -863,6 +864,7 @@
   .status-dot {
     width: 6px;
     height: 6px;
+    flex-shrink: 0;
     border-radius: 50%;
     background-color: var(--primary-indigo);
     box-shadow: 0 0 6px var(--primary-indigo);
@@ -896,6 +898,7 @@
     font-size: 11px;
     margin-left: 2px;
     padding: 0 4px;
+    flex-shrink: 0;
     cursor: pointer;
     border-radius: var(--radius-xs);
     transition: all 0.15s ease;
@@ -1105,7 +1108,8 @@
     .device-telemetry {
       padding: 4px 8px;
       font-size: 10px;
-      max-width: 130px;
+      max-width: 140px;
+      gap: 6px;
     }
 
     .device-name {
@@ -1134,9 +1138,10 @@
     }
 
     .device-telemetry {
-      max-width: 72px;
+      max-width: 120px;
       padding: 3px 6px;
-      font-size: 9px;
+      gap: 4px;
+      font-size: 10px;
     }
 
     .help-trigger-btn {

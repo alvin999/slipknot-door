@@ -39,6 +39,7 @@ export const en: DeepString<TranslationSchema> = {
     photoDirFallback: 'Photo Folder',
     cameraOneClick: 'Quick Load',
     openDirOrCamera: 'Open Folder / Camera',
+    openDirShort: 'Open Dir',
     cameraBadge: 'Camera {count} ↵',
     loadedCount: '{count} loaded',
     selectDir: 'Select Folder',

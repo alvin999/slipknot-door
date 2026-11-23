@@ -38,6 +38,7 @@ export const ja: DeepString<TranslationSchema> = {
     photoDirFallback: '写真フォルダ',
     cameraOneClick: 'ワンクリック読込',
     openDirOrCamera: 'フォルダ / カメラを開く',
+    openDirShort: '開く',
     cameraBadge: 'カメラ {count} 枚 ↵',
     loadedCount: '{count} 枚読込済',
     selectDir: 'フォルダ選択',

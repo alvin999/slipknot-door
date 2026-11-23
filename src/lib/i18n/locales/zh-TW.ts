@@ -32,6 +32,7 @@ export const zhTW = {
     photoDirFallback: '相片目錄',
     cameraOneClick: '一鍵載入',
     openDirOrCamera: '開啟相片目錄 / 相機',
+    openDirShort: '開啟目錄',
     cameraBadge: '相機 {count} 幀 ↵',
     loadedCount: '已載入 {count} 幀',
     selectDir: '選取目錄',
