@@ -1011,6 +1011,7 @@
     border-radius: var(--radius-sm);
     border: 1px solid var(--hairline-slate);
     user-select: none;
+    flex-shrink: 0;
   }
 
   .stepper-step {
@@ -1025,6 +1026,8 @@
     font-size: 11px;
     cursor: pointer;
     transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .stepper-step:hover {
@@ -1043,6 +1046,7 @@
     color: var(--primary-indigo);
     font-weight: 700;
     font-size: 10px;
+    flex-shrink: 0;
   }
 
   .stepper-step.active .step-num {
@@ -1052,6 +1056,8 @@
   .step-label {
     font-weight: 600;
     letter-spacing: 0.04em;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .step-tag {
@@ -1061,6 +1067,8 @@
     padding: 1px 5px;
     border-radius: 3px;
     border: 1px solid rgba(255, 255, 255, 0.05);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .step-tag.amber {
@@ -1073,6 +1081,7 @@
     font-size: 10px;
     color: var(--parchment-ghost);
     opacity: 0.6;
+    flex-shrink: 0;
   }
 
   /* 按鈕長短文案切換（預設桌面版顯示完整文案） */
@@ -1123,6 +1132,37 @@
   .cyan-glow:hover {
     filter: brightness(1.1);
     box-shadow: 0 0 18px rgba(75, 146, 182, 0.45);
+  }
+
+  /* ── 窄桌面響應式 (Narrow Desktop Layout: 769px ~ 1200px) ── */
+  @media (max-width: 1200px) {
+    .brand-sub {
+      display: none;
+    }
+    .btn-text-full {
+      display: none;
+    }
+    .btn-text-short {
+      display: inline;
+    }
+  }
+
+  @media (max-width: 992px) {
+    .top-nav {
+      padding: 0 10px;
+      gap: 8px;
+    }
+    .stepper-pipeline {
+      gap: 4px;
+      padding: 2px 4px;
+    }
+    .stepper-step {
+      padding: 3px 6px;
+      gap: 4px;
+    }
+    .step-tag {
+      display: none;
+    }
   }
 
   /* ── 行動端頂部列響應式 (Mobile TopNav Layout) ── */
