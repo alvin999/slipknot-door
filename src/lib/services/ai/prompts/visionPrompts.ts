@@ -29,12 +29,28 @@ import { getAiResponseLanguageInstruction, i18nStore } from '../../../i18n';
 import { STYLE_KEYWORD_ENTRIES, buildStyleInstructionBlock } from '../styleDirectives';
 
 /**
+ * 根據當前 UI 語系取得人類可讀語言名稱
+ */
+function getLocaleLanguageLabel(): string {
+  switch (i18nStore.locale) {
+    case 'en':
+      return 'English';
+    case 'ja':
+      return 'Japanese';
+    case 'zh-TW':
+    default:
+      return 'Traditional Chinese';
+  }
+}
+
+/**
  * 構建 Stage 1: 空間幾何與構圖分析之客觀中性 Prompt
  */
 export function buildGeometryInstructionPrompt(
   exif: ExifOpticalData,
   lockAspectRatio = false
 ): string {
+  const langName = getLocaleLanguageLabel();
   const aspectRule = lockAspectRatio
     ? `4. aspect_ratio: LOCKED to "original" by user preference. Preserve the original image aspect ratio in crop_box and always output "original".`
     : `4. aspect_ratio: Framing ratio ("original" | "1:1" | "4:5" | "16:9" | "9:16" | "free").`;
@@ -56,13 +72,15 @@ Physical Geometric Channel Specifications:
 3. keystone_v: Vertical perspective convergence compensation (-45.0 to +45.0). 0.0 denotes parallel verticals.
 ${aspectRule}
 
+Language Requirement: ${getAiResponseLanguageInstruction()}
+
 Respond ONLY with raw JSON matching this schema:
 {
   "crop_box": [ymin, xmin, ymax, xmax],
   "rotation_deg": number between -45.0 and +45.0,
   "keystone_v": number between -45.0 and +45.0,
   ${aspectSchema}
-  "crop_rationale": "string (Concise technical rationale in Traditional Chinese, or empty string if unchanged)"
+  "crop_rationale": "string (Concise technical rationale in ${langName}, or empty string if unchanged)"
 }`;
 }
 
@@ -128,12 +146,7 @@ export function buildColorGradeInstructionPrompt(options: VisionInferenceOptions
       ? `,\n  "lut_intensity": "number between 0.0 and 1.0"`
       : '';
 
-  const langName =
-    i18nStore.locale === 'en'
-      ? 'English'
-      : i18nStore.locale === 'ja'
-        ? 'Japanese'
-        : 'Traditional Chinese';
+  const langName = getLocaleLanguageLabel();
 
   return `You are a radiometric calibration and volumetric color grading specialist.
 The geometric frame and perspective have already been stabilized. Analyze the optical luminance distribution and chromatic harmony of this image.
@@ -170,6 +183,7 @@ export function buildAnalyzePhotoPrompt(options: VisionInferenceOptions): string
     customLuts,
     monochrome
   );
+  const langName = getLocaleLanguageLabel();
 
   return `You are a master analog darkroom colorist and curatorial director.
 Analyze this photographic image and optical EXIF (ISO: ${exif.iso || 'N/A'}, Shutter: ${exif.shutterSpeed || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}, Lens/Focal: ${exif.focalLength || 'N/A'}).
@@ -180,12 +194,14 @@ Evaluate lighting dynamics, color harmony, optical texture, and visual compositi
 
 ${instructionBlock}
 
+Language Requirement: ${getAiResponseLanguageInstruction()}
+
 Respond ONLY with raw JSON matching this schema:
 {
-  "scene_title": "string (4-8 chars in Traditional Chinese)",
+  "scene_title": "string (concise title in ${langName})",
   "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
-  "style_insight": "string (1-2 sentences in Traditional Chinese)",
-  "recommended_mood": "string (short mood label in Traditional Chinese)",
+  "style_insight": "string (1-2 sentences in ${langName})",
+  "recommended_mood": "string (short mood label in ${langName})",
   "recommended_profile": "${recommendedProfileSchemaHint}",
   "exposure_compensation": "number between -2.0 and +2.0",
   "highlights": "number between -1.0 and +1.0",
@@ -207,12 +223,12 @@ Respond ONLY with raw JSON matching this schema:
   "grain_amount": "number between 0.0 and 1.0",
   "vignette": "number between -1.0 and +1.0",
   "hsl": "optional partial object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-1.0, +1.0]",
-  "tags": ["string (3 to 6 tags in Traditional Chinese)"],
+  "tags": ["string (3 to 6 tags in ${langName})"],
   "crop_box": [ymin, xmin, ymax, xmax] (normalized bounding box [ymin, xmin, ymax, xmax] within 0.0 to 1.0; [0.0, 0.0, 1.0, 1.0] denotes uncropped full frame),
   "rotation_deg": "number between -45.0 and +45.0",
   "keystone_v": "number between -45.0 and +45.0",
   "aspect_ratio": "original | 1:1 | 4:5 | 16:9 | 9:16 | free",
-  "crop_rationale": "string (explanation in Traditional Chinese, or empty string if unchanged)"
+  "crop_rationale": "string (explanation in ${langName}, or empty string if unchanged)"
 }`;
 }
 
@@ -371,6 +387,8 @@ ${aestheticLine}${monochromeLine}${scopeLockLine}${iterativeBlock}- Since you ha
      - vignette_delta (-0.5 to 0.5): Negative deepens peripheral lens falloff; positive lifts outer frame corners.
      - hsl_deltas (optional partial object): Keys among "red" | "orange" | "yellow" | "green" | "cyan" | "blue", each { hue, sat, lum } in [-0.5, 0.5], to selectively adjust individual color bands relative to the target aesthetic. Omit bands needing no change.
 
+Language Requirement: ${getAiResponseLanguageInstruction()}
+
 Respond ONLY with raw JSON matching this schema:
 {
   "exposure_delta": "number between -2.0 and 2.0 (EV adjustment, 0.0 if optimal)",
@@ -390,7 +408,7 @@ Respond ONLY with raw JSON matching this schema:
   "grain_amount_delta": "number between -0.5 and 0.5 (optional grain intensity adjustment, 0.0 if optimal)",
   "vignette_delta": "number between -0.5 and 0.5 (optional optical vignette adjustment, 0.0 if optimal)",
   "hsl_deltas": "optional object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-0.5, 0.5]",
-  "refine_rationale": "string (1 concise sentence in Traditional Chinese summarizing the tonal/color refinements and aesthetic rationale)"
+  "refine_rationale": "string (1 concise sentence in ${getLocaleLanguageLabel()} summarizing the tonal/color refinements and aesthetic rationale)"
 }`;
 
   return criticPrompt;
