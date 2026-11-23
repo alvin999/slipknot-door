@@ -585,6 +585,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 16px;
+    gap: 12px;
     flex-shrink: 0;
   }
 
@@ -716,6 +717,8 @@
     position: relative;
     display: inline-flex;
     align-items: center;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .dir-menu-backdrop {
@@ -882,6 +885,8 @@
     border: 1px solid var(--hairline-slate);
     color: inherit;
     transition: all 0.15s ease;
+    min-width: 0;
+    max-width: 100%;
   }
   .device-telemetry:hover {
     border-color: var(--primary-indigo);
@@ -922,12 +927,19 @@
   }
   .device-name {
     color: var(--parchment-bright);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .divider {
     color: var(--parchment-ghost);
+    flex-shrink: 0;
   }
   .device-metric {
     color: var(--amber-highlight);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .dropdown-chevron {
     background: transparent;
