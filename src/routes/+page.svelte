@@ -47,6 +47,197 @@
   type MobileDrawer = "none" | "ai" | "tuning";
   let activeMobileDrawer = $state<MobileDrawer>("none");
   let isMobileDrawerExpanded = $state<boolean>(false);
+  let lastRetouchDrawer = $state<"ai" | "tuning">("tuning");
+  let mobileDrawerDragHeight = $state<number | null>(null);
+  let drawerDragBaseHeight = 0;
+
+  function openMobileDrawer(drawer: MobileDrawer) {
+    activeMobileDrawer = drawer;
+    if (drawer === "ai" || drawer === "tuning") {
+      lastRetouchDrawer = drawer;
+    } else {
+      isMobileDrawerExpanded = false;
+    }
+  }
+
+  function getDrawerTargetHeightPx(expanded: boolean): number {
+    if (typeof window === "undefined") return 360;
+    return Math.round(window.innerHeight * (expanded ? 0.74 : 0.46));
+  }
+
+  function handleDrawerDragStart() {
+    drawerDragBaseHeight = getDrawerTargetHeightPx(isMobileDrawerExpanded);
+    mobileDrawerDragHeight = drawerDragBaseHeight;
+  }
+
+  function handleDrawerDragMove(deltaY: number) {
+    if (typeof window === "undefined") return;
+    const maxH = Math.round(window.innerHeight * 0.84);
+    // 允許拖曳到極小高度以提供明確的收合視覺回饋
+    const nextH = Math.max(84, Math.min(maxH, drawerDragBaseHeight - deltaY));
+    mobileDrawerDragHeight = nextH;
+  }
+
+  function handleDrawerDragEnd(deltaY: number, velocityY: number) {
+    if (typeof window === "undefined") {
+      mobileDrawerDragHeight = null;
+      return;
+    }
+    const vh = window.innerHeight || 800;
+    const finalHeight =
+      mobileDrawerDragHeight ?? Math.max(84, drawerDragBaseHeight - deltaY);
+    mobileDrawerDragHeight = null;
+
+    // 快速上滑直接展開
+    if (velocityY < -0.45) {
+      isMobileDrawerExpanded = true;
+      return;
+    }
+
+    // 快速下滑依起始高度決定降階或直接收合
+    if (velocityY > 0.45) {
+      if (isMobileDrawerExpanded && finalHeight > vh * 0.42 && deltaY < vh * 0.35) {
+        isMobileDrawerExpanded = false;
+      } else {
+        openMobileDrawer("none");
+      }
+      return;
+    }
+
+    // 依放開時的即時高度吸附至：收合 / 半開 (46dvh) / 展開 (74dvh)
+    if (finalHeight < vh * 0.3) {
+      openMobileDrawer("none");
+    } else if (finalHeight < vh * 0.6) {
+      isMobileDrawerExpanded = false;
+    } else {
+      isMobileDrawerExpanded = true;
+    }
+  }
+
+  // 當手機版精修面板內容已捲動至最頂端時，繼續往下滑可直接接續拖曳收合／降階
+  function drawerScrollPullDown(node: HTMLElement) {
+    let startX = 0;
+    let startY = 0;
+    let lastY = 0;
+    let lastTime = 0;
+    let velocityY = 0;
+    let eligible = false;
+    let pulling = false;
+
+    const INTERACTIVE_SELECTOR =
+      'input, textarea, select, [role="slider"], .slider-track, .tone-curve-canvas, .hsl-bar-row, .mobile-drawer-handle-bar';
+
+    function isAtScrollTop(target: EventTarget | null): boolean {
+      let el = target instanceof HTMLElement ? target : null;
+      while (el) {
+        const style = window.getComputedStyle(el);
+        const overflowY = style.overflowY;
+        if (
+          (overflowY === "auto" || overflowY === "scroll") &&
+          el.scrollHeight > el.clientHeight + 1 &&
+          el.scrollTop > 1
+        ) {
+          return false;
+        }
+        if (el === node) break;
+        el = el.parentElement;
+      }
+      return true;
+    }
+
+    function onTouchStart(e: TouchEvent) {
+      if (
+        e.touches.length !== 1 ||
+        activeTab !== "retouch" ||
+        activeMobileDrawer === "none" ||
+        window.innerWidth > 768
+      ) {
+        eligible = false;
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      if (target?.closest(INTERACTIVE_SELECTOR)) {
+        eligible = false;
+        return;
+      }
+      if (!isAtScrollTop(target)) {
+        eligible = false;
+        return;
+      }
+
+      eligible = true;
+      pulling = false;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      lastY = startY;
+      lastTime = performance.now();
+      velocityY = 0;
+    }
+
+    function onTouchMove(e: TouchEvent) {
+      if (!eligible || e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+
+      if (!pulling) {
+        // 若先往上滑（正常往下瀏覽內容）或橫向滑動，取消下拉接管
+        if (dy < -6 || Math.abs(dx) > Math.abs(dy)) {
+          eligible = false;
+          return;
+        }
+        if (dy > 10 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+          // 再次確認觸控當下仍處於頂端
+          if (!isAtScrollTop(e.target)) {
+            eligible = false;
+            return;
+          }
+          pulling = true;
+          handleDrawerDragStart();
+          startY = touch.clientY;
+        } else {
+          return;
+        }
+      }
+
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+      const now = performance.now();
+      const dt = now - lastTime;
+      if (dt > 0) {
+        const instantVelocity = (touch.clientY - lastY) / dt;
+        velocityY = velocityY * 0.4 + instantVelocity * 0.6;
+      }
+      lastY = touch.clientY;
+      lastTime = now;
+
+      handleDrawerDragMove(touch.clientY - startY);
+    }
+
+    function onTouchEnd(e: TouchEvent) {
+      if (pulling) {
+        const endY = e.changedTouches[0]?.clientY ?? lastY;
+        handleDrawerDragEnd(endY - startY, velocityY);
+      }
+      eligible = false;
+      pulling = false;
+    }
+
+    node.addEventListener("touchstart", onTouchStart, { passive: true });
+    node.addEventListener("touchmove", onTouchMove, { passive: false });
+    node.addEventListener("touchend", onTouchEnd, { passive: true });
+    node.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    return {
+      destroy() {
+        node.removeEventListener("touchstart", onTouchStart);
+        node.removeEventListener("touchmove", onTouchMove);
+        node.removeEventListener("touchend", onTouchEnd);
+        node.removeEventListener("touchcancel", onTouchEnd);
+      },
+    };
+  }
 
   // Key Vault & Help Modal State
   let isVaultOpen = $state<boolean>(false);
@@ -955,6 +1146,10 @@
   class:mobile-drawer-expanded={activeTab === "retouch" &&
     activeMobileDrawer !== "none" &&
     isMobileDrawerExpanded}
+  class:mobile-drawer-dragging={mobileDrawerDragHeight !== null}
+  style:--mobile-drawer-drag-height={mobileDrawerDragHeight !== null
+    ? `${mobileDrawerDragHeight}px`
+    : undefined}
 >
   <!-- 去識別化 3D 膠卷風格濾鏡著色矩陣定義 (De-identified Film Emulation Matrices) -->
   <svg
@@ -1066,18 +1261,19 @@
       <aside
         class="left-sidebar hairline-r"
         class:drawer-open={activeMobileDrawer === "ai"}
+        use:drawerScrollPullDown
       >
         <MobileDrawerHandle
           variant="split"
           {activeMobileDrawer}
           isExpanded={isMobileDrawerExpanded}
-          onSelectDrawer={(drawer) => (activeMobileDrawer = drawer)}
+          onSelectDrawer={(drawer) => openMobileDrawer(drawer)}
           onToggleExpand={() =>
             (isMobileDrawerExpanded = !isMobileDrawerExpanded)}
-          onClose={() => {
-            activeMobileDrawer = "none";
-            isMobileDrawerExpanded = false;
-          }}
+          onClose={() => openMobileDrawer("none")}
+          onDragStart={handleDrawerDragStart}
+          onDragMove={handleDrawerDragMove}
+          onDragEnd={handleDrawerDragEnd}
         />
 
         <!-- AI Scene Assistant (100% 垂直高度專屬呈現，免去冗長捲動) -->
@@ -1171,7 +1367,7 @@
           {isModifiedFromAi}
           isMobileDrawerOpen={activeMobileDrawer !== "none"}
           onRestoreAiTuning={restoreAiTuning}
-          onOpenAiDrawer={() => (activeMobileDrawer = "ai")}
+          onOpenAiDrawer={() => openMobileDrawer("ai")}
           onOpenVault={() => (isVaultOpen = true)}
           onSelectPhoto={(p) => selectPhoto(p as any)}
           onOpenQuickExport={() => (isQuickExportOpen = true)}
@@ -1248,19 +1444,20 @@
       <aside
         class="right-telemetry hairline-l"
         class:drawer-open={activeMobileDrawer === "tuning"}
+        use:drawerScrollPullDown
       >
         <MobileDrawerHandle
           variant={activeTab === "retouch" ? "split" : "drag"}
           {activeMobileDrawer}
           isExpanded={isMobileDrawerExpanded}
-          onSelectDrawer={(drawer) => (activeMobileDrawer = drawer)}
+          onSelectDrawer={(drawer) => openMobileDrawer(drawer)}
           onToggleExpand={activeTab === "retouch"
             ? () => (isMobileDrawerExpanded = !isMobileDrawerExpanded)
             : undefined}
-          onClose={() => {
-            activeMobileDrawer = "none";
-            isMobileDrawerExpanded = false;
-          }}
+          onClose={() => openMobileDrawer("none")}
+          onDragStart={handleDrawerDragStart}
+          onDragMove={handleDrawerDragMove}
+          onDragEnd={handleDrawerDragEnd}
         />
         {#if activeTab === "retouch"}
           <TuningPanel
@@ -1328,7 +1525,8 @@
       onCancelBatchAi={cancelBatchAi}
       onRequestBatchAi={requestBatchAiAnalysis}
       onToggleDrawer={(drawer) =>
-        (activeMobileDrawer = activeMobileDrawer === drawer ? "none" : drawer)}
+        openMobileDrawer(activeMobileDrawer === drawer ? "none" : drawer)}
+      onSwipeOpen={() => openMobileDrawer(lastRetouchDrawer)}
     />
   {/if}
 
@@ -1338,8 +1536,7 @@
     isHidden={activeTab === "retouch" && activeMobileDrawer !== "none"}
     onSelectTab={(tab) => {
       activeTab = tab;
-      activeMobileDrawer = "none";
-      isMobileDrawerExpanded = false;
+      openMobileDrawer("none");
     }}
   />
 
@@ -1511,6 +1708,17 @@
       flex: 0 0 74dvh;
       height: 74dvh;
       max-height: 74dvh;
+    }
+
+    /* 拖曳手勢進行中：即時跟手高度並暫停過渡動畫 */
+    .workspace-container.mobile-retouch-split.mobile-drawer-dragging
+      .left-sidebar.drawer-open,
+    .workspace-container.mobile-retouch-split.mobile-drawer-dragging
+      .right-telemetry.drawer-open {
+      flex: 0 0 var(--mobile-drawer-drag-height, 46dvh);
+      height: var(--mobile-drawer-drag-height, 46dvh);
+      max-height: var(--mobile-drawer-drag-height, 46dvh);
+      transition: none;
     }
 
     /* 抽屜全螢幕暗色遮罩 */

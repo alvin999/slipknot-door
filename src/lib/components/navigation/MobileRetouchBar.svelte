@@ -17,6 +17,7 @@
     onCancelBatchAi: () => void;
     onRequestBatchAi: () => void;
     onToggleDrawer: (drawer: "ai" | "tuning") => void;
+    onSwipeOpen?: () => void;
   }
 
   let {
@@ -33,13 +34,73 @@
     onCancelBatchAi,
     onRequestBatchAi,
     onToggleDrawer,
+    onSwipeOpen,
   }: Props = $props();
+
+  // 從底部精修工具列往上滑直接拉開面板
+  let swipePointerId: number | null = null;
+  let swipeStartX = 0;
+  let swipeStartY = 0;
+  let swipeTriggered = false;
+  let suppressNextClick = false;
+
+  function handleBarPointerDown(e: PointerEvent) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    swipePointerId = e.pointerId;
+    swipeStartX = e.clientX;
+    swipeStartY = e.clientY;
+    swipeTriggered = false;
+  }
+
+  function handleBarPointerMove(e: PointerEvent) {
+    if (swipePointerId !== e.pointerId || swipeTriggered) return;
+    const dx = e.clientX - swipeStartX;
+    const dy = e.clientY - swipeStartY;
+
+    if (Math.abs(dy) > 10) {
+      suppressNextClick = true;
+    }
+
+    // 明確向上滑動超過 24px 即開啟上次使用的精修面板
+    if (dy < -24 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+      swipeTriggered = true;
+      swipePointerId = null;
+      onSwipeOpen?.();
+      setTimeout(() => {
+        suppressNextClick = false;
+      }, 0);
+    }
+  }
+
+  function handleBarPointerEnd(e: PointerEvent) {
+    if (swipePointerId !== e.pointerId) return;
+    swipePointerId = null;
+    if (suppressNextClick) {
+      setTimeout(() => {
+        suppressNextClick = false;
+      }, 0);
+    }
+  }
+
+  function handleBarClickCapture(e: MouseEvent) {
+    if (suppressNextClick) {
+      e.preventDefault();
+      e.stopPropagation();
+      suppressNextClick = false;
+    }
+  }
 </script>
 
 <!-- 行動端暗房操作工具列：不開面板即可直接執行單張一鍵 AI 與批次 AI，並保留風格/微調抽屜入口 -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="mobile-retouch-action-bar hairline-t font-mono"
   class:split-hidden={isHidden}
+  onpointerdown={handleBarPointerDown}
+  onpointermove={handleBarPointerMove}
+  onpointerup={handleBarPointerEnd}
+  onpointercancel={handleBarPointerEnd}
+  onclickcapture={handleBarClickCapture}
 >
   <button
     type="button"
@@ -144,6 +205,7 @@
       z-index: 890;
       border-top: 1px solid var(--hairline-slate);
       flex-shrink: 0;
+      touch-action: pan-x;
     }
 
     /* 手機版精修分割視窗開啟時，暫時隱藏底部工具列以騰出預覽空間 */
