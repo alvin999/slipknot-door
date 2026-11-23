@@ -22,21 +22,17 @@
   import { darkroomState } from "$lib/stores/darkroomState.svelte";
   import { aiPipeline } from "$lib/stores/aiPipeline.svelte";
   import { lutCatalog } from "$lib/stores/lutCatalog.svelte";
-  import {
-    exportState,
-    type BatchExportOptions,
-  } from "$lib/stores/exportState.svelte";
+  import { exportState } from "$lib/stores/exportState.svelte";
   import { thumbnailRenderService } from "$lib/services/thumbnailRenderService.svelte";
   import { type CustomLutRecord } from "$lib/services/customLutService";
-  import { type ExportFormat } from "$lib/services/exportService";
   import { SessionService } from "$lib/services/sessionService";
   import FilmFilterDefs from "$lib/components/FilmFilterDefs.svelte";
   import { mobileDrawerState } from "$lib/stores/mobileDrawer.svelte";
   import { drawerScrollPullDown } from "$lib/actions/drawerScrollPullDown";
   import { workspaceUi } from "$lib/stores/workspaceUi.svelte";
   import { createWorkspaceShortcuts } from "$lib/controllers/workspaceShortcuts";
+  import { initWorkspace } from "$lib/controllers/workspaceBootstrap";
   import { darkroomSync } from "$lib/stores/darkroomSync.svelte";
-  import { type AiScopePreferences } from "$lib/types/photo";
 
   const drawerPullDownOptions = {
     isEnabled: () =>
@@ -49,9 +45,10 @@
 
   const shortcuts = createWorkspaceShortcuts({
     applyProfile: darkroomSync.applyProfile,
-    handleDeletePhotoFromDisk: (photo) => handleDeletePhotoFromDisk(photo),
-    handleRemovePhoto: (photoId) => handleRemovePhoto(photoId),
-    triggerExport: () => triggerExport(),
+    handleDeletePhotoFromDisk: (photo) =>
+      photoLibrary.handleDeletePhotoFromDisk(photo),
+    handleRemovePhoto: (photoId) => photoLibrary.handleRemovePhoto(photoId),
+    triggerExport: () => exportState.triggerExport(),
   });
 
   // Hardware & Photo Library State (由 photoLibrary Store 統一管理)
@@ -64,68 +61,7 @@
   const isScanningMounts = $derived(photoLibrary.isScanningMounts);
   const latestExtractionMs = $derived(photoLibrary.latestExtractionMs);
 
-  onMount(() => {
-    refreshCameraMounts();
-    workspaceUi.refreshKeyStatus();
-
-    photoLibrary.onCatalogLoaded = () => {
-      workspaceUi.activeTab = "catalog";
-    };
-
-    photoLibrary.onPhotoSelected = (plate) => {
-      aiPipeline.loadFromPhoto(plate);
-    };
-
-    aiPipeline.onRequireApiKey = () => {
-      workspaceUi.isKeyPromptModalOpen = true;
-    };
-
-    aiPipeline.onNotice = (message) => {
-      exportState.showNotice(message, 2500);
-    };
-
-    aiPipeline.onTriggerRender = () => {
-      workspaceUi.triggerWebglRender();
-    };
-
-    // 註冊離屏縮圖渲染完成後的狀態同步回呼
-    thumbnailRenderService.onThumbnailRendered = (photoId, dataUrl) => {
-      photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
-        p.id === photoId ? { ...p, gradedThumbnail: dataUrl } : p,
-      );
-      if (
-        photoLibrary.activePhoto &&
-        photoLibrary.activePhoto.id === photoId &&
-        photoLibrary.activePhoto.gradedThumbnail !== dataUrl
-      ) {
-        photoLibrary.activePhoto.gradedThumbnail = dataUrl;
-      }
-    };
-
-    // 載入使用者自訂 3D LUT 並同步至 WebGL 著色器
-    lutCatalog.loadCustomLuts().then(() => {
-      thumbnailRenderService.syncCustomLuts();
-    });
-
-    // 背景熱插拔偵測：每 4 秒檢查一次外接相機與儲存裝置連線狀態
-    const mountPollTimer = setInterval(() => {
-      refreshCameraMounts();
-    }, 4000);
-
-    const handleFocus = () => {
-      refreshCameraMounts();
-    };
-    window.addEventListener("focus", handleFocus);
-
-    return () => {
-      clearInterval(mountPollTimer);
-      window.removeEventListener("focus", handleFocus);
-    };
-  });
-
-  async function refreshCameraMounts() {
-    await photoLibrary.refreshCameraMounts();
-  }
+  onMount(() => initWorkspace());
 
   // AI 職責範圍偏好矩陣與推論狀態（由 aiPipeline Store 統一管理）
   const aiScope = $derived(aiPipeline.aiScope);
@@ -141,10 +77,6 @@
   const aiTerminalLogs = $derived(aiPipeline.aiTerminalLogs);
   const copiedLogNotice = $derived(aiPipeline.copiedLogNotice);
   const aiVisionTags = $derived(aiPipeline.aiVisionTags);
-
-  function toggleAiScope(key: keyof AiScopePreferences) {
-    aiPipeline.toggleAiScope(key);
-  }
 
   // 3D LUT 典藏與自訂 LUT 清單（由 lutCatalog Store 統一管理）
   const profiles = lutCatalog.builtinProfiles;
@@ -186,22 +118,6 @@
   const flaggedCount = $derived(photoLibrary.flaggedCount);
   const flaggedPhotos = $derived(photoLibrary.flaggedPhotos);
 
-  function togglePhotoFlag(photo: PhotoPlate, event?: MouseEvent) {
-    photoLibrary.togglePhotoFlag(photo, event);
-  }
-
-  function clearAllFlags() {
-    photoLibrary.clearAllFlags();
-  }
-
-  function handleFlagToggled() {
-    photoLibrary.handleFlagToggled();
-  }
-
-  function selectPhoto(plate: PhotoPlate) {
-    photoLibrary.selectPhoto(plate);
-  }
-
   // 自動持久化相卷工作區進度至本機快取 (Session Auto-Persistence)
   $effect(() => {
     if (currentDirectoryName && photoPlates.length > 0) {
@@ -220,121 +136,11 @@
     );
   });
 
-  async function handleDeletePhotoFromDisk(photo: PhotoPlate) {
-    await photoLibrary.handleDeletePhotoFromDisk(photo);
-  }
-
-  async function handleBatchDeletePhotosFromDisk(photos: PhotoPlate[]) {
-    await photoLibrary.handleBatchDeletePhotosFromDisk(photos);
-  }
-
-  function handleRemovePhoto(photoId: string) {
-    photoLibrary.handleRemovePhoto(photoId);
-  }
-
-  function handleBatchRemovePhotos(photoIds: string[]) {
-    photoLibrary.handleBatchRemovePhotos(photoIds);
-  }
-
-  async function handlePickDirectory() {
-    await photoLibrary.handlePickDirectory();
-  }
-
-  async function handleAppendDirectory() {
-    await photoLibrary.handleAppendDirectory();
-  }
-
-  async function handleAppendFiles() {
-    await photoLibrary.handleAppendFiles();
-  }
-
-  async function handlePickGalleryPhotos() {
-    await photoLibrary.handlePickGalleryPhotos();
-  }
-
-  async function handleAppendGalleryPhotos() {
-    await photoLibrary.handleAppendGalleryPhotos();
-  }
-
-  async function handleLoadDirectoryByPath(path: string) {
-    await photoLibrary.handleLoadDirectoryByPath(path);
-  }
-
-  async function handleFilesDropped(dataTransfer: DataTransfer) {
-    await photoLibrary.handleFilesDropped(dataTransfer);
-  }
-
-  async function handleLoadCameraMount(mount: CameraMountInfo) {
-    await photoLibrary.handleLoadCameraMount(mount);
-  }
-
-  async function handleSelectMountOrDirectory() {
-    await photoLibrary.handleSelectMountOrDirectory();
-  }
-
-  // AI 管線操作委派至 aiPipeline Store
-  async function copyTerminalLogs() {
-    await aiPipeline.copyTerminalLogs();
-  }
-
-  async function runAiAnalysis(targetPhoto?: PhotoPlate): Promise<boolean> {
-    return aiPipeline.runAiAnalysis(targetPhoto);
-  }
-
-  async function quickAiCrop() {
-    await aiPipeline.quickAiCrop();
-  }
-
-  async function quickAiHorizon() {
-    await aiPipeline.quickAiHorizon();
-  }
-
-  async function quickAiWhiteBalance() {
-    await aiPipeline.quickAiWhiteBalance();
-  }
-
-  async function quickAiTone() {
-    await aiPipeline.quickAiTone();
-  }
-
-  async function quickAiProfile() {
-    await aiPipeline.quickAiProfile();
-  }
-
-  function requestBatchAiAnalysis() {
-    aiPipeline.requestBatchAiAnalysis();
-  }
-
-  function cancelBatchAi() {
-    aiPipeline.cancelBatchAi();
-  }
-
   // Export Pipeline State (由 exportState Store 統一管理)
   const exportMode = $derived(exportState.exportMode);
   const exportProgress = $derived(exportState.exportProgress);
   const isExporting = $derived(exportState.isExporting);
   const exportNotice = $derived(exportState.exportNotice);
-
-  async function handleSingleQuickExport(
-    quickOptions:
-      | "modeA"
-      | "modeB"
-      | {
-          mode: "modeA" | "modeB";
-          format: ExportFormat;
-          quality: number;
-          maxLongEdge: number | null;
-        },
-  ) {
-    await exportState.handleSingleQuickExport(quickOptions);
-  }
-
-  async function triggerExport(
-    subset?: PhotoPlate[],
-    options?: BatchExportOptions,
-  ) {
-    await exportState.triggerExport(subset, options);
-  }
 </script>
 
 <svelte:window
@@ -370,21 +176,21 @@
     {exportMode}
     {isExporting}
     {currentDirectoryName}
-    onSelectMount={handleSelectMountOrDirectory}
-    onPickDirectory={handlePickDirectory}
-    onAppendDirectory={handleAppendDirectory}
-    onAppendFiles={handleAppendFiles}
-    onPickGallery={handlePickGalleryPhotos}
-    onAppendGallery={handleAppendGalleryPhotos}
-    onSelectRecentDirectory={(path) => handleLoadDirectoryByPath(path)}
-    onLoadCameraMount={(mount) => handleLoadCameraMount(mount)}
+    onSelectMount={photoLibrary.handleSelectMountOrDirectory}
+    onPickDirectory={photoLibrary.handlePickDirectory}
+    onAppendDirectory={photoLibrary.handleAppendDirectory}
+    onAppendFiles={photoLibrary.handleAppendFiles}
+    onPickGallery={photoLibrary.handlePickGalleryPhotos}
+    onAppendGallery={photoLibrary.handleAppendGalleryPhotos}
+    onSelectRecentDirectory={(path) => photoLibrary.handleLoadDirectoryByPath(path)}
+    onLoadCameraMount={(mount) => photoLibrary.handleLoadCameraMount(mount)}
     onGoToCatalog={workspaceUi.goToCatalog}
     onGoToRetouch={workspaceUi.goToRetouch}
     onGoToExport={workspaceUi.goToExport}
     onGoToProfiles={() => (workspaceUi.activeTab = "profiles")}
     onGoToDevices={() => (workspaceUi.activeTab = "devices")}
     onOpenQuickExport={() => (workspaceUi.isQuickExportOpen = true)}
-    onTriggerExport={() => triggerExport()}
+    onTriggerExport={() => exportState.triggerExport()}
     onOpenHelp={() => (workspaceUi.isHelpOpen = true)}
   />
 
@@ -432,16 +238,16 @@
           {aiScope}
           {isAiScopeOpen}
           {copiedLogNotice}
-          onToggleAiScope={toggleAiScope}
+          onToggleAiScope={aiPipeline.toggleAiScope}
           onToggleIsAiScopeOpen={() => {
             aiPipeline.toggleAiScopeOpen();
           }}
-          onCopyTerminalLogs={copyTerminalLogs}
-          onRunAiAnalysis={() => runAiAnalysis()}
+          onCopyTerminalLogs={aiPipeline.copyTerminalLogs}
+          onRunAiAnalysis={() => aiPipeline.runAiAnalysis()}
           onIterateAiTuning={(prompt?: string) =>
             darkroomSync.runIterativeAiRefinement(prompt)}
-          onRequestBatchAi={requestBatchAiAnalysis}
-          onCancelBatchAi={cancelBatchAi}
+          onRequestBatchAi={aiPipeline.requestBatchAiAnalysis}
+          onCancelBatchAi={aiPipeline.cancelBatchAi}
           onOpenVault={() => (workspaceUi.isVaultOpen = true)}
           onHoverProfile={(profileId) => {
             darkroomSync.previewHoverProfileId = profileId;
@@ -462,24 +268,24 @@
           {isLoadingPhotos}
           hasApiKey={workspaceUi.hasKey}
           onOpenVault={() => (workspaceUi.isVaultOpen = true)}
-          onSelectPhoto={(p) => selectPhoto(p)}
+          onSelectPhoto={(p) => photoLibrary.selectPhoto(p)}
           onOpenRetouch={(p) => workspaceUi.openRetouchForPhoto(p)}
           onGoToRetouch={workspaceUi.goToRetouch}
-          onPickDirectory={handlePickDirectory}
-          onAppendDirectory={handleAppendDirectory}
-          onAppendFiles={handleAppendFiles}
-          onPickGallery={handlePickGalleryPhotos}
-          onAppendGallery={handleAppendGalleryPhotos}
-          onRemovePhoto={(p) => handleRemovePhoto(p.id)}
-          onBatchRemovePhotos={(ids) => handleBatchRemovePhotos(ids)}
-          onDeletePhotoFromDisk={(p) => handleDeletePhotoFromDisk(p)}
+          onPickDirectory={photoLibrary.handlePickDirectory}
+          onAppendDirectory={photoLibrary.handleAppendDirectory}
+          onAppendFiles={photoLibrary.handleAppendFiles}
+          onPickGallery={photoLibrary.handlePickGalleryPhotos}
+          onAppendGallery={photoLibrary.handleAppendGalleryPhotos}
+          onRemovePhoto={(p) => photoLibrary.handleRemovePhoto(p.id)}
+          onBatchRemovePhotos={(ids) => photoLibrary.handleBatchRemovePhotos(ids)}
+          onDeletePhotoFromDisk={(p) => photoLibrary.handleDeletePhotoFromDisk(p)}
           onBatchDeletePhotosFromDisk={(photos) =>
-            handleBatchDeletePhotosFromDisk(photos)}
-          onRefreshMounts={refreshCameraMounts}
-          onToggleFlag={handleFlagToggled}
-          onFilesDropped={handleFilesDropped}
+            photoLibrary.handleBatchDeletePhotosFromDisk(photos)}
+          onRefreshMounts={photoLibrary.refreshCameraMounts}
+          onToggleFlag={photoLibrary.handleFlagToggled}
+          onFilesDropped={photoLibrary.handleFilesDropped}
           {cameraMounts}
-          onLoadCameraMount={(m) => handleLoadCameraMount(m)}
+          onLoadCameraMount={(m) => photoLibrary.handleLoadCameraMount(m)}
           onRetryThumbnail={(photoId) => photoLibrary.retryPhotoThumbnail(photoId)}
           onPrioritizePhotos={(ids) => photoLibrary.prioritizePhotoIds(ids)}
         />
@@ -505,12 +311,12 @@
           onRestoreAiTuning={darkroomSync.restoreAiTuning}
           onOpenAiDrawer={() => mobileDrawerState.openMobileDrawer("ai")}
           onOpenVault={() => (workspaceUi.isVaultOpen = true)}
-          onSelectPhoto={(p) => selectPhoto(p as any)}
+          onSelectPhoto={(p) => photoLibrary.selectPhoto(p as any)}
           onOpenQuickExport={() => (workspaceUi.isQuickExportOpen = true)}
           onGoToCatalog={workspaceUi.goToCatalog}
-          onPickDirectory={handlePickDirectory}
-          onPickGallery={handlePickGalleryPhotos}
-          onRefreshMounts={refreshCameraMounts}
+          onPickDirectory={photoLibrary.handlePickDirectory}
+          onPickGallery={photoLibrary.handlePickGalleryPhotos}
+          onRefreshMounts={photoLibrary.refreshCameraMounts}
           onResetCropState={darkroomSync.resetCropState}
           onSyncCropToActivePhoto={darkroomSync.syncCropToActivePhoto}
         />
@@ -544,7 +350,7 @@
           onSetExportMode={(m: "modeA" | "modeB") =>
             (exportState.exportMode = m)}
           onTriggerExport={(subset, options) =>
-            triggerExport(subset as PhotoPlate[], options)}
+            exportState.triggerExport(subset as PhotoPlate[], options)}
           onGoToRetouch={workspaceUi.goToRetouch}
           onGoToCatalog={workspaceUi.goToCatalog}
         />
@@ -555,10 +361,10 @@
           {isScanningMounts}
           geminiKeyStatus={workspaceUi.geminiKeyStatus}
           groqKeyStatus={workspaceUi.groqKeyStatus}
-          onRefreshMounts={refreshCameraMounts}
+          onRefreshMounts={photoLibrary.refreshCameraMounts}
           onOpenVault={() => (workspaceUi.isVaultOpen = true)}
-          onLoadMount={(m: CameraMountInfo) => handleLoadCameraMount(m)}
-          onPickDirectory={handlePickDirectory}
+          onLoadMount={(m: CameraMountInfo) => photoLibrary.handleLoadCameraMount(m)}
+          onPickDirectory={photoLibrary.handlePickDirectory}
           onGoToCatalog={workspaceUi.goToCatalog}
           onGoToRetouch={workspaceUi.goToRetouch}
         />
@@ -607,13 +413,13 @@
             onRestoreAiTuning={darkroomSync.restoreAiTuning}
             onIterateAiTuning={() =>
               darkroomSync.runIterativeAiRefinement(undefined, true)}
-            onQuickAiTone={quickAiTone}
-            onQuickAiWhiteBalance={quickAiWhiteBalance}
+            onQuickAiTone={aiPipeline.quickAiTone}
+            onQuickAiWhiteBalance={aiPipeline.quickAiWhiteBalance}
             onResetToAsShot={darkroomSync.resetToAsShot}
             onResetTuningParams={darkroomSync.resetTuningParams}
-            onQuickAiCrop={quickAiCrop}
-            onQuickAiHorizon={quickAiHorizon}
-            onQuickAiProfile={quickAiProfile}
+            onQuickAiCrop={aiPipeline.quickAiCrop}
+            onQuickAiHorizon={aiPipeline.quickAiHorizon}
+            onQuickAiProfile={aiPipeline.quickAiProfile}
             onApplyProfile={(id) => darkroomSync.applyProfile(id)}
             onHoverProfile={(profileId) => {
               darkroomSync.previewHoverProfileId = profileId;
@@ -628,10 +434,10 @@
             {flaggedPhotos}
             activePhotoId={activePhoto?.id}
             totalPhotos={photoPlates.length}
-            onSelectPhoto={(p) => selectPhoto(p)}
+            onSelectPhoto={(p) => photoLibrary.selectPhoto(p)}
             onOpenRetouch={(p) => workspaceUi.openRetouchForPhoto(p)}
-            onToggleFlag={(p, e) => togglePhotoFlag(p, e)}
-            onClearAllFlags={clearAllFlags}
+            onToggleFlag={(p, e) => photoLibrary.togglePhotoFlag(p, e)}
+            onClearAllFlags={photoLibrary.clearAllFlags}
             onGoToRetouch={workspaceUi.goToRetouch}
           />
         {/if}
@@ -659,9 +465,9 @@
       {flaggedCount}
       {batchProgress}
       activeMobileDrawer={mobileDrawerState.activeMobileDrawer}
-      onRunAiAnalysis={() => runAiAnalysis()}
-      onCancelBatchAi={cancelBatchAi}
-      onRequestBatchAi={requestBatchAiAnalysis}
+      onRunAiAnalysis={() => aiPipeline.runAiAnalysis()}
+      onCancelBatchAi={aiPipeline.cancelBatchAi}
+      onRequestBatchAi={aiPipeline.requestBatchAiAnalysis}
       onToggleDrawer={(drawer) =>
         mobileDrawerState.openMobileDrawer(
           mobileDrawerState.activeMobileDrawer === drawer ? "none" : drawer,
@@ -706,7 +512,7 @@
     photo={activePhoto}
     {exportMode}
     onClose={() => (workspaceUi.isQuickExportOpen = false)}
-    onExport={handleSingleQuickExport}
+    onExport={exportState.handleSingleQuickExport}
   />
 </div>
 
