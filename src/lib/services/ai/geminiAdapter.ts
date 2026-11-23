@@ -25,13 +25,17 @@ import type {
   ColorGradeDecision,
 } from './types';
 import {
-  buildStyleInstructionBlock,
-  buildCriticInstructionBlock,
-  buildGeometryInstructionPrompt,
-  buildColorGradeInstructionPrompt,
   parseAiJsonString,
   parsePartialHslFromAi,
 } from './styleDirectives';
+import {
+  CONNECTION_PING_PROMPT,
+  buildAnalyzePhotoPrompt,
+  buildColorGradeInstructionPrompt,
+  buildCopywritingPrompt,
+  buildCriticInstructionBlock,
+  buildGeometryInstructionPrompt,
+} from './prompts';
 import { cloneHslAdjustments } from '../../types/photo';
 import type { AiSceneDecision, CopywritingResult } from '../aiSceneService';
 
@@ -193,58 +197,8 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
    * 影像視覺顯影分析 (全量單次向後相容模式)
    */
   public async analyzePhoto(options: VisionInferenceOptions): Promise<AiSceneDecision> {
-    const { exif, apiKey, modelId } = options;
-    const { instructionBlock, recommendedProfileSchemaHint } = buildStyleInstructionBlock(
-      options.stylePreset,
-      options.styleKeywords,
-      options.customStylePrompt,
-      options.customLuts,
-      options.monochrome
-    );
-
-    const promptText = `You are a master analog darkroom colorist and curatorial director.
-Analyze this photographic image and optical EXIF (ISO: ${exif.iso || 'N/A'}, Shutter: ${exif.shutterSpeed || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}, Lens/Focal: ${exif.focalLength || 'N/A'}).
-
-Note: The image is a 1024px preview proxy downscaled from a high-resolution capture; native optical sharpness is optimal at baseline 0.0. Do not add clarity or sharpness to compensate for proxy resolution; evaluate strictly for artistic character.
-
-Evaluate lighting dynamics, color harmony, optical texture, and visual composition.
-
-${instructionBlock}
-
-Respond ONLY with raw JSON matching this schema:
-{
-  "scene_title": "string (4-8 chars in Traditional Chinese)",
-  "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
-  "style_insight": "string (1-2 sentences in Traditional Chinese)",
-  "recommended_mood": "string (short mood label in Traditional Chinese)",
-  "recommended_profile": "${recommendedProfileSchemaHint}",
-  "exposure_compensation": "number between -2.0 and +2.0",
-  "highlights": "number between -1.0 and +1.0",
-  "contrast": "number between -0.8 and +0.8",
-  "color_temp": "integer between 2800 and 8500",
-  "tint": "number between -100.0 and +100.0",
-  "lift_shadows": "number between -0.5 and +0.5",
-  "blacks": "number between -0.5 and +0.5",
-  "vibrance": "number between -1.0 and +1.0",
-  "lut_intensity": "number between 0.0 and 1.0",
-  "clarity": "number between -1.0 and +1.0",
-  "sharpness": "number between -1.0 and +1.0",
-  "color_density": "number between -1.0 and +1.0",
-  "shadow_hue": "number between 0 and 360",
-  "shadow_tint_amount": "number between 0.0 and 1.0",
-  "highlight_hue": "number between 0 and 360",
-  "highlight_tint_amount": "number between 0.0 and 1.0",
-  "halation": "number between 0.0 and 1.0",
-  "grain_amount": "number between 0.0 and 1.0",
-  "vignette": "number between -1.0 and +1.0",
-  "hsl": "optional partial object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-1.0, +1.0]",
-  "tags": ["string (3 to 6 tags in Traditional Chinese)"],
-  "crop_box": [ymin, xmin, ymax, xmax] (normalized bounding box [ymin, xmin, ymax, xmax] within 0.0 to 1.0; [0.0, 0.0, 1.0, 1.0] denotes uncropped full frame),
-  "rotation_deg": "number between -45.0 and +45.0",
-  "keystone_v": "number between -45.0 and +45.0",
-  "aspect_ratio": "original | 1:1 | 4:5 | 16:9 | 9:16 | free",
-  "crop_rationale": "string (explanation in Traditional Chinese, or empty string if unchanged)"
-}`;
+    const { apiKey, modelId } = options;
+    const promptText = buildAnalyzePhotoPrompt(options);
 
     const parsed = await this.executeGeminiVisionRequest(
       apiKey,
@@ -423,24 +377,7 @@ Respond ONLY with raw JSON matching this schema:
     }
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
 
-    const tagsStr = payload.tags.length > 0 ? payload.tags.join('、') : '底片日常、光影紀錄';
-    const userPromptSection = payload.userPrompt && payload.userPrompt.trim()
-      ? `\n【使用者現場個人筆記/心情】：${payload.userPrompt.trim()}`
-      : '';
-
-    const systemPrompt = `你是一位精通底片美學與光影詩意的當代攝影策展人，擅長為相片撰寫引人入勝且具溫度的社群文字（Instagram / Threads）與檔案檢索關鍵字。
-請根據畫面視覺標籤、相機光學資訊與使用者的個人備註，生成發文草稿與標籤。
-${userPromptSection}
-【相片場景主題】：${payload.sceneTitle}
-【視覺標籤】：${tagsStr}
-【器材與光學】：${payload.cameraModel || ''} ${payload.lensModel || ''} ${payload.exifOptical ? `(${payload.exifOptical})` : ''}
-
-請務必嚴格回傳標準 JSON 格式（正體中文/台灣用語，禁止簡體或中國用語）：
-{
-  "caption": "2-3 句具底片質感與畫面溫度的短文案，若有使用者筆記請巧妙自然融入。",
-  "hashtags": ["#底片日常", "#35mm", "#街頭光影", ...約 5-8 個熱門推薦 hashtag],
-  "iptc_keywords": ["Street", "Night", "WarmToned", "Portrait", ...約 8-12 個中英雙語搜尋關鍵字，用於檔案搜尋與 Spotlight 檢索]
-}`;
+    const systemPrompt = buildCopywritingPrompt(payload);
 
     const copyGenerationConfig: Record<string, any> = {
       responseMimeType: 'application/json',
@@ -487,7 +424,7 @@ ${userPromptSection}
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: 'Ping test. Reply with OK.' }] }] }),
+        body: JSON.stringify({ contents: [{ parts: [{ text: CONNECTION_PING_PROMPT }] }] }),
       });
       const latencySec = parseFloat(((Date.now() - t0) / 1000).toFixed(2));
       if (!res.ok) {

@@ -27,13 +27,18 @@ import type {
   ColorGradeDecision,
 } from './types';
 import {
-  buildStyleInstructionBlock,
-  buildCriticInstructionBlock,
-  buildGeometryInstructionPrompt,
-  buildColorGradeInstructionPrompt,
   parseAiJsonString,
   parsePartialHslFromAi,
 } from './styleDirectives';
+import {
+  CONNECTION_PING_PROMPT,
+  buildAnalyzePhotoPrompt,
+  buildColorGradeInstructionPrompt,
+  buildCopywritingPrompt,
+  buildCriticInstructionBlock,
+  buildDirectoryPlanPrompts,
+  buildGeometryInstructionPrompt,
+} from './prompts';
 import { cloneHslAdjustments } from '../../types/photo';
 import { KeyVaultService } from '../keyVaultService';
 import type { AiSceneDecision, CopywritingResult } from '../aiSceneService';
@@ -181,58 +186,8 @@ export class OllamaAdapter implements IVisionStrategy, ITextStrategy {
   }
 
   public async analyzePhoto(options: VisionInferenceOptions): Promise<AiSceneDecision> {
-    const { exif, apiKey, modelId } = options;
-    const { instructionBlock, recommendedProfileSchemaHint } = buildStyleInstructionBlock(
-      options.stylePreset,
-      options.styleKeywords,
-      options.customStylePrompt,
-      options.customLuts,
-      options.monochrome
-    );
-
-    const promptText = `You are a master analog darkroom colorist and curatorial director.
-Analyze this photographic image and optical EXIF (ISO: ${exif.iso || 'N/A'}, Shutter: ${exif.shutterSpeed || 'N/A'}, Aperture: ${exif.apertureValue || 'N/A'}, Lens/Focal: ${exif.focalLength || 'N/A'}).
-
-Note: The image is a 1024px preview proxy downscaled from a high-resolution capture; native optical sharpness is optimal at baseline 0.0. Do not add clarity or sharpness to compensate for proxy resolution; evaluate strictly for artistic character.
-
-Evaluate lighting dynamics, color harmony, optical texture, and visual composition.
-
-${instructionBlock}
-
-Respond ONLY with raw JSON matching this schema:
-{
-  "scene_title": "string (4-8 chars in Traditional Chinese)",
-  "scene_type": "string (portrait | landscape | architecture | street | night | still_life | documentary | nature | indoor)",
-  "style_insight": "string (1-2 sentences in Traditional Chinese)",
-  "recommended_mood": "string (short mood label in Traditional Chinese)",
-  "recommended_profile": "${recommendedProfileSchemaHint}",
-  "exposure_compensation": "number between -2.0 and +2.0",
-  "highlights": "number between -1.0 and +1.0",
-  "contrast": "number between -0.8 and +0.8",
-  "color_temp": "integer between 2800 and 8500",
-  "tint": "number between -100.0 and +100.0",
-  "lift_shadows": "number between -0.5 and +0.5",
-  "blacks": "number between -0.5 and +0.5",
-  "vibrance": "number between -1.0 and +1.0",
-  "lut_intensity": "number between 0.0 and 1.0",
-  "clarity": "number between -1.0 and +1.0",
-  "sharpness": "number between -1.0 and +1.0",
-  "color_density": "number between -1.0 and +1.0",
-  "shadow_hue": "number between 0 and 360",
-  "shadow_tint_amount": "number between 0.0 and 1.0",
-  "highlight_hue": "number between 0 and 360",
-  "highlight_tint_amount": "number between 0.0 and 1.0",
-  "halation": "number between 0.0 and 1.0",
-  "grain_amount": "number between 0.0 and 1.0",
-  "vignette": "number between -1.0 and +1.0",
-  "hsl": "optional partial object { red|orange|yellow|green|cyan|blue?: { hue?: number, sat?: number, lum?: number } } in [-1.0, +1.0]",
-  "tags": ["string (3 to 6 tags in Traditional Chinese)"],
-  "crop_box": [ymin, xmin, ymax, xmax],
-  "rotation_deg": "number between -45.0 and +45.0",
-  "keystone_v": "number between -45.0 and +45.0",
-  "aspect_ratio": "original | 1:1 | 4:5 | 16:9 | 9:16 | free",
-  "crop_rationale": "string (explanation in Traditional Chinese, or empty string if unchanged)"
-}`;
+    const { apiKey, modelId } = options;
+    const promptText = buildAnalyzePhotoPrompt(options);
 
     const { parsed, activeModel } = await this.executeVisionRequest(
       apiKey,
@@ -370,24 +325,7 @@ Respond ONLY with raw JSON matching this schema:
     const activeModel = modelId && modelId.trim() ? modelId.trim() : 'qwen2.5:latest';
     const endpoint = `${baseUrl}/api/chat`;
 
-    const tagsStr = payload.tags.length > 0 ? payload.tags.join('、') : '底片日常、光影紀錄';
-    const userPromptSection = payload.userPrompt && payload.userPrompt.trim()
-      ? `\n【使用者現場個人筆記/心情】：${payload.userPrompt.trim()}`
-      : '';
-
-    const systemPrompt = `你是一位精通底片美學與光影詩意的當代攝影策展人，擅長為相片撰寫引人入勝且具溫度的社群文字（Instagram / Threads）與檔案檢索關鍵字。
-請根據畫面視覺標籤、相機光學資訊與使用者的個人備註，生成發文草稿與標籤。
-${userPromptSection}
-【相片場景主題】：${payload.sceneTitle}
-【視覺標籤】：${tagsStr}
-【器材與光學】：${payload.cameraModel || ''} ${payload.lensModel || ''} ${payload.exifOptical ? `(${payload.exifOptical})` : ''}
-
-請務必嚴格回傳標準 JSON 格式（正體中文/台灣用語，禁止簡體或中國用語）：
-{
-  "caption": "2-3 句具底片質感與畫面溫度的短文案，若有使用者筆記請巧妙自然融入。",
-  "hashtags": ["#底片日常", "#35mm", "#街頭光影"],
-  "iptc_keywords": ["Street", "Night", "WarmToned", "Portrait"]
-}`;
+    const systemPrompt = buildCopywritingPrompt(payload);
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -424,43 +362,7 @@ ${userPromptSection}
     const baseUrl = this.resolveBaseUrl(apiKey);
     const activeModel = modelId && modelId.trim() ? modelId.trim() : 'qwen2.5:latest';
     const endpoint = `${baseUrl}/api/chat`;
-    const sessionDate = payload.sessionDate || new Date().toISOString().slice(0, 10);
-    const strategy = payload.strategy || 'smart_scene';
-    const userPrompt = payload.userInstruction?.trim() || '';
-
-    const systemPrompt = `你是一位資深的數位資產管理 (DAM) 專家與暗房策展人。
-請根據輸入的攝影底片相片屬性，規劃匯出目錄結構藍圖並嚴格回傳 JSON 格式（正體中文）：
-{
-  "projectRootName": "${sessionDate}_街頭光影策展集",
-  "rationale": "簡述目錄規劃的邏輯與分組考量（1-2句正體中文）",
-  "folders": [
-    {
-      "subPath": "01_街頭夜景_Night",
-      "description": "該資料夾包含的主題特色",
-      "photoIds": ["photo_1"],
-      "renamePattern": "{original}_graded"
-    }
-  ],
-  "rawBackupSubPath": "00_RAW_Originals"
-}`;
-
-    const userContent = JSON.stringify({
-      sessionDate,
-      strategy,
-      userInstruction: userPrompt,
-      totalPhotos: payload.photos.length,
-      samplePhotos: payload.photos.map(p => ({
-        id: p.id,
-        filename: p.filename,
-        scene: p.scene || '未標註',
-        profile: p.profile || '標準風格',
-        focal: p.focalLength || '--',
-        iso: p.iso || 100,
-        shutter: p.shutter || '--',
-        time: p.dateTime || '--',
-        flagged: !!p.flagged
-      }))
-    });
+    const { systemPrompt, userContent, sessionDate } = buildDirectoryPlanPrompts(payload);
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -517,7 +419,7 @@ ${userPromptSection}
           body: JSON.stringify({
             model: modelId.trim(),
             stream: false,
-            messages: [{ role: 'user', content: 'Ping' }],
+            messages: [{ role: 'user', content: CONNECTION_PING_PROMPT }],
           }),
         });
         const totalLatency = parseFloat(((Date.now() - t0) / 1000).toFixed(2));
