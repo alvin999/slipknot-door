@@ -518,11 +518,16 @@
   .devices-content {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
+    width: 100%;
+    box-sizing: border-box;
     padding: 24px;
   }
 
   .devices-deck {
+    width: 100%;
     max-width: 900px;
+    min-width: 0;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
@@ -536,18 +541,23 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .section-top {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 10px;
   }
 
   .status-indicator-box {
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
   }
 
   .live-dot {
@@ -555,6 +565,7 @@
     height: 8px;
     border-radius: 50%;
     background-color: var(--parchment-dim);
+    flex-shrink: 0;
   }
 
   .live-dot.active {
@@ -565,6 +576,7 @@
   .section-heading {
     font-size: 16px;
     color: var(--parchment-bright);
+    overflow-wrap: break-word;
   }
 
   .auto-poll-label {
@@ -716,6 +728,12 @@
     color: var(--parchment-dim);
   }
 
+  .vault-val {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
   .vault-val.green {
     color: #4ade80;
   }
@@ -764,12 +782,15 @@
     gap: 8px;
     font-size: 12px;
     color: var(--parchment);
+    min-width: 0;
+    flex: 1 1 200px;
   }
 
   .web-banner-actions {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
   }
 
   .tool-btn.subtle {
@@ -786,6 +807,8 @@
     color: var(--parchment-muted);
     padding-top: 6px;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .web-banner-detail :global(code) {
@@ -818,13 +841,17 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .setting-block-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 6px 8px;
   }
 
   .setting-title {
@@ -863,6 +890,10 @@
     border-radius: 4px;
     outline: none;
     min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-sizing: border-box;
   }
 
   .compact-select:focus {
@@ -931,7 +962,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 6px 8px;
   }
 
   .critic-check-label {
@@ -1011,8 +1043,14 @@
     }
 
     .header-left {
+      flex: 1 1 auto;
       gap: 8px;
       min-width: 0;
+    }
+
+    .header-right {
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
     .tool-title {
@@ -1020,6 +1058,11 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .counter-badge {
+      flex-shrink: 0;
+      white-space: nowrap;
     }
 
     .devices-content {
@@ -1040,6 +1083,10 @@
       gap: 8px;
     }
 
+    .section-heading {
+      font-size: 14px;
+    }
+
     .ai-settings-grid {
       grid-template-columns: 1fr;
     }
@@ -1049,10 +1096,35 @@
       align-items: stretch;
     }
 
+    .provider-model-row .compact-select,
+    .provider-model-row .compact-select.flex-1 {
+      width: 100%;
+      flex: none;
+    }
+
     .vault-row {
       flex-direction: column;
       align-items: flex-start;
       gap: 3px;
+    }
+
+    .mount-item {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+      padding: 12px;
+    }
+
+    .mount-action-box {
+      justify-content: space-between;
+      width: 100%;
+    }
+
+    .empty-device-hint {
+      flex-direction: column;
+      align-items: flex-start;
+      padding: 16px;
+      gap: 12px;
     }
   }
 </style>
