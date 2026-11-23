@@ -1489,12 +1489,13 @@
   }
 
   .export-toolbar {
-    height: 48px;
+    min-height: 48px;
     background-color: var(--surface-panel);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 16px;
+    gap: 12px;
+    padding: 6px 16px;
     flex-shrink: 0;
   }
 
@@ -1502,6 +1503,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    min-width: 0;
   }
 
   .tool-title {
@@ -1509,6 +1511,7 @@
     font-weight: 600;
     color: var(--parchment-bright);
     letter-spacing: 0.05em;
+    white-space: nowrap;
   }
 
   .counter-badge {
@@ -1518,6 +1521,7 @@
     padding: 2px 8px;
     border-radius: var(--radius-xs);
     border: 1px solid var(--hairline-slate);
+    white-space: nowrap;
   }
   .counter-badge.amber {
     color: var(--amber-highlight);
@@ -1542,6 +1546,7 @@
     font-size: 11px;
     color: var(--parchment-dim);
     margin-right: 4px;
+    white-space: nowrap;
   }
 
   .scope-chip {
@@ -1554,6 +1559,7 @@
     border-radius: var(--radius-xs);
     color: var(--parchment-muted);
     font-size: 11px;
+    white-space: nowrap;
     cursor: pointer;
     transition: all 0.15s ease;
   }
@@ -2544,6 +2550,28 @@
   }
 
   @media (max-width: 860px) {
+    .export-toolbar {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      padding: 10px 12px;
+    }
+    .header-left {
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .scope-selector-group {
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 4px 6px;
+    }
+    .scope-chip {
+      padding: 4px 8px;
+    }
+    .export-content {
+      padding: 14px 12px 80px;
+    }
     .export-dual-columns {
       grid-template-columns: 1fr;
     }

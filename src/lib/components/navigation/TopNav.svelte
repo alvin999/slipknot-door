@@ -120,7 +120,7 @@
   </div>
 
   <!-- Global Directory / Hardware Ingestion Telemetry -->
-  <div class="dir-telemetry-wrapper">
+  <div class="dir-telemetry-wrapper" class:empty-centered={totalPhotos === 0}>
     <div
       class="device-telemetry hairline-all"
       class:camera-detected={cameraMounts.length > 0}
@@ -1131,8 +1131,12 @@
     }
 
     .dir-telemetry-wrapper {
+      flex: 1 1 auto;
       min-width: 0;
-      flex-shrink: 1;
+    }
+
+    .dir-telemetry-wrapper.empty-centered {
+      justify-content: center;
     }
 
     .btn-text-short {
@@ -1146,11 +1150,14 @@
     .device-telemetry {
       padding: 4px 8px;
       font-size: 10px;
-      max-width: 140px;
+      max-width: min(160px, 100%);
+      min-width: 0;
+      overflow: hidden;
       gap: 6px;
     }
 
     .device-name {
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -1165,6 +1172,7 @@
   @media (max-width: 480px) {
     .top-nav {
       padding: 0 8px;
+      gap: 4px;
     }
 
     .brand-block {
@@ -1176,10 +1184,30 @@
     }
 
     .device-telemetry {
-      max-width: 120px;
+      max-width: 100%;
       padding: 3px 6px;
       gap: 4px;
       font-size: 10px;
+    }
+
+    .top-actions {
+      gap: 4px;
+    }
+
+    .stepper-cta {
+      padding: 4px 8px;
+      font-size: 11px;
+      gap: 4px;
+    }
+
+    .locale-code {
+      display: none;
+    }
+
+    .locale-trigger-btn {
+      height: 28px;
+      padding: 0 6px;
+      gap: 2px;
     }
 
     .help-trigger-btn {
