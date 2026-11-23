@@ -269,7 +269,7 @@ export const SUPPORTED_RAW_EXTS = [
   'dng'                // Adobe / Open RAW
 ];
 
-export const SUPPORTED_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
+export const SUPPORTED_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'avif'];
 
 export const SUPPORTED_EXTS = [...SUPPORTED_RAW_EXTS, ...SUPPORTED_IMAGE_EXTS];
 
@@ -785,11 +785,35 @@ export class IngestionService {
     }
 
     // 3. HTML5 File input fallback
+    return this.openHtml5FileInput(ACCEPTED_EXTENSIONS_STRING, false);
+  }
+
+  /**
+   * 喚起手機原生相簿／圖片瀏覽器 (Photo Picker / 照片圖庫)
+   * 僅設定 accept="image/*"，避免 Android/iOS 因自訂 RAW 副檔名而退回檔案目錄瀏覽器
+   */
+  public static async pickWebGalleryPhotos(): Promise<RawPhotoItem[]> {
+    if (typeof window === 'undefined') return [];
+    return this.openHtml5FileInput('image/*', true);
+  }
+
+  private static resolveFileExtension(file: File): string {
+    const rawExt = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() || '' : '';
+    if (SUPPORTED_EXTS.includes(rawExt)) return rawExt;
+    if (file.type && file.type.startsWith('image/')) {
+      const sub = file.type.split('/')[1]?.split('+')[0]?.toLowerCase() || '';
+      if (sub === 'jpeg') return 'jpg';
+      if (sub) return sub;
+    }
+    return rawExt;
+  }
+
+  private static openHtml5FileInput(accept: string, allowAnyImageMime: boolean): Promise<RawPhotoItem[]> {
     return new Promise<RawPhotoItem[]>((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
       input.multiple = true;
-      input.accept = ACCEPTED_EXTENSIONS_STRING;
+      input.accept = accept;
       input.style.display = 'none';
       document.body.appendChild(input);
 
@@ -801,13 +825,15 @@ export class IngestionService {
         const skippedExts = new Set<string>();
 
         for (const file of files) {
-          const ext = file.name.split('.').pop()?.toLowerCase() || '';
-          if (SUPPORTED_EXTS.includes(ext)) {
+          const ext = this.resolveFileExtension(file);
+          const isImageMime = allowAnyImageMime && Boolean(file.type && file.type.startsWith('image/'));
+          if (SUPPORTED_EXTS.includes(ext) || isImageMime) {
+            const safeExt = ext || 'jpg';
             items.push({
               file_path: file.name,
               filename: file.name,
               file_size: file.size,
-              extension: ext,
+              extension: safeExt,
               frame_no: `${String(index).padStart(2, '0')}A`,
               fileHandle: file
             });
@@ -1078,11 +1104,26 @@ export class IngestionService {
 
     // 2. In Web Mode with direct File Blob (Extracted in-memory binary preview)
     if (fileBlob) {
-      const ext = fileBlob.name.split('.').pop()?.toLowerCase() || '';
-      
-      // If standard image (JPEG, PNG, WebP), standard blob URL is fine
-      if (SUPPORTED_IMAGE_EXTS.includes(ext)) {
-        const mime = ext === 'png' ? 'image/png' : (ext === 'webp' ? 'image/webp' : 'image/jpeg');
+      const ext = this.resolveFileExtension(fileBlob);
+      const isStandardImage =
+        SUPPORTED_IMAGE_EXTS.includes(ext) ||
+        Boolean(fileBlob.type && fileBlob.type.startsWith('image/'));
+
+      // If standard/mobile image (JPEG, PNG, WebP, HEIC, HEIF, AVIF, etc.), standard blob URL is fine
+      if (isStandardImage) {
+        const mimeMap: Record<string, string> = {
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          png: 'image/png',
+          webp: 'image/webp',
+          heic: 'image/heic',
+          heif: 'image/heif',
+          avif: 'image/avif'
+        };
+        const mime =
+          fileBlob.type && fileBlob.type.startsWith('image/')
+            ? fileBlob.type
+            : (mimeMap[ext] || 'image/jpeg');
         const blobUrl = this.createTrackedBlobUrl(fileBlob);
         return {
           file_path: filePath,

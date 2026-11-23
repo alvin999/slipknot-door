@@ -1047,6 +1047,14 @@
     await photoLibrary.handleAppendFiles();
   }
 
+  async function handlePickGalleryPhotos() {
+    await photoLibrary.handlePickGalleryPhotos();
+  }
+
+  async function handleAppendGalleryPhotos() {
+    await photoLibrary.handleAppendGalleryPhotos();
+  }
+
   async function handleLoadDirectoryByPath(path: string) {
     await photoLibrary.handleLoadDirectoryByPath(path);
   }
@@ -1242,6 +1250,8 @@
     onPickDirectory={handlePickDirectory}
     onAppendDirectory={handleAppendDirectory}
     onAppendFiles={handleAppendFiles}
+    onPickGallery={handlePickGalleryPhotos}
+    onAppendGallery={handleAppendGalleryPhotos}
     onSelectRecentDirectory={(path) => handleLoadDirectoryByPath(path)}
     onLoadCameraMount={(mount) => handleLoadCameraMount(mount)}
     onGoToCatalog={goToCatalog}
@@ -1334,6 +1344,8 @@
           onPickDirectory={handlePickDirectory}
           onAppendDirectory={handleAppendDirectory}
           onAppendFiles={handleAppendFiles}
+          onPickGallery={handlePickGalleryPhotos}
+          onAppendGallery={handleAppendGalleryPhotos}
           onRemovePhoto={(p) => handleRemovePhoto(p.id)}
           onBatchRemovePhotos={(ids) => handleBatchRemovePhotos(ids)}
           onDeletePhotoFromDisk={(p) => handleDeletePhotoFromDisk(p)}
@@ -1373,6 +1385,7 @@
           onOpenQuickExport={() => (isQuickExportOpen = true)}
           onGoToCatalog={goToCatalog}
           onPickDirectory={handlePickDirectory}
+          onPickGallery={handlePickGalleryPhotos}
           onRefreshMounts={refreshCameraMounts}
           onResetCropState={resetCropState}
           onSyncCropToActivePhoto={syncCropToActivePhoto}

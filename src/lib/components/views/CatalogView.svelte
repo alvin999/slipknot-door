@@ -35,6 +35,8 @@
     onPickDirectory: () => void;
     onAppendDirectory?: () => void;
     onAppendFiles?: () => void;
+    onPickGallery?: () => void;
+    onAppendGallery?: () => void;
     onRemovePhoto?: (p: CatalogPhotoItem) => void;
     onBatchRemovePhotos?: (ids: string[]) => void;
     onDeletePhotoFromDisk?: (p: CatalogPhotoItem) => void;
@@ -60,6 +62,8 @@
     onPickDirectory,
     onAppendDirectory,
     onAppendFiles,
+    onPickGallery,
+    onAppendGallery,
     onRemovePhoto,
     onBatchRemovePhotos,
     onDeletePhotoFromDisk,
@@ -797,6 +801,30 @@
         {/if}
 
         <!-- Directory & Ingestion Controls -->
+        {#if onPickGallery}
+          <button 
+            type="button" 
+            class="tool-btn" 
+            onclick={onPickGallery} 
+            title={t('catalog.pickGalleryTitle')}
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px;">photo_library</span>
+            <span>{t('catalog.pickGallery')}</span>
+          </button>
+        {/if}
+
+        {#if onAppendGallery}
+          <button 
+            type="button" 
+            class="tool-btn" 
+            onclick={onAppendGallery} 
+            title={t('catalog.appendGalleryTitle')}
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px;">add_photo_alternate</span>
+            <span>{t('catalog.appendGallery')}</span>
+          </button>
+        {/if}
+
         <button 
           type="button" 
           class="tool-btn" 
@@ -1164,8 +1192,14 @@
 
           <!-- 次要動作列 -->
           <div class="hero-sub-actions font-mono">
+            {#if onPickGallery}
+              <button type="button" class="hero-ghost-btn mobile-pick-files-btn" onclick={onPickGallery}>
+                <span class="material-symbols-outlined" style="font-size: 15px;">photo_library</span>
+                <span>{t('catalog.heroPickGallery')}</span>
+              </button>
+            {/if}
             {#if onAppendFiles}
-              <button type="button" class="hero-ghost-btn mobile-pick-files-btn" onclick={onAppendFiles}>
+              <button type="button" class="hero-ghost-btn" onclick={onAppendFiles}>
                 <span class="material-symbols-outlined" style="font-size: 15px;">add_photo_alternate</span>
                 <span>{t('catalog.appendFiles')} (RAW+JPG)</span>
               </button>

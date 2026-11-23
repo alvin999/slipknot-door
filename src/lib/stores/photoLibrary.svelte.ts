@@ -956,6 +956,36 @@ export class PhotoLibraryStore {
   }
 
   /**
+   * 從手機相簿／內建圖片瀏覽選取相片（取代現有相卷）
+   */
+  async handlePickGalleryPhotos(): Promise<void> {
+    await this.importFromGallery(false);
+  }
+
+  /**
+   * 從手機相簿／內建圖片瀏覽追加相片至現有相卷
+   */
+  async handleAppendGalleryPhotos(): Promise<void> {
+    await this.importFromGallery(true);
+  }
+
+  private async importFromGallery(append: boolean): Promise<void> {
+    this.isLoadingPhotos = true;
+    try {
+      const items = await IngestionService.pickWebGalleryPhotos();
+      if (items.length > 0) {
+        if (!append) {
+          this.currentDirectoryName = "相簿相片";
+        }
+        await this.loadPhotosFromItems(items, append);
+      }
+      this.notifyIngestionResult(items.length, "相簿");
+    } finally {
+      this.isLoadingPhotos = false;
+    }
+  }
+
+  /**
    * 追加個別檔案至現有相卷
    */
   async handleAppendFiles(): Promise<void> {

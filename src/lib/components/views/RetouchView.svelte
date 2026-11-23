@@ -65,6 +65,7 @@
     onOpenQuickExport?: () => void;
     onGoToCatalog?: () => void;
     onPickDirectory?: () => void;
+    onPickGallery?: () => void;
     onRefreshMounts?: () => void;
     onResetCropState?: () => void;
     onSyncCropToActivePhoto?: () => void;
@@ -127,6 +128,7 @@
     onOpenQuickExport,
     onGoToCatalog,
     onPickDirectory,
+    onPickGallery,
     onRefreshMounts,
     onResetCropState,
     onSyncCropToActivePhoto,
@@ -202,6 +204,7 @@
   {onOpenQuickExport}
   {onGoToCatalog}
   {onPickDirectory}
+  {onPickGallery}
   {onRefreshMounts}
   {onResetCropState}
   {onSyncCropToActivePhoto}

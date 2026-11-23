@@ -80,6 +80,7 @@
     onOpenQuickExport?: () => void;
     onGoToCatalog?: () => void;
     onPickDirectory?: () => void;
+    onPickGallery?: () => void;
     onRefreshMounts?: () => void;
     onResetCropState?: () => void;
     onSyncCropToActivePhoto?: () => void;
@@ -143,6 +144,7 @@
     onOpenQuickExport,
     onGoToCatalog,
     onPickDirectory,
+    onPickGallery,
     onRefreshMounts,
     onResetCropState,
     onSyncCropToActivePhoto,
@@ -1639,22 +1641,41 @@
             >
             <span>{t("darkroom.backToCatalogBtn")}</span>
           </button>
-        {:else if onPickDirectory}
-          <button
-            type="button"
-            class="archival-btn-primary"
-            onclick={onPickDirectory}
-            disabled={isLoadingPhotos}
-          >
-            <span class="material-symbols-outlined" style="font-size: 16px;"
-              >folder_open</span
+        {:else}
+          {#if onPickGallery}
+            <button
+              type="button"
+              class="archival-btn-primary"
+              onclick={onPickGallery}
+              disabled={isLoadingPhotos}
             >
-            <span
-              >{isLoadingPhotos
-                ? t("darkroom.parsingRaw")
-                : t("darkroom.openPhotoDir")}</span
+              <span class="material-symbols-outlined" style="font-size: 16px;"
+                >photo_library</span
+              >
+              <span
+                >{isLoadingPhotos
+                  ? t("darkroom.parsingRaw")
+                  : t("catalog.heroPickGallery")}</span
+              >
+            </button>
+          {/if}
+          {#if onPickDirectory}
+            <button
+              type="button"
+              class={onPickGallery ? "empty-ghost-btn font-mono" : "archival-btn-primary"}
+              onclick={onPickDirectory}
+              disabled={isLoadingPhotos}
             >
-          </button>
+              <span class="material-symbols-outlined" style="font-size: 16px;"
+                >folder_open</span
+              >
+              <span
+                >{isLoadingPhotos
+                  ? t("darkroom.parsingRaw")
+                  : t("darkroom.openPhotoDir")}</span
+              >
+            </button>
+          {/if}
         {/if}
         {#if onRefreshMounts}
           <button

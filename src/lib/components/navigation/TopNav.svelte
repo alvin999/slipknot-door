@@ -23,6 +23,8 @@
     onPickDirectory?: () => void;
     onAppendDirectory?: () => void;
     onAppendFiles?: () => void;
+    onPickGallery?: () => void;
+    onAppendGallery?: () => void;
     onSelectRecentDirectory?: (path: string) => void;
     onLoadCameraMount?: (mount: CameraMountInfo) => void;
     onGoToCatalog: () => void;
@@ -50,6 +52,8 @@
     onPickDirectory,
     onAppendDirectory,
     onAppendFiles,
+    onPickGallery,
+    onAppendGallery,
     onSelectRecentDirectory,
     onLoadCameraMount,
     onGoToCatalog,
@@ -197,6 +201,40 @@
         </div>
 
         <div class="dir-menu-section">
+          {#if onPickGallery}
+            <button
+              type="button"
+              class="dir-menu-item"
+              onclick={() => {
+                isDirMenuOpen = false;
+                onPickGallery();
+              }}
+            >
+              <span class="material-symbols-outlined icon">photo_library</span>
+              <div class="item-text">
+                <span class="item-title">{t("nav.pickGallery")}</span>
+                <span class="item-desc">{t("nav.pickGalleryDesc")}</span>
+              </div>
+            </button>
+          {/if}
+
+          {#if onAppendGallery}
+            <button
+              type="button"
+              class="dir-menu-item"
+              onclick={() => {
+                isDirMenuOpen = false;
+                onAppendGallery();
+              }}
+            >
+              <span class="material-symbols-outlined icon">add_photo_alternate</span>
+              <div class="item-text">
+                <span class="item-title">{t("nav.appendGallery")}</span>
+                <span class="item-desc">{t("nav.appendGalleryDesc")}</span>
+              </div>
+            </button>
+          {/if}
+
           <button
             type="button"
             class="dir-menu-item"
