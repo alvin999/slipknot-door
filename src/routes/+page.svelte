@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { type CameraMountInfo } from "$lib/services/ingestionService";
+  import { onMount } from "svelte";
   import KeyVaultModal from "$lib/components/KeyVaultModal.svelte";
   import HelpGuideModal from "$lib/components/HelpGuideModal.svelte";
   import QuickExportModal from "$lib/components/QuickExportModal.svelte";
@@ -51,77 +51,38 @@
     triggerExport: () => exportState.triggerExport(),
   });
 
-  // Hardware & Photo Library State (由 photoLibrary Store 統一管理)
   type PhotoPlate = import("$lib/stores/photoLibrary.svelte").PhotoPlateItem;
-  const photoPlates = $derived(photoLibrary.photoPlates);
-  const activePhoto = $derived(photoLibrary.activePhoto);
-  const isLoadingPhotos = $derived(photoLibrary.isLoadingPhotos);
-  const currentDirectoryName = $derived(photoLibrary.currentDirectoryName);
-  const cameraMounts = $derived(photoLibrary.cameraMounts);
-  const isScanningMounts = $derived(photoLibrary.isScanningMounts);
-  const latestExtractionMs = $derived(photoLibrary.latestExtractionMs);
 
   onMount(() => initWorkspace());
 
-  // AI 職責範圍偏好矩陣與推論狀態（由 aiPipeline Store 統一管理）
-  const aiScope = $derived(aiPipeline.aiScope);
-  const isAiScopeOpen = $derived(aiPipeline.isAiScopeOpen);
-  const isAiAnalyzing = $derived(aiPipeline.isAiAnalyzing);
-  const isBatchAiRunning = $derived(aiPipeline.isBatchAiRunning);
-  const batchProgress = $derived(aiPipeline.batchProgress);
-  const aiSuggestedScene = $derived(aiPipeline.aiSuggestedScene);
-  const aiSceneTitle = $derived(aiPipeline.aiSceneTitle);
-  const aiStyleInsight = $derived(aiPipeline.aiStyleInsight);
-  const aiRecommendedMood = $derived(aiPipeline.aiRecommendedMood);
-  const aiRecommendedProfile = $derived(aiPipeline.aiRecommendedProfile);
-  const aiTerminalLogs = $derived(aiPipeline.aiTerminalLogs);
-  const copiedLogNotice = $derived(aiPipeline.copiedLogNotice);
-  const aiVisionTags = $derived(aiPipeline.aiVisionTags);
-
-  // 3D LUT 典藏與自訂 LUT 清單（由 lutCatalog Store 統一管理）
-  const profiles = lutCatalog.builtinProfiles;
-  const userCustomLuts = $derived(lutCatalog.userCustomLuts);
-  const allProfiles = $derived(lutCatalog.allProfiles);
-  const allStyleGradingPresets = $derived(lutCatalog.allStyleGradingPresets);
-  const stylePreviewThumbs = $derived(
-    thumbnailRenderService.stylePreviewThumbs,
-  );
-
-  async function handleImportCustomLut(lut: CustomLutRecord) {
-    await lutCatalog.importCustomLut(lut);
+  function syncCustomLutPreviews() {
     thumbnailRenderService.syncCustomLuts();
-    if (activePhoto?.thumbnail) {
-      thumbnailRenderService.updateStylePreviewsForThumbnail(
-        activePhoto.thumbnail,
-        true,
-      );
+    const thumb = photoLibrary.activePhoto?.thumbnail;
+    if (thumb) {
+      thumbnailRenderService.updateStylePreviewsForThumbnail(thumb, true);
     }
   }
 
-  async function handleDeleteCustomLut(id: string) {
-    await lutCatalog.deleteCustomLut(id);
+  async function handleImportCustomLut(lut: CustomLutRecord) {
+    await lutCatalog.importCustomLut(lut);
+    syncCustomLutPreviews();
   }
 
   async function handleUpdateCustomLut(lut: CustomLutRecord) {
     await lutCatalog.updateCustomLut(lut);
-    thumbnailRenderService.syncCustomLuts();
-    if (activePhoto?.thumbnail) {
-      thumbnailRenderService.updateStylePreviewsForThumbnail(
-        activePhoto.thumbnail,
-        true,
-      );
-    }
+    syncCustomLutPreviews();
   }
-
-  // Curatorial Queue: 若有標記挑圖 (flagged)，精修與匯出僅聚焦選取的相片；若無選取則全部顯示
-  const activeQueue = $derived(photoLibrary.activeQueue);
-  const flaggedCount = $derived(photoLibrary.flaggedCount);
-  const flaggedPhotos = $derived(photoLibrary.flaggedPhotos);
 
   // 自動持久化相卷工作區進度至本機快取 (Session Auto-Persistence)
   $effect(() => {
-    if (currentDirectoryName && photoPlates.length > 0) {
-      SessionService.debouncedSaveSession(currentDirectoryName, photoPlates);
+    if (
+      photoLibrary.currentDirectoryName &&
+      photoLibrary.photoPlates.length > 0
+    ) {
+      SessionService.debouncedSaveSession(
+        photoLibrary.currentDirectoryName,
+        photoLibrary.photoPlates,
+      );
     }
   });
 
@@ -132,15 +93,9 @@
 
   $effect(() => {
     thumbnailRenderService.updateStylePreviewsForThumbnail(
-      activePhoto?.thumbnail,
+      photoLibrary.activePhoto?.thumbnail,
     );
   });
-
-  // Export Pipeline State (由 exportState Store 統一管理)
-  const exportMode = $derived(exportState.exportMode);
-  const exportProgress = $derived(exportState.exportProgress);
-  const isExporting = $derived(exportState.isExporting);
-  const exportNotice = $derived(exportState.exportNotice);
 </script>
 
 <svelte:window
@@ -167,15 +122,15 @@
   <!-- TOP HEADER / TELEMETRY STATUS BAR -->
   <TopNav
     activeTab={workspaceUi.activeTab}
-    {cameraMounts}
-    {isScanningMounts}
-    {latestExtractionMs}
-    {flaggedCount}
-    totalPhotos={photoPlates.length}
-    activeQueueLength={activeQueue.length}
-    {exportMode}
-    {isExporting}
-    {currentDirectoryName}
+    cameraMounts={photoLibrary.cameraMounts}
+    isScanningMounts={photoLibrary.isScanningMounts}
+    latestExtractionMs={photoLibrary.latestExtractionMs}
+    flaggedCount={photoLibrary.flaggedCount}
+    totalPhotos={photoLibrary.photoPlates.length}
+    activeQueueLength={photoLibrary.activeQueue.length}
+    exportMode={exportState.exportMode}
+    isExporting={exportState.isExporting}
+    currentDirectoryName={photoLibrary.currentDirectoryName}
     onSelectMount={photoLibrary.handleSelectMountOrDirectory}
     onPickDirectory={photoLibrary.handlePickDirectory}
     onAppendDirectory={photoLibrary.handleAppendDirectory}
@@ -217,27 +172,27 @@
 
         <!-- AI Scene Assistant (100% 垂直高度專屬呈現，免去冗長捲動) -->
         <AiAssistPanel
-          styleGradingPresets={allStyleGradingPresets}
-          {stylePreviewThumbs}
+          styleGradingPresets={lutCatalog.allStyleGradingPresets}
+          stylePreviewThumbs={thumbnailRenderService.stylePreviewThumbs}
           geminiKeyStatus={workspaceUi.geminiKeyStatus}
-          {activePhoto}
-          photos={photoPlates}
+          activePhoto={photoLibrary.activePhoto}
+          photos={photoLibrary.photoPlates}
           hasAiBaseline={darkroomSync.hasAiBaseline}
           isModifiedFromAi={darkroomSync.isModifiedFromAi}
           onRestoreAiTuning={darkroomSync.restoreAiTuning}
-          {isAiAnalyzing}
-          {isBatchAiRunning}
-          {batchProgress}
-          {aiTerminalLogs}
-          {aiSceneTitle}
-          {aiSuggestedScene}
-          {aiRecommendedMood}
-          {aiStyleInsight}
+          isAiAnalyzing={aiPipeline.isAiAnalyzing}
+          isBatchAiRunning={aiPipeline.isBatchAiRunning}
+          batchProgress={aiPipeline.batchProgress}
+          aiTerminalLogs={aiPipeline.aiTerminalLogs}
+          aiSceneTitle={aiPipeline.aiSceneTitle}
+          aiSuggestedScene={aiPipeline.aiSuggestedScene}
+          aiRecommendedMood={aiPipeline.aiRecommendedMood}
+          aiStyleInsight={aiPipeline.aiStyleInsight}
           aiCropRationale={darkroomState.aiCropRationale}
-          {aiVisionTags}
-          {aiScope}
-          {isAiScopeOpen}
-          {copiedLogNotice}
+          aiVisionTags={aiPipeline.aiVisionTags}
+          aiScope={aiPipeline.aiScope}
+          isAiScopeOpen={aiPipeline.isAiScopeOpen}
+          copiedLogNotice={aiPipeline.copiedLogNotice}
           onToggleAiScope={aiPipeline.toggleAiScope}
           onToggleIsAiScopeOpen={() => {
             aiPipeline.toggleAiScopeOpen();
@@ -263,9 +218,9 @@
       {#if workspaceUi.activeTab === "catalog"}
         <!-- MODULE 1: CATALOG MATRIX (Phase 3 Virtual Grid) -->
         <CatalogView
-          photos={photoPlates}
-          {activePhoto}
-          {isLoadingPhotos}
+          photos={photoLibrary.photoPlates}
+          activePhoto={photoLibrary.activePhoto}
+          isLoadingPhotos={photoLibrary.isLoadingPhotos}
           hasApiKey={workspaceUi.hasKey}
           onOpenVault={() => (workspaceUi.isVaultOpen = true)}
           onSelectPhoto={(p) => photoLibrary.selectPhoto(p)}
@@ -284,7 +239,7 @@
           onRefreshMounts={photoLibrary.refreshCameraMounts}
           onToggleFlag={photoLibrary.handleFlagToggled}
           onFilesDropped={photoLibrary.handleFilesDropped}
-          {cameraMounts}
+          cameraMounts={photoLibrary.cameraMounts}
           onLoadCameraMount={(m) => photoLibrary.handleLoadCameraMount(m)}
           onRetryThumbnail={(photoId) => photoLibrary.retryPhotoThumbnail(photoId)}
           onPrioritizePhotos={(ids) => photoLibrary.prioritizePhotoIds(ids)}
@@ -293,18 +248,18 @@
         <!-- MODULE 2: RETOUCH DARKROOM WORKBENCH -->
         <RetouchView
           bind:this={workspaceUi.retouchViewRef}
-          {activePhoto}
-          photos={photoPlates}
-          {activeQueue}
-          {exportNotice}
+          activePhoto={photoLibrary.activePhoto}
+          photos={photoLibrary.photoPlates}
+          activeQueue={photoLibrary.activeQueue}
+          exportNotice={exportState.exportNotice}
           showABComparison={darkroomState.showABComparison}
           previewHoverProfileId={darkroomSync.previewHoverProfileId}
           hasApiKey={workspaceUi.hasKey}
-          {isAiAnalyzing}
-          {isBatchAiRunning}
-          {batchProgress}
-          {aiSceneTitle}
-          {aiTerminalLogs}
+          isAiAnalyzing={aiPipeline.isAiAnalyzing}
+          isBatchAiRunning={aiPipeline.isBatchAiRunning}
+          batchProgress={aiPipeline.batchProgress}
+          aiSceneTitle={aiPipeline.aiSceneTitle}
+          aiTerminalLogs={aiPipeline.aiTerminalLogs}
           hasAiBaseline={darkroomSync.hasAiBaseline}
           isModifiedFromAi={darkroomSync.isModifiedFromAi}
           isMobileDrawerOpen={mobileDrawerState.activeMobileDrawer !== "none"}
@@ -323,30 +278,34 @@
       {:else if workspaceUi.activeTab === "profiles"}
         <!-- MODULE 3: 3D LUT PROFILES VAULT -->
         <ProfilesView
-          profiles={allProfiles}
-          activeProfileId={activePhoto
-            ? activePhoto.appliedProfile
+          profiles={lutCatalog.allProfiles}
+          activeProfileId={photoLibrary.activePhoto
+            ? photoLibrary.activePhoto.appliedProfile
             : "Profile_01_Fieldnote"}
-          activePhotoTitle={activePhoto ? activePhoto.filename : "尚未選取相片"}
+          activePhotoTitle={photoLibrary.activePhoto
+            ? photoLibrary.activePhoto.filename
+            : "尚未選取相片"}
           onApplyProfile={(id) => darkroomSync.applyProfile(id)}
           onApplyToAll={(id) => darkroomSync.applyProfileToAll(id)}
           onImportCustomLut={handleImportCustomLut}
           onUpdateCustomLut={handleUpdateCustomLut}
-          onDeleteCustomLut={handleDeleteCustomLut}
+          onDeleteCustomLut={async (id) => {
+            await lutCatalog.deleteCustomLut(id);
+          }}
           onGoToRetouch={workspaceUi.goToRetouch}
           onGoToCatalog={workspaceUi.goToCatalog}
         />
       {:else if workspaceUi.activeTab === "export"}
         <!-- MODULE 4: DUAL PIPELINE EXPORT DOCK (BOUND TO PHOTO PLATES WITH SCOPE SELECTOR) -->
         <ExportView
-          photos={photoPlates}
-          {activePhoto}
-          {exportMode}
-          {isExporting}
-          {exportProgress}
-          {exportNotice}
-          {aiVisionTags}
-          {aiSceneTitle}
+          photos={photoLibrary.photoPlates}
+          activePhoto={photoLibrary.activePhoto}
+          exportMode={exportState.exportMode}
+          isExporting={exportState.isExporting}
+          exportProgress={exportState.exportProgress}
+          exportNotice={exportState.exportNotice}
+          aiVisionTags={aiPipeline.aiVisionTags}
+          aiSceneTitle={aiPipeline.aiSceneTitle}
           onSetExportMode={(m: "modeA" | "modeB") =>
             (exportState.exportMode = m)}
           onTriggerExport={(subset, options) =>
@@ -357,8 +316,8 @@
       {:else if workspaceUi.activeTab === "devices"}
         <!-- MODULE 5: HARDWARE MOUNTS & STORAGE SETTINGS -->
         <DevicesView
-          {cameraMounts}
-          {isScanningMounts}
+          cameraMounts={photoLibrary.cameraMounts}
+          isScanningMounts={photoLibrary.isScanningMounts}
           geminiKeyStatus={workspaceUi.geminiKeyStatus}
           groqKeyStatus={workspaceUi.groqKeyStatus}
           onRefreshMounts={photoLibrary.refreshCameraMounts}
@@ -372,7 +331,7 @@
 
       <AiProgressHud
         activeTab={workspaceUi.activeTab}
-        activePhotoId={activePhoto?.id}
+        activePhotoId={photoLibrary.activePhoto?.id}
         onFocusPhoto={() => {
           workspaceUi.activeTab = "retouch";
           requestAnimationFrame(() => {
@@ -382,7 +341,7 @@
       />
     </section>
 
-    {#if workspaceUi.activeTab === "retouch" || (workspaceUi.activeTab === "catalog" && flaggedCount > 0)}
+    {#if workspaceUi.activeTab === "retouch" || (workspaceUi.activeTab === "catalog" && photoLibrary.flaggedCount > 0)}
       <!-- RIGHT SIDEBAR: RETOUCH COLOR DOCK OR CATALOG SELECTION RACK (僅在精修或有挑圖時滑出) -->
       <aside
         class="right-telemetry hairline-l"
@@ -404,12 +363,12 @@
         />
         {#if workspaceUi.activeTab === "retouch"}
           <TuningPanel
-            profiles={allProfiles}
-            styleGradingPresets={allStyleGradingPresets}
+            profiles={lutCatalog.allProfiles}
+            styleGradingPresets={lutCatalog.allStyleGradingPresets}
             hasAiBaseline={darkroomSync.hasAiBaseline}
             isModifiedFromAi={darkroomSync.isModifiedFromAi}
-            {activePhoto}
-            activeProfileId={activePhoto?.appliedProfile}
+            activePhoto={photoLibrary.activePhoto}
+            activeProfileId={photoLibrary.activePhoto?.appliedProfile}
             onRestoreAiTuning={darkroomSync.restoreAiTuning}
             onIterateAiTuning={() =>
               darkroomSync.runIterativeAiRefinement(undefined, true)}
@@ -431,9 +390,9 @@
         {:else if workspaceUi.activeTab === "catalog"}
           <!-- CATALOG STAGE: 勾選的圖片預覽清單與前往精修導引 -->
           <PickedPreviewsRack
-            {flaggedPhotos}
-            activePhotoId={activePhoto?.id}
-            totalPhotos={photoPlates.length}
+            flaggedPhotos={photoLibrary.flaggedPhotos}
+            activePhotoId={photoLibrary.activePhoto?.id}
+            totalPhotos={photoLibrary.photoPlates.length}
             onSelectPhoto={(p) => photoLibrary.selectPhoto(p)}
             onOpenRetouch={(p) => workspaceUi.openRetouchForPhoto(p)}
             onToggleFlag={(p, e) => photoLibrary.togglePhotoFlag(p, e)}
@@ -457,13 +416,13 @@
   {#if workspaceUi.activeTab === "retouch"}
     <MobileRetouchBar
       isHidden={mobileDrawerState.activeMobileDrawer !== "none"}
-      {isAiAnalyzing}
-      {isBatchAiRunning}
-      hasActivePhoto={Boolean(activePhoto)}
+      isAiAnalyzing={aiPipeline.isAiAnalyzing}
+      isBatchAiRunning={aiPipeline.isBatchAiRunning}
+      hasActivePhoto={Boolean(photoLibrary.activePhoto)}
       hasCustomStylePrompt={Boolean(darkroomState.customStylePrompt.trim())}
-      totalPhotos={photoPlates.length}
-      {flaggedCount}
-      {batchProgress}
+      totalPhotos={photoLibrary.photoPlates.length}
+      flaggedCount={photoLibrary.flaggedCount}
+      batchProgress={aiPipeline.batchProgress}
       activeMobileDrawer={mobileDrawerState.activeMobileDrawer}
       onRunAiAnalysis={() => aiPipeline.runAiAnalysis()}
       onCancelBatchAi={aiPipeline.cancelBatchAi}
@@ -479,7 +438,7 @@
 
   <MobileBottomNav
     activeTab={workspaceUi.activeTab}
-    {flaggedCount}
+    flaggedCount={photoLibrary.flaggedCount}
     isHidden={workspaceUi.activeTab === "retouch" &&
       mobileDrawerState.activeMobileDrawer !== "none"}
     onSelectTab={(tab) => {
@@ -509,8 +468,8 @@
   <!-- Single Photo Quick Export Modal (⌘E) -->
   <QuickExportModal
     bind:isOpen={workspaceUi.isQuickExportOpen}
-    photo={activePhoto}
-    {exportMode}
+    photo={photoLibrary.activePhoto}
+    exportMode={exportState.exportMode}
     onClose={() => (workspaceUi.isQuickExportOpen = false)}
     onExport={exportState.handleSingleQuickExport}
   />
