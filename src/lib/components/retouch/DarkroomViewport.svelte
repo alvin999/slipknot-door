@@ -227,6 +227,29 @@
 
   const mobileAiPill = $derived.by(() => {
     const snippet = extractLatestLogSnippet(currentAiLogs);
+    const analyzingPhoto = aiPipeline.analyzingPhoto;
+    const analyzingThumb =
+      analyzingPhoto?.gradedThumbnail || analyzingPhoto?.thumbnail || "";
+    const phase = aiPipeline.analyzingPhase;
+    const isTwoPhase = aiPipeline.isTwoPhaseActive;
+    const phaseBadge = isTwoPhase
+      ? phase === "pass2_critic"
+        ? "P2"
+        : "P1"
+      : "AI";
+    const phaseShortText = isTwoPhase
+      ? phase === "pass2_critic"
+        ? "P2/2 審美精修"
+        : phase === "pass1_geometry"
+          ? "P1/2 幾何構圖"
+          : "P1/2 視覺調色"
+      : phase === "pass1_geometry"
+        ? "幾何構圖"
+        : "AI 顯影中";
+    const isViewingDifferent = Boolean(
+      analyzingPhoto && activePhoto?.id !== analyzingPhoto.id,
+    );
+
     if (currentIsBatchAiRunning) {
       const cur = currentBatchProgress?.current || 1;
       const tot = currentBatchProgress?.total || 1;
@@ -240,13 +263,23 @@
           icon: "hourglass_top",
           text: t("darkroom.batchCooldown", { cur, tot, sec: currentBatchProgress.countdown }),
           progressPct: pct,
+          analyzingThumb,
+          phaseBadge: `${currentBatchProgress.countdown}s`,
+          isViewingDifferent,
+          isPhase2: false,
         };
       }
       return {
         status: "batch" as const,
         icon: "auto_mode",
-        text: t("darkroom.batchDeveloping", { cur, tot, snippet: snippet || t("darkroom.aiAnalyzingDefault") }),
+        text: analyzingPhoto
+          ? `${cur}/${tot} ${phaseShortText} · #${analyzingPhoto.frameNo}`
+          : t("darkroom.batchDeveloping", { cur, tot, snippet: snippet || t("darkroom.aiAnalyzingDefault") }),
         progressPct: pct,
+        analyzingThumb,
+        phaseBadge,
+        isViewingDifferent,
+        isPhase2: phase === "pass2_critic",
       };
     }
 
@@ -254,8 +287,14 @@
       return {
         status: "running" as const,
         icon: "progress_activity",
-        text: snippet || t("darkroom.aiScanning"),
-        progressPct: null,
+        text: analyzingPhoto
+          ? `${phaseShortText} · #${analyzingPhoto.frameNo}`
+          : snippet || t("darkroom.aiScanning"),
+        progressPct: isTwoPhase ? (phase === "pass2_critic" ? 85 : 48) : null,
+        analyzingThumb,
+        phaseBadge,
+        isViewingDifferent,
+        isPhase2: phase === "pass2_critic",
       };
     }
 
@@ -274,6 +313,10 @@
         icon: "auto_awesome",
         text: `${sceneLabel || t("darkroom.aiDeveloped")} · ${profLabel}`,
         progressPct: null,
+        analyzingThumb: "",
+        phaseBadge: "",
+        isViewingDifferent: false,
+        isPhase2: false,
       };
     }
 
@@ -282,6 +325,10 @@
       icon: "auto_awesome",
       text: t("darkroom.idleHint"),
       progressPct: null,
+      analyzingThumb: "",
+      phaseBadge: "",
+      isViewingDifferent: false,
+      isPhase2: false,
     };
   });
 
@@ -1494,6 +1541,7 @@
       class="mobile-ai-status-pill font-mono hairline-all"
       class:is-running={mobileAiPill.status === "running" ||
         mobileAiPill.status === "batch"}
+      class:is-phase2={mobileAiPill.isPhase2}
       class:is-done={mobileAiPill.status === "done"}
     >
       <button
@@ -1502,17 +1550,39 @@
         onclick={() => onOpenAiDrawer?.()}
         title={t("darkroom.aiCapsuleTitle")}
       >
-        <span
-          class="material-symbols-outlined ai-pill-icon"
-          class:spin={mobileAiPill.status === "running" ||
-            mobileAiPill.status === "batch"}
-        >
-          {mobileAiPill.icon}
-        </span>
+        {#if (mobileAiPill.status === "running" || mobileAiPill.status === "batch") && mobileAiPill.analyzingThumb}
+          <span class="ai-pill-thumb-wrap">
+            <img
+              src={mobileAiPill.analyzingThumb}
+              alt="AI processing"
+              class="ai-pill-thumb-img"
+            />
+            <span class="ai-pill-phase-tag" class:p2={mobileAiPill.isPhase2}>
+              {mobileAiPill.phaseBadge}
+            </span>
+          </span>
+        {:else}
+          <span
+            class="material-symbols-outlined ai-pill-icon"
+            class:spin={mobileAiPill.status === "running" ||
+              mobileAiPill.status === "batch"}
+          >
+            {mobileAiPill.icon}
+          </span>
+        {/if}
         <span class="ai-pill-text">{mobileAiPill.text}</span>
       </button>
 
-      {#if hasAiBaseline && isModifiedFromAi && onRestoreAiTuning && mobileAiPill.status === "done"}
+      {#if (mobileAiPill.status === "running" || mobileAiPill.status === "batch") && mobileAiPill.isViewingDifferent}
+        <button
+          type="button"
+          class="ai-pill-restore-btn font-mono"
+          onclick={() => aiPipeline.focusAnalyzingPhoto()}
+          title="切換檢視正在顯影的相片"
+        >
+          <span>查看</span>
+        </button>
+      {:else if hasAiBaseline && isModifiedFromAi && onRestoreAiTuning && mobileAiPill.status === "done"}
         <button
           type="button"
           class="ai-pill-restore-btn font-mono"
@@ -1710,11 +1780,20 @@
             plate.appliedProfile !== "Profile_00_StandardNatural") ||
           plate.crop
         )}
+        {@const isAiDeveloping =
+          aiPipeline.isAiAnalyzing && aiPipeline.analyzingPhotoId === plate.id}
+        {@const aiPhaseTag = aiPipeline.isTwoPhaseActive
+          ? aiPipeline.analyzingPhase === "pass2_critic"
+            ? "P2"
+            : "P1"
+          : "AI"}
         <button
           type="button"
           class="film-frame-card"
           class:selected={plate.selected}
           class:is-graded={isGraded}
+          class:is-ai-developing={isAiDeveloping}
+          class:is-phase2={isAiDeveloping && aiPipeline.analyzingPhase === "pass2_critic"}
           onclick={() => onSelectPhoto(plate)}
         >
           <div class="film-frame-outer">
@@ -1723,7 +1802,15 @@
               alt={plate.filename}
               class="film-frame-thumb"
             />
-            {#if isGraded}
+            {#if isAiDeveloping}
+              <span
+                class="frame-ai-badge font-mono"
+                class:p2={aiPipeline.analyzingPhase === "pass2_critic"}
+                title="AI 正在顯影調整此相片"
+              >
+                {aiPhaseTag}
+              </span>
+            {:else if isGraded}
               <span class="frame-graded-badge" title={t("darkroom.badgeGradedTitle")}></span>
             {/if}
             {#if plate.flagged}
@@ -2203,6 +2290,36 @@
   .film-frame-card.selected .frame-num {
     color: var(--amber-highlight);
     font-weight: 600;
+  }
+  .film-frame-card.is-ai-developing .film-frame-outer {
+    border: 1.5px solid var(--amber-highlight);
+    box-shadow: 0 0 10px rgba(226, 157, 82, 0.45);
+    animation: film-ai-pulse 1.4s ease-in-out infinite;
+  }
+  .film-frame-card.is-ai-developing.is-phase2 .film-frame-outer {
+    border-color: #60a5fa;
+    box-shadow: 0 0 10px rgba(96, 165, 250, 0.45);
+  }
+  .frame-ai-badge {
+    position: absolute;
+    left: 3px;
+    top: 3px;
+    font-size: 8.5px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 3px;
+    background: rgba(15, 17, 22, 0.9);
+    color: var(--amber-highlight);
+    border: 1px solid rgba(226, 157, 82, 0.65);
+  }
+  .frame-ai-badge.p2 {
+    color: #93c5fd;
+    border-color: rgba(96, 165, 250, 0.7);
+  }
+  @keyframes film-ai-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.78; }
   }
 
   /* KEY VAULT GUIDANCE BANNER */
@@ -2729,6 +2846,46 @@
     .mobile-ai-status-pill.is-running {
       border-color: rgba(226, 157, 82, 0.55);
       background-color: rgba(226, 157, 82, 0.08);
+      height: 34px;
+      padding: 0 8px 0 4px;
+    }
+    .mobile-ai-status-pill.is-running.is-phase2 {
+      border-color: rgba(96, 165, 250, 0.6);
+      background-color: rgba(96, 165, 250, 0.09);
+    }
+    .ai-pill-thumb-wrap {
+      position: relative;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      overflow: hidden;
+      flex-shrink: 0;
+      border: 1px solid rgba(226, 157, 82, 0.65);
+      background: var(--surface-elevated);
+    }
+    .mobile-ai-status-pill.is-phase2 .ai-pill-thumb-wrap {
+      border-color: rgba(96, 165, 250, 0.75);
+    }
+    .ai-pill-thumb-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .ai-pill-phase-tag {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 8.5px;
+      font-weight: 700;
+      color: #fff;
+      background: rgba(12, 14, 18, 0.52);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    }
+    .ai-pill-phase-tag.p2 {
+      color: #bfdbfe;
     }
     .mobile-ai-status-pill.is-done {
       border-color: rgba(212, 163, 115, 0.35);

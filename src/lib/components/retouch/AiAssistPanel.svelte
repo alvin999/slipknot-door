@@ -577,7 +577,15 @@
             ></span>
             <span class="report-heading font-mono">
               {#if currentIsAiAnalyzing || currentIsBatchRunning}
-                {t("aiAssist.reportRunning")}
+                {#if aiPipeline.isTwoPhaseActive}
+                  {aiPipeline.analyzingPhase === "pass2_critic"
+                    ? "Phase 2/2 · 審美覆審精修中..."
+                    : aiPipeline.analyzingPhase === "pass1_geometry"
+                      ? "Phase 1/2 · 幾何構圖分析中..."
+                      : "Phase 1/2 · 視覺調色中..."}
+                {:else}
+                  {t("aiAssist.reportRunning")}
+                {/if}
               {:else}
                 {t("aiAssist.reportTitle")}
               {/if}

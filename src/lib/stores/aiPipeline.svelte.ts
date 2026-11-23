@@ -5,7 +5,7 @@
  * 遵循 Svelte 5 Runes ($state, $derived) 響應式規範。
  */
 
-import { AiSceneService } from "$lib/services/aiSceneService";
+import { AiSceneService, type AiAnalysisPhase, type AiSceneDecision } from "$lib/services/aiSceneService";
 import { AiEngineFactory } from "$lib/services/ai/engineFactory";
 import { KeyVaultService } from "$lib/services/keyVaultService";
 import { thumbnailRenderService } from "$lib/services/thumbnailRenderService.svelte";
@@ -198,6 +198,9 @@ export class AiPipelineStore {
 
   // AI 推論與批次排程狀態
   isAiAnalyzing = $state<boolean>(false);
+  analyzingPhotoId = $state<string | null>(null);
+  analyzingPhase = $state<"idle" | AiAnalysisPhase>("idle");
+  isTwoPhaseActive = $state<boolean>(false);
   isIteratingRefine = $state<boolean>(false);
   iterativeFeedbackPrompt = $state<string>("");
   lockManualAdjustments = $state<boolean>(true);
@@ -210,6 +213,26 @@ export class AiPipelineStore {
     countdown: number;
   } | null>(null);
   batchFailedPhotoIds = $state<string[]>([]);
+
+  get analyzingPhoto(): PhotoPlateItem | null {
+    if (!this.analyzingPhotoId) return null;
+    return (
+      photoLibrary.photoPlates.find((p) => p.id === this.analyzingPhotoId) ??
+      (photoLibrary.activePhoto?.id === this.analyzingPhotoId
+        ? photoLibrary.activePhoto
+        : null)
+    );
+  }
+
+  /**
+   * 切換焦點至目前正在 AI 顯影的相片
+   */
+  focusAnalyzingPhoto(): boolean {
+    const target = this.analyzingPhoto;
+    if (!target) return false;
+    photoLibrary.selectPhoto(target);
+    return true;
+  }
 
   get batchFailedPhotos(): PhotoPlateItem[] {
     if (this.batchFailedPhotoIds.length === 0) return [];
@@ -424,6 +447,546 @@ export class AiPipelineStore {
   }
 
   /**
+   * 將 AI 決策參數套用至目標相片（支援 Phase 1 即時預覽與 Phase 2 最終精修）
+   */
+  private async applyDecisionToPhoto(
+    photoToProcess: PhotoPlateItem,
+    decision: AiSceneDecision,
+    ctx: {
+      forcedProfileId?: string;
+      isStyleLocked: boolean;
+      applyLutProfile: boolean;
+      applyLutIntensity: boolean;
+      targetMonochrome: boolean;
+      origMetrics: {
+        ev: number;
+        contrast: number;
+        shadows: number;
+        clarity: number;
+        sharpness: number;
+        temp: number;
+        tint: number;
+        lut: number;
+      };
+      origProfile: string;
+      origCrop: PhotoPlateItem["crop"];
+    },
+    phase: "pass1" | "final",
+  ): Promise<void> {
+    if (ctx.forcedProfileId) {
+      decision.recommended_profile = ctx.forcedProfileId;
+    }
+
+    const isInterim = phase === "pass1";
+    const isCurrentActive = photoLibrary.activePhoto?.id === photoToProcess.id;
+
+    // 若為目前正在瀏覽的相片，同步頂部與面板 AI 決策狀態
+    if (isCurrentActive) {
+      this.aiSuggestedScene = isInterim
+        ? `${decision.scene_type} (Phase 1 即時預覽)`
+        : `${decision.scene_type} (視覺即時判讀)`;
+      this.aiSceneTitle = decision.scene_title || decision.scene_type;
+      this.aiStyleInsight = decision.style_insight || "";
+      this.aiRecommendedMood = decision.recommended_mood || "";
+      this.aiRecommendedProfile = decision.recommended_profile;
+      darkroomState.aiCropRationale = decision.crop_rationale || "";
+      this.aiVisionTags = decision.tags || [];
+    }
+
+    if (!isInterim) {
+      await this.appendAiLog(
+        `> [AUTOTUNE] 依據 AI 職責勾選開始套用參數...`,
+        20,
+      );
+    }
+
+    // 計算目標參數值
+    const targetProfile = ctx.applyLutProfile
+      ? decision.recommended_profile
+      : ctx.origProfile;
+    const foundProfile = lutCatalog.allProfiles.find(
+      (pr) => pr.id === targetProfile,
+    );
+
+    const clampVal = (v: number, min: number, max: number) =>
+      Math.max(min, Math.min(max, v));
+    const strength = this.aiTuningStrength;
+    const scaleCentered = (
+      val: number,
+      center: number,
+      min: number,
+      max: number,
+      decimals = 2,
+    ) => {
+      if (Math.abs(strength - 1.0) <= 0.01) return clampVal(val, min, max);
+      const scaled = center + (val - center) * strength;
+      return parseFloat(clampVal(scaled, min, max).toFixed(decimals));
+    };
+
+    const baseEv = this.aiScope.tone
+      ? scaleCentered(decision.exposure_compensation, 0.0, -2.0, 2.0)
+      : (photoToProcess.tuning?.exposure ??
+        (foundProfile
+          ? foundProfile.evDefault
+          : (photoToProcess.asShotExposure ?? 0.0)));
+    const baseContrast = this.aiScope.tone
+      ? scaleCentered(decision.contrast ?? 0.0, 0.0, -0.8, 0.8)
+      : (photoToProcess.tuning?.contrast ?? 0.0);
+    const baseShadows = this.aiScope.tone
+      ? scaleCentered(decision.lift_shadows ?? 0.0, 0.0, -0.5, 0.5)
+      : (photoToProcess.tuning?.shadows ??
+        (foundProfile ? (foundProfile.shadowsDefault ?? 0.0) : 0.0));
+    const baseTemp = this.aiScope.whiteBalance
+      ? Math.round(scaleCentered(decision.color_temp ?? 5500, 5500, 2800, 8500, 0))
+      : (photoToProcess.tuning?.colorTemp ??
+        photoToProcess.asShotTemp ??
+        5500);
+    const baseTint = this.aiScope.whiteBalance
+      ? scaleCentered(decision.tint ?? 0.0, 0.0, -100, 100, 1)
+      : (photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0);
+    const preservedLutIntensity =
+      ctx.origProfile === targetProfile
+        ? (ctx.origMetrics.lut ??
+          (foundProfile ? foundProfile.lutIntensityDefault : 1.0))
+        : (foundProfile
+            ? foundProfile.lutIntensityDefault
+            : (ctx.origMetrics.lut ?? 1.0));
+    const baseLut = ctx.applyLutIntensity
+      ? scaleCentered(decision.lut_intensity, 0.0, 0.0, 1.0)
+      : preservedLutIntensity;
+    const baseClarity = this.aiScope.tone
+      ? scaleCentered(decision.clarity ?? 0.0, 0.0, -1.0, 1.0)
+      : (photoToProcess.tuning?.clarity ?? 0.0);
+    const baseSharpness = this.aiScope.tone
+      ? scaleCentered(decision.sharpness ?? 0.0, 0.0, -1.0, 1.0)
+      : (photoToProcess.tuning?.sharpness ?? 0.0);
+    const applyColorMixer = this.aiScope.filmPhysics !== false;
+    const applySplitToning =
+      this.aiScope.splitToning !== undefined
+        ? this.aiScope.splitToning
+        : applyColorMixer;
+    const applyFilmTexture =
+      this.aiScope.filmTexture !== undefined
+        ? this.aiScope.filmTexture
+        : applyColorMixer;
+    const baseColorDensity = applyColorMixer
+      ? scaleCentered(decision.color_density ?? 0.0, 0.0, -1.0, 1.0)
+      : (photoToProcess.tuning?.colorDensity ?? 0.0);
+    const baseShadowHue = applySplitToning
+      ? (decision.shadow_hue ?? 200)
+      : (photoToProcess.tuning?.shadowHue ?? 200);
+    const baseShadowTintAmount = applySplitToning
+      ? scaleCentered(decision.shadow_tint_amount ?? 0.0, 0.0, 0.0, 1.0)
+      : (photoToProcess.tuning?.shadowTintAmount ?? 0.0);
+    const baseHighlightHue = applySplitToning
+      ? (decision.highlight_hue ?? 40)
+      : (photoToProcess.tuning?.highlightHue ?? 40);
+    const baseHighlightTintAmount = applySplitToning
+      ? scaleCentered(decision.highlight_tint_amount ?? 0.0, 0.0, 0.0, 1.0)
+      : (photoToProcess.tuning?.highlightTintAmount ?? 0.0);
+    const baseHalation = applyFilmTexture
+      ? scaleCentered(decision.halation ?? 0.0, 0.0, 0.0, 1.0)
+      : (photoToProcess.tuning?.halation ?? 0.0);
+    const baseGrainAmount = applyFilmTexture
+      ? scaleCentered(decision.grain_amount ?? 0.15, 0.15, 0.0, 1.0)
+      : (photoToProcess.tuning?.grainAmount ?? 0.15);
+    const baseHighlights = this.aiScope.tone
+      ? scaleCentered(decision.highlights ?? 0.0, 0.0, -1.0, 1.0)
+      : (photoToProcess.tuning?.highlights ?? 0.0);
+    const baseBlacks = this.aiScope.tone
+      ? scaleCentered(decision.blacks ?? 0.0, 0.0, -0.5, 0.5)
+      : (photoToProcess.tuning?.blacks ?? 0.0);
+    const baseVibrance = applyColorMixer
+      ? scaleCentered(decision.vibrance ?? 0.0, 0.0, -1.0, 1.0)
+      : (photoToProcess.tuning?.vibrance ?? 0.0);
+    const baseVignette = applyFilmTexture
+      ? scaleCentered(decision.vignette ?? 0.0, 0.0, -1.0, 1.0)
+      : (photoToProcess.tuning?.vignette ?? 0.0);
+    const rawHsl = applyColorMixer
+      ? cloneHslAdjustments(decision.hsl)
+      : cloneHslAdjustments(photoToProcess.tuning?.hsl);
+    if (applyColorMixer && Math.abs(strength - 1.0) > 0.01) {
+      for (const bandKey of Object.keys(rawHsl) as Array<keyof HslAdjustments>) {
+        rawHsl[bandKey].hue = scaleCentered(rawHsl[bandKey].hue, 0.0, -1.0, 1.0);
+        rawHsl[bandKey].sat = scaleCentered(rawHsl[bandKey].sat, 0.0, -1.0, 1.0);
+        rawHsl[bandKey].lum = scaleCentered(rawHsl[bandKey].lum, 0.0, -1.0, 1.0);
+      }
+    }
+    const baseHsl = rawHsl;
+    // 黑白模式完全由使用者獨立切換，AI 僅調光影與 6 段光學濾鏡權重，不擅自更改輸出模式
+    const baseMonochrome = ctx.targetMonochrome;
+
+    if (!isInterim) {
+      const {
+        ev: origEv,
+        contrast: origContrast,
+        shadows: origShadows,
+        clarity: origClarity,
+        sharpness: origSharpness,
+        temp: origTemp,
+        tint: origTint,
+        lut: origLut,
+      } = ctx.origMetrics;
+
+      const fmt = (v: number, unit = "", sign = true, decimals = 2) => {
+        const s = sign && v > 0 ? "+" : "";
+        return `${s}${v.toFixed(decimals)}${unit}`;
+      };
+
+      if (this.aiScope.whiteBalance) {
+        await this.appendAiLog(
+          `> [AI_WB] 白平衡調校：\n  • 色溫: ${origTemp}K → ${baseTemp}K\n  • 色調 (Tint): ${fmt(origTint, "", true, 1)} → ${fmt(baseTint, "", true, 1)}`,
+          15,
+        );
+      }
+      if (this.aiScope.tone) {
+        await this.appendAiLog(
+          `> [AI_TONE] 光影與動態調校：\n  • 曝光補償: ${fmt(origEv, " EV")} → ${fmt(baseEv, " EV")} | 高光抑揚: ${fmt(baseHighlights)}\n  • 對比度: ${fmt(origContrast)} → ${fmt(baseContrast)} | 暗部: ${fmt(origShadows)} → ${fmt(baseShadows)} | 黑階: ${fmt(baseBlacks)}\n  • 清晰度: ${fmt(origClarity)} → ${fmt(baseClarity)} | 銳利度: ${fmt(origSharpness)} → ${fmt(baseSharpness)}`,
+          15,
+        );
+      }
+      if (ctx.isStyleLocked && ctx.applyLutIntensity) {
+        await this.appendAiLog(
+          `> [AI_LUT] 風格鎖定：${targetProfile} · AI 微調濃度 (${origLut.toFixed(2)} → ${baseLut.toFixed(2)})`,
+          15,
+        );
+      } else if (ctx.isStyleLocked && !ctx.applyLutIntensity) {
+        await this.appendAiLog(
+          `> [AI_LUT] 風格鎖定：${targetProfile} · 凍結目前濃度 (${baseLut.toFixed(2)})`,
+          15,
+        );
+      } else if (ctx.applyLutProfile) {
+        await this.appendAiLog(
+          `> [AI_LUT] 底片風格套用：${targetProfile} (濃度: ${origLut.toFixed(2)} → ${baseLut.toFixed(2)})`,
+          15,
+        );
+      }
+      if (applyColorMixer || applySplitToning || applyFilmTexture) {
+        await this.appendAiLog(
+          `> [AI_TONING] 色彩科學與底片質感：\n  • 自然飽和度: ${fmt(baseVibrance)} | 減色密度: ${fmt(baseColorDensity)} | 暗角: ${fmt(baseVignette)} | Halation: ${baseHalation.toFixed(2)} | 微粒: ${baseGrainAmount.toFixed(2)}\n  • 分區色調: 暗部 ${Math.round(baseShadowHue)}° (${baseShadowTintAmount.toFixed(2)}) | 亮部 ${Math.round(baseHighlightHue)}° (${baseHighlightTintAmount.toFixed(2)})`,
+          15,
+        );
+      }
+    }
+
+    // 構圖與智慧裁切計算（以最初的 origCrop 為基準避免 Phase 2 重複計算偏移）
+    let targetCrop = ctx.origCrop;
+    const fullFrameCrop = !decision.crop_box || isFullFrameCropBox(decision.crop_box);
+    const imageRatio = isCurrentActive ? darkroomState.activeImageAspectRatio : 1.5;
+
+    if (!isInterim && this.aiScope.crop && fullFrameCrop) {
+      await this.appendAiLog(
+        `> [AI_CROP] AI 判斷構圖已佳，未進行裁切（保留原始構圖）`,
+        15,
+      );
+    }
+    if (this.aiScope.crop && decision.crop_box && !fullFrameCrop) {
+      const resolvedRatio = this.aiScope.lockCropAspectRatio
+        ? "original"
+        : decision.aspect_ratio &&
+            ["original", "1:1", "4:5", "16:9", "9:16", "free"].includes(
+              decision.aspect_ratio,
+            )
+          ? (decision.aspect_ratio as any)
+          : (ctx.origCrop?.aspectRatio ?? "original");
+      const nextRot =
+        this.aiScope.keystone && typeof decision.rotation_deg === "number"
+          ? decision.rotation_deg
+          : (ctx.origCrop?.rotation ?? 0);
+      const snappedBox = snapCropBoxToAspectRatio(
+        {
+          x: decision.crop_box[1],
+          y: decision.crop_box[0],
+          width: decision.crop_box[3] - decision.crop_box[1],
+          height: decision.crop_box[2] - decision.crop_box[0],
+        },
+        resolvedRatio,
+        imageRatio,
+      );
+      const safeBox = computeInscribedCropForRotation(snappedBox, nextRot, imageRatio);
+
+      targetCrop = {
+        x: safeBox.x,
+        y: safeBox.y,
+        width: safeBox.width,
+        height: safeBox.height,
+        rotation: nextRot,
+        keystoneV:
+          this.aiScope.keystone && typeof decision.keystone_v === "number"
+            ? decision.keystone_v
+            : (ctx.origCrop?.keystoneV ?? 0),
+        keystoneH: ctx.origCrop?.keystoneH ?? 0,
+        aspectRatio: resolvedRatio,
+        flipH: ctx.origCrop?.flipH ?? false,
+        flipV: ctx.origCrop?.flipV ?? false,
+      };
+      if (!isInterim) {
+        await this.appendAiLog(
+          `> [AI_CROP] 智慧構圖裁切已套用：${decision.crop_rationale || "黃金三分點重心"}`,
+          15,
+        );
+      }
+    } else if (
+      this.aiScope.keystone &&
+      (typeof decision.rotation_deg === "number" ||
+        typeof decision.keystone_v === "number")
+    ) {
+      const nextRot =
+        typeof decision.rotation_deg === "number"
+          ? decision.rotation_deg
+          : (ctx.origCrop?.rotation ?? 0);
+      const baseBox = {
+        x: ctx.origCrop?.x ?? 0,
+        y: ctx.origCrop?.y ?? 0,
+        width: ctx.origCrop?.width ?? 1,
+        height: ctx.origCrop?.height ?? 1,
+      };
+      const safeBox = computeInscribedCropForRotation(baseBox, nextRot, imageRatio);
+
+      targetCrop = {
+        x: safeBox.x,
+        y: safeBox.y,
+        width: safeBox.width,
+        height: safeBox.height,
+        rotation: nextRot,
+        keystoneV:
+          typeof decision.keystone_v === "number"
+            ? decision.keystone_v
+            : (ctx.origCrop?.keystoneV ?? 0),
+        keystoneH: ctx.origCrop?.keystoneH ?? 0,
+        aspectRatio: ctx.origCrop?.aspectRatio ?? "original",
+        flipH: ctx.origCrop?.flipH ?? false,
+        flipV: ctx.origCrop?.flipV ?? false,
+      };
+      if (!isInterim) {
+        await this.appendAiLog(
+          `> [AI_LEVEL] 地平線與垂直透視已校正 (${(targetCrop.rotation || 0).toFixed(1)}°)`,
+          15,
+        );
+      }
+    }
+
+    // 靜態寫入目標底片資料實體（保存專屬 AI 決策與場景標籤）
+    photoToProcess.appliedProfile = targetProfile;
+    photoToProcess.aiDecision = decision;
+    photoToProcess.sceneTag = decision.scene_title || decision.scene_type;
+    photoToProcess.tuning = {
+      exposure: baseEv,
+      highlights: baseHighlights,
+      contrast: baseContrast,
+      shadows: baseShadows,
+      blacks: baseBlacks,
+      lutIntensity: baseLut,
+      colorTemp: baseTemp,
+      tint: baseTint,
+      vibrance: baseVibrance,
+      clarity: baseClarity,
+      sharpness: baseSharpness,
+      colorDensity: baseColorDensity,
+      shadowHue: baseShadowHue,
+      shadowTintAmount: baseShadowTintAmount,
+      highlightHue: baseHighlightHue,
+      highlightTintAmount: baseHighlightTintAmount,
+      halation: baseHalation,
+      grainAmount: baseGrainAmount,
+      vignette: baseVignette,
+      monochrome: baseMonochrome,
+      hsl: cloneHslAdjustments(baseHsl),
+    };
+    if (targetCrop) {
+      photoToProcess.crop = targetCrop;
+    }
+
+    // 保存專屬 AI 基準快照供後續一鍵還原 (Restore AI Baseline) 與多輪迭代基準
+    const initialSnapshot = {
+      appliedProfile: targetProfile,
+      tuning: {
+        exposure: baseEv,
+        highlights: baseHighlights,
+        contrast: baseContrast,
+        shadows: baseShadows,
+        blacks: baseBlacks,
+        lutIntensity: baseLut,
+        colorTemp: baseTemp,
+        tint: baseTint,
+        vibrance: baseVibrance,
+        clarity: baseClarity,
+        sharpness: baseSharpness,
+        colorDensity: baseColorDensity,
+        shadowHue: baseShadowHue,
+        shadowTintAmount: baseShadowTintAmount,
+        highlightHue: baseHighlightHue,
+        highlightTintAmount: baseHighlightTintAmount,
+        halation: baseHalation,
+        grainAmount: baseGrainAmount,
+        vignette: baseVignette,
+        monochrome: baseMonochrome,
+        hsl: cloneHslAdjustments(baseHsl),
+      },
+      crop: targetCrop ? { ...targetCrop } : undefined,
+      appliedScope: { ...this.aiScope },
+      appliedAt: Date.now(),
+    };
+    photoToProcess.aiTuningSnapshot = initialSnapshot;
+    photoToProcess.aiLatestBaseline = {
+      ...initialSnapshot,
+      tuning: { ...initialSnapshot.tuning, hsl: cloneHslAdjustments(baseHsl) },
+      crop: initialSnapshot.crop ? { ...initialSnapshot.crop } : undefined,
+    };
+    photoToProcess.aiIterationHistory = [];
+    if (isCurrentActive) {
+      this.lockManualAdjustments = true;
+    }
+
+    // 若目前正顯示該相片，即時更新全域滑桿與畫布
+    if (isCurrentActive) {
+      if (!this.isBatchAiRunning) {
+        this.applyProfileToActivePhoto(targetProfile, false);
+        const targetAnim: {
+          exposure?: number;
+          highlights?: number;
+          contrast?: number;
+          shadows?: number;
+          blacks?: number;
+          colorTemp?: number;
+          tint?: number;
+          vibrance?: number;
+          lutIntensity?: number;
+          clarity?: number;
+          sharpness?: number;
+          colorDensity?: number;
+          shadowHue?: number;
+          shadowTintAmount?: number;
+          highlightHue?: number;
+          highlightTintAmount?: number;
+          halation?: number;
+          grainAmount?: number;
+          vignette?: number;
+          hsl?: HslAdjustments;
+        } = {};
+        if (this.aiScope.tone) {
+          targetAnim.exposure = baseEv;
+          targetAnim.highlights = baseHighlights;
+          targetAnim.contrast = baseContrast;
+          targetAnim.shadows = baseShadows;
+          targetAnim.blacks = baseBlacks;
+          targetAnim.clarity = baseClarity;
+          targetAnim.sharpness = baseSharpness;
+        }
+        if (this.aiScope.whiteBalance) {
+          targetAnim.colorTemp = baseTemp;
+          targetAnim.tint = baseTint;
+        }
+        if (ctx.applyLutIntensity) {
+          targetAnim.lutIntensity = baseLut;
+        } else {
+          darkroomState.lutIntensity = baseLut;
+        }
+        if (applyColorMixer) {
+          targetAnim.vibrance = baseVibrance;
+          targetAnim.colorDensity = baseColorDensity;
+          targetAnim.hsl = cloneHslAdjustments(baseHsl);
+        }
+        if (applySplitToning) {
+          targetAnim.shadowHue = baseShadowHue;
+          targetAnim.shadowTintAmount = baseShadowTintAmount;
+          targetAnim.highlightHue = baseHighlightHue;
+          targetAnim.highlightTintAmount = baseHighlightTintAmount;
+        }
+        if (applyFilmTexture) {
+          targetAnim.halation = baseHalation;
+          targetAnim.grainAmount = baseGrainAmount;
+          targetAnim.vignette = baseVignette;
+        }
+        darkroomState.highlights = baseHighlights;
+        darkroomState.blacks = baseBlacks;
+        darkroomState.clarity = baseClarity;
+        darkroomState.sharpness = baseSharpness;
+        darkroomState.monochrome = baseMonochrome;
+        if (applyColorMixer) {
+          darkroomState.vibrance = baseVibrance;
+          darkroomState.colorDensity = baseColorDensity;
+          darkroomState.hsl = cloneHslAdjustments(baseHsl);
+        }
+        if (applySplitToning) {
+          darkroomState.shadowHue = baseShadowHue;
+          darkroomState.shadowTintAmount = baseShadowTintAmount;
+          darkroomState.highlightHue = baseHighlightHue;
+          darkroomState.highlightTintAmount = baseHighlightTintAmount;
+        }
+        if (applyFilmTexture) {
+          darkroomState.halation = baseHalation;
+          darkroomState.grainAmount = baseGrainAmount;
+          darkroomState.vignette = baseVignette;
+        }
+        if (Object.keys(targetAnim).length > 0) {
+          this.animateAndSync(targetAnim, isInterim ? 420 : 520);
+        }
+        if (targetCrop) {
+          darkroomState.cropX = targetCrop.x;
+          darkroomState.cropY = targetCrop.y;
+          darkroomState.cropWidth = targetCrop.width;
+          darkroomState.cropHeight = targetCrop.height;
+          darkroomState.cropRotation = targetCrop.rotation;
+          darkroomState.keystoneV = targetCrop.keystoneV ?? 0;
+          darkroomState.keystoneH = targetCrop.keystoneH ?? 0;
+          darkroomState.cropAspectRatio = targetCrop.aspectRatio;
+          darkroomState.flipH = targetCrop.flipH;
+          darkroomState.flipV = targetCrop.flipV;
+        }
+      } else {
+        // 批次模式中直接更新全域狀態，並觸發畫布單次重繪讓使用者即時看見調整
+        darkroomState.exposure = baseEv;
+        darkroomState.highlights = baseHighlights;
+        darkroomState.contrast = baseContrast;
+        darkroomState.shadows = baseShadows;
+        darkroomState.blacks = baseBlacks;
+        darkroomState.colorTemp = baseTemp;
+        darkroomState.tint = baseTint;
+        darkroomState.vibrance = baseVibrance;
+        darkroomState.lutIntensity = baseLut;
+        darkroomState.clarity = baseClarity;
+        darkroomState.sharpness = baseSharpness;
+        darkroomState.colorDensity = baseColorDensity;
+        darkroomState.shadowHue = baseShadowHue;
+        darkroomState.shadowTintAmount = baseShadowTintAmount;
+        darkroomState.highlightHue = baseHighlightHue;
+        darkroomState.highlightTintAmount = baseHighlightTintAmount;
+        darkroomState.halation = baseHalation;
+        darkroomState.grainAmount = baseGrainAmount;
+        darkroomState.vignette = baseVignette;
+        darkroomState.monochrome = baseMonochrome;
+        darkroomState.hsl = cloneHslAdjustments(baseHsl);
+        if (targetCrop) {
+          darkroomState.cropX = targetCrop.x;
+          darkroomState.cropY = targetCrop.y;
+          darkroomState.cropWidth = targetCrop.width;
+          darkroomState.cropHeight = targetCrop.height;
+          darkroomState.cropRotation = targetCrop.rotation;
+          darkroomState.keystoneV = targetCrop.keystoneV ?? 0;
+          darkroomState.keystoneH = targetCrop.keystoneH ?? 0;
+          darkroomState.cropAspectRatio = targetCrop.aspectRatio;
+          darkroomState.flipH = targetCrop.flipH;
+          darkroomState.flipV = targetCrop.flipV;
+        }
+        this.onTriggerRender?.();
+      }
+    }
+
+    // 更新陣列中該相片，並排程非同步離屏縮圖渲染（無論是否正在瀏覽該張，縮圖皆會即時更新）
+    photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
+      p.id === photoToProcess.id ? { ...photoToProcess } : p,
+    );
+    if (
+      photoLibrary.activePhoto &&
+      photoLibrary.activePhoto.id === photoToProcess.id
+    ) {
+      photoLibrary.activePhoto = { ...photoToProcess };
+    }
+    thumbnailRenderService.enqueueThumbnailRender(photoToProcess);
+  }
+
+  /**
    * Authentic AI Scene Analysis & Organic Parameter Tuning
    * 支援單幀互動模式（含滑桿動畫與畫布更新）與高速批次背景顯影（純資料更新，零主執行緒凍結）
    */
@@ -449,6 +1012,11 @@ export class AiPipelineStore {
     }
 
     this.isAiAnalyzing = true;
+    this.analyzingPhotoId = photoToProcess.id;
+    this.isTwoPhaseActive = this.criticEnabled;
+    this.analyzingPhase =
+      this.aiScope.crop || this.aiScope.keystone ? "pass1_geometry" : "pass1_color";
+
     if (!this.isBatchAiRunning) {
       this.aiTerminalLogs = [];
     }
@@ -524,6 +1092,37 @@ export class AiPipelineStore {
             ? previewFoundProfile.lutIntensityDefault
             : (photoToProcess.tuning?.lutIntensity ?? 1.0));
 
+    // 快照進入 AI 推論前的原始數值，供最終完成日誌與裁切計算基準
+    const origProfile = photoToProcess.appliedProfile;
+    const origProfileObj = lutCatalog.allProfiles.find(
+      (pr) => pr.id === origProfile,
+    );
+    const origMetrics = {
+      ev: photoToProcess.tuning?.exposure ?? photoToProcess.asShotExposure ?? 0.0,
+      contrast: photoToProcess.tuning?.contrast ?? 0.0,
+      shadows:
+        photoToProcess.tuning?.shadows ??
+        (origProfileObj ? (origProfileObj.shadowsDefault ?? 0.0) : 0.0),
+      clarity: photoToProcess.tuning?.clarity ?? 0.0,
+      sharpness: photoToProcess.tuning?.sharpness ?? 0.0,
+      temp: photoToProcess.tuning?.colorTemp ?? photoToProcess.asShotTemp ?? 5500,
+      tint: photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0,
+      lut:
+        photoToProcess.tuning?.lutIntensity ??
+        (origProfileObj ? origProfileObj.lutIntensityDefault : 1.0),
+    };
+    const origCrop = photoToProcess.crop ? { ...photoToProcess.crop } : undefined;
+    const applyCtx = {
+      forcedProfileId,
+      isStyleLocked,
+      applyLutProfile,
+      applyLutIntensity,
+      targetMonochrome,
+      origMetrics,
+      origProfile,
+      origCrop,
+    };
+
     try {
       const decision = await AiSceneService.analyzeScene(
         photoToProcess.thumbnail,
@@ -548,6 +1147,24 @@ export class AiPipelineStore {
           onLog: async (msg: string) => {
             await this.appendAiLog(msg, 15);
           },
+          onPhaseChange: (phase) => {
+            this.analyzingPhase = phase;
+            if (phase === "pass2_critic") {
+              this.isTwoPhaseActive = true;
+            }
+          },
+          onPass1Complete: async (pass1Decision) => {
+            await this.appendAiLog(
+              `> [PHASE 1/2] 初階顯影已即時套用預覽，正進行二階審美覆審...`,
+              10,
+            );
+            await this.applyDecisionToPhoto(
+              photoToProcess,
+              pass1Decision,
+              applyCtx,
+              "pass1",
+            );
+          },
           renderPreview: (src, dec) =>
             thumbnailRenderService.renderPass1PreviewForCritic(
               src,
@@ -559,501 +1176,12 @@ export class AiPipelineStore {
         },
       );
 
-      if (forcedProfileId) {
-        decision.recommended_profile = forcedProfileId;
-      }
-
-      // 若為焦點相片或單幀模式，同步頂部與面板 AI 決策狀態
-      if (isCurrentActive || !this.isBatchAiRunning) {
-        this.aiSuggestedScene = `${decision.scene_type} (視覺即時判讀)`;
-        this.aiSceneTitle = decision.scene_title || decision.scene_type;
-        this.aiStyleInsight = decision.style_insight || "";
-        this.aiRecommendedMood = decision.recommended_mood || "";
-        this.aiRecommendedProfile = decision.recommended_profile;
-        darkroomState.aiCropRationale = decision.crop_rationale || "";
-        this.aiVisionTags = decision.tags || [];
-      }
-
-      await this.appendAiLog(
-        `> [AUTOTUNE] 依據 AI 職責勾選開始套用參數...`,
-        20,
+      await this.applyDecisionToPhoto(
+        photoToProcess,
+        decision,
+        applyCtx,
+        "final",
       );
-
-      // 計算目標參數值
-      const targetProfile = applyLutProfile
-        ? decision.recommended_profile
-        : photoToProcess.appliedProfile;
-      const foundProfile = lutCatalog.allProfiles.find(
-        (pr) => pr.id === targetProfile,
-      );
-
-      const clampVal = (v: number, min: number, max: number) =>
-        Math.max(min, Math.min(max, v));
-      const strength = this.aiTuningStrength;
-      const scaleCentered = (val: number, center: number, min: number, max: number, decimals = 2) => {
-        if (Math.abs(strength - 1.0) <= 0.01) return clampVal(val, min, max);
-        const scaled = center + (val - center) * strength;
-        return parseFloat(clampVal(scaled, min, max).toFixed(decimals));
-      };
-
-      const baseEv = this.aiScope.tone
-        ? scaleCentered(decision.exposure_compensation, 0.0, -2.0, 2.0)
-        : (photoToProcess.tuning?.exposure ??
-          (foundProfile
-            ? foundProfile.evDefault
-            : (photoToProcess.asShotExposure ?? 0.0)));
-      const baseContrast = this.aiScope.tone
-        ? scaleCentered(decision.contrast ?? 0.0, 0.0, -0.8, 0.8)
-        : (photoToProcess.tuning?.contrast ?? 0.0);
-      const baseShadows = this.aiScope.tone
-        ? scaleCentered(decision.lift_shadows ?? 0.0, 0.0, -0.5, 0.5)
-        : (photoToProcess.tuning?.shadows ??
-          (foundProfile ? (foundProfile.shadowsDefault ?? 0.0) : 0.0));
-      const baseTemp = this.aiScope.whiteBalance
-        ? Math.round(scaleCentered(decision.color_temp ?? 5500, 5500, 2800, 8500, 0))
-        : (photoToProcess.tuning?.colorTemp ??
-          photoToProcess.asShotTemp ??
-          5500);
-      const baseTint = this.aiScope.whiteBalance
-        ? scaleCentered(decision.tint ?? 0.0, 0.0, -100, 100, 1)
-        : (photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0);
-      const preservedLutIntensity =
-        photoToProcess.appliedProfile === targetProfile
-          ? (photoToProcess.tuning?.lutIntensity ??
-            (foundProfile ? foundProfile.lutIntensityDefault : 1.0))
-          : (foundProfile
-              ? foundProfile.lutIntensityDefault
-              : (photoToProcess.tuning?.lutIntensity ?? 1.0));
-      const baseLut = applyLutIntensity
-        ? scaleCentered(decision.lut_intensity, 0.0, 0.0, 1.0)
-        : preservedLutIntensity;
-      const baseClarity = this.aiScope.tone
-        ? scaleCentered(decision.clarity ?? 0.0, 0.0, -1.0, 1.0)
-        : (photoToProcess.tuning?.clarity ?? 0.0);
-      const baseSharpness = this.aiScope.tone
-        ? scaleCentered(decision.sharpness ?? 0.0, 0.0, -1.0, 1.0)
-        : (photoToProcess.tuning?.sharpness ?? 0.0);
-      const applyColorMixer = this.aiScope.filmPhysics !== false;
-      const applySplitToning =
-        this.aiScope.splitToning !== undefined
-          ? this.aiScope.splitToning
-          : applyColorMixer;
-      const applyFilmTexture =
-        this.aiScope.filmTexture !== undefined
-          ? this.aiScope.filmTexture
-          : applyColorMixer;
-      const baseColorDensity = applyColorMixer
-        ? scaleCentered(decision.color_density ?? 0.0, 0.0, -1.0, 1.0)
-        : (photoToProcess.tuning?.colorDensity ?? 0.0);
-      const baseShadowHue = applySplitToning
-        ? (decision.shadow_hue ?? 200)
-        : (photoToProcess.tuning?.shadowHue ?? 200);
-      const baseShadowTintAmount = applySplitToning
-        ? scaleCentered(decision.shadow_tint_amount ?? 0.0, 0.0, 0.0, 1.0)
-        : (photoToProcess.tuning?.shadowTintAmount ?? 0.0);
-      const baseHighlightHue = applySplitToning
-        ? (decision.highlight_hue ?? 40)
-        : (photoToProcess.tuning?.highlightHue ?? 40);
-      const baseHighlightTintAmount = applySplitToning
-        ? scaleCentered(decision.highlight_tint_amount ?? 0.0, 0.0, 0.0, 1.0)
-        : (photoToProcess.tuning?.highlightTintAmount ?? 0.0);
-      const baseHalation = applyFilmTexture
-        ? scaleCentered(decision.halation ?? 0.0, 0.0, 0.0, 1.0)
-        : (photoToProcess.tuning?.halation ?? 0.0);
-      const baseGrainAmount = applyFilmTexture
-        ? scaleCentered(decision.grain_amount ?? 0.15, 0.15, 0.0, 1.0)
-        : (photoToProcess.tuning?.grainAmount ?? 0.15);
-      const baseHighlights = this.aiScope.tone
-        ? scaleCentered(decision.highlights ?? 0.0, 0.0, -1.0, 1.0)
-        : (photoToProcess.tuning?.highlights ?? 0.0);
-      const baseBlacks = this.aiScope.tone
-        ? scaleCentered(decision.blacks ?? 0.0, 0.0, -0.5, 0.5)
-        : (photoToProcess.tuning?.blacks ?? 0.0);
-      const baseVibrance = applyColorMixer
-        ? scaleCentered(decision.vibrance ?? 0.0, 0.0, -1.0, 1.0)
-        : (photoToProcess.tuning?.vibrance ?? 0.0);
-      const baseVignette = applyFilmTexture
-        ? scaleCentered(decision.vignette ?? 0.0, 0.0, -1.0, 1.0)
-        : (photoToProcess.tuning?.vignette ?? 0.0);
-      const rawHsl = applyColorMixer
-        ? cloneHslAdjustments(decision.hsl)
-        : cloneHslAdjustments(photoToProcess.tuning?.hsl);
-      if (applyColorMixer && Math.abs(strength - 1.0) > 0.01) {
-        for (const bandKey of Object.keys(rawHsl) as Array<keyof HslAdjustments>) {
-          rawHsl[bandKey].hue = scaleCentered(rawHsl[bandKey].hue, 0.0, -1.0, 1.0);
-          rawHsl[bandKey].sat = scaleCentered(rawHsl[bandKey].sat, 0.0, -1.0, 1.0);
-          rawHsl[bandKey].lum = scaleCentered(rawHsl[bandKey].lum, 0.0, -1.0, 1.0);
-        }
-      }
-      const baseHsl = rawHsl;
-      // 黑白模式完全由使用者獨立切換，AI 僅調光影與 6 段光學濾鏡權重，不擅自更改輸出模式
-      const baseMonochrome = targetMonochrome;
-
-      const origEv =
-        photoToProcess.tuning?.exposure ?? photoToProcess.asShotExposure ?? 0.0;
-      const origContrast = photoToProcess.tuning?.contrast ?? 0.0;
-      const origShadows =
-        photoToProcess.tuning?.shadows ??
-        (foundProfile ? (foundProfile.shadowsDefault ?? 0.0) : 0.0);
-      const origClarity = photoToProcess.tuning?.clarity ?? 0.0;
-      const origSharpness = photoToProcess.tuning?.sharpness ?? 0.0;
-      const origTemp =
-        photoToProcess.tuning?.colorTemp ?? photoToProcess.asShotTemp ?? 5500;
-      const origTint =
-        photoToProcess.tuning?.tint ?? photoToProcess.asShotTint ?? 0.0;
-      const origLut =
-        photoToProcess.tuning?.lutIntensity ??
-        (foundProfile ? foundProfile.lutIntensityDefault : 1.0);
-
-      const fmt = (v: number, unit = "", sign = true, decimals = 2) => {
-        const s = sign && v > 0 ? "+" : "";
-        return `${s}${v.toFixed(decimals)}${unit}`;
-      };
-
-      if (this.aiScope.whiteBalance) {
-        await this.appendAiLog(
-          `> [AI_WB] 白平衡調校：\n  • 色溫: ${origTemp}K → ${baseTemp}K\n  • 色調 (Tint): ${fmt(origTint, "", true, 1)} → ${fmt(baseTint, "", true, 1)}`,
-          15,
-        );
-      }
-      if (this.aiScope.tone) {
-        await this.appendAiLog(
-          `> [AI_TONE] 光影與動態調校：\n  • 曝光補償: ${fmt(origEv, " EV")} → ${fmt(baseEv, " EV")} | 高光抑揚: ${fmt(baseHighlights)}\n  • 對比度: ${fmt(origContrast)} → ${fmt(baseContrast)} | 暗部: ${fmt(origShadows)} → ${fmt(baseShadows)} | 黑階: ${fmt(baseBlacks)}\n  • 清晰度: ${fmt(origClarity)} → ${fmt(baseClarity)} | 銳利度: ${fmt(origSharpness)} → ${fmt(baseSharpness)}`,
-          15,
-        );
-      }
-      if (isStyleLocked && applyLutIntensity) {
-        await this.appendAiLog(
-          `> [AI_LUT] 風格鎖定：${targetProfile} · AI 微調濃度 (${origLut.toFixed(2)} → ${baseLut.toFixed(2)})`,
-          15,
-        );
-      } else if (isStyleLocked && !applyLutIntensity) {
-        await this.appendAiLog(
-          `> [AI_LUT] 風格鎖定：${targetProfile} · 凍結目前濃度 (${baseLut.toFixed(2)})`,
-          15,
-        );
-      } else if (applyLutProfile) {
-        await this.appendAiLog(
-          `> [AI_LUT] 底片風格套用：${targetProfile} (濃度: ${origLut.toFixed(2)} → ${baseLut.toFixed(2)})`,
-          15,
-        );
-      }
-      if (applyColorMixer || applySplitToning || applyFilmTexture) {
-        await this.appendAiLog(
-          `> [AI_TONING] 色彩科學與底片質感：\n  • 自然飽和度: ${fmt(baseVibrance)} | 減色密度: ${fmt(baseColorDensity)} | 暗角: ${fmt(baseVignette)} | Halation: ${baseHalation.toFixed(2)} | 微粒: ${baseGrainAmount.toFixed(2)}\n  • 分區色調: 暗部 ${Math.round(baseShadowHue)}° (${baseShadowTintAmount.toFixed(2)}) | 亮部 ${Math.round(baseHighlightHue)}° (${baseHighlightTintAmount.toFixed(2)})`,
-          15,
-        );
-      }
-
-      // 構圖與智慧裁切計算
-      let targetCrop = photoToProcess.crop;
-      // AI 回傳整幅畫面 (或缺漏時的預設值) 代表構圖已佳、無需裁切，不可誤報為「已套用」
-      const fullFrameCrop = !decision.crop_box || isFullFrameCropBox(decision.crop_box);
-      const imageRatio = isCurrentActive ? darkroomState.activeImageAspectRatio : 1.5;
-
-      if (this.aiScope.crop && fullFrameCrop) {
-        await this.appendAiLog(
-          `> [AI_CROP] AI 判斷構圖已佳，未進行裁切（保留原始構圖）`,
-          15,
-        );
-      }
-      if (this.aiScope.crop && decision.crop_box && !fullFrameCrop) {
-        const resolvedRatio = this.aiScope.lockCropAspectRatio
-          ? "original"
-          : decision.aspect_ratio &&
-              ["original", "1:1", "4:5", "16:9", "9:16", "free"].includes(
-                decision.aspect_ratio,
-              )
-            ? (decision.aspect_ratio as any)
-            : (photoToProcess.crop?.aspectRatio ?? "original");
-        const nextRot =
-          this.aiScope.keystone && typeof decision.rotation_deg === "number"
-            ? decision.rotation_deg
-            : (photoToProcess.crop?.rotation ?? 0);
-        const snappedBox = snapCropBoxToAspectRatio(
-          {
-            x: decision.crop_box[1],
-            y: decision.crop_box[0],
-            width: decision.crop_box[3] - decision.crop_box[1],
-            height: decision.crop_box[2] - decision.crop_box[0],
-          },
-          resolvedRatio,
-          imageRatio,
-        );
-        const safeBox = computeInscribedCropForRotation(snappedBox, nextRot, imageRatio);
-
-        targetCrop = {
-          x: safeBox.x,
-          y: safeBox.y,
-          width: safeBox.width,
-          height: safeBox.height,
-          rotation: nextRot,
-          keystoneV:
-            this.aiScope.keystone && typeof decision.keystone_v === "number"
-              ? decision.keystone_v
-              : (photoToProcess.crop?.keystoneV ?? 0),
-          keystoneH: photoToProcess.crop?.keystoneH ?? 0,
-          aspectRatio: resolvedRatio,
-          flipH: photoToProcess.crop?.flipH ?? false,
-          flipV: photoToProcess.crop?.flipV ?? false,
-        };
-        await this.appendAiLog(
-          `> [AI_CROP] 智慧構圖裁切已套用：${decision.crop_rationale || "黃金三分點重心"}`,
-          15,
-        );
-      } else if (
-        this.aiScope.keystone &&
-        (typeof decision.rotation_deg === "number" ||
-          typeof decision.keystone_v === "number")
-      ) {
-        const nextRot =
-          typeof decision.rotation_deg === "number"
-            ? decision.rotation_deg
-            : (photoToProcess.crop?.rotation ?? 0);
-        const baseBox = {
-          x: photoToProcess.crop?.x ?? 0,
-          y: photoToProcess.crop?.y ?? 0,
-          width: photoToProcess.crop?.width ?? 1,
-          height: photoToProcess.crop?.height ?? 1,
-        };
-        const safeBox = computeInscribedCropForRotation(baseBox, nextRot, imageRatio);
-
-        targetCrop = {
-          x: safeBox.x,
-          y: safeBox.y,
-          width: safeBox.width,
-          height: safeBox.height,
-          rotation: nextRot,
-          keystoneV:
-            typeof decision.keystone_v === "number"
-              ? decision.keystone_v
-              : (photoToProcess.crop?.keystoneV ?? 0),
-          keystoneH: photoToProcess.crop?.keystoneH ?? 0,
-          aspectRatio: photoToProcess.crop?.aspectRatio ?? "original",
-          flipH: photoToProcess.crop?.flipH ?? false,
-          flipV: photoToProcess.crop?.flipV ?? false,
-        };
-        await this.appendAiLog(
-          `> [AI_LEVEL] 地平線與垂直透視已校正 (${(targetCrop.rotation || 0).toFixed(1)}°)`,
-          15,
-        );
-      }
-
-      // 靜態寫入目標底片資料實體（保存專屬 AI 決策與場景標籤）
-      photoToProcess.appliedProfile = targetProfile;
-      photoToProcess.aiDecision = decision;
-      photoToProcess.sceneTag = decision.scene_title || decision.scene_type;
-      photoToProcess.tuning = {
-        exposure: baseEv,
-        highlights: baseHighlights,
-        contrast: baseContrast,
-        shadows: baseShadows,
-        blacks: baseBlacks,
-        lutIntensity: baseLut,
-        colorTemp: baseTemp,
-        tint: baseTint,
-        vibrance: baseVibrance,
-        clarity: baseClarity,
-        sharpness: baseSharpness,
-        colorDensity: baseColorDensity,
-        shadowHue: baseShadowHue,
-        shadowTintAmount: baseShadowTintAmount,
-        highlightHue: baseHighlightHue,
-        highlightTintAmount: baseHighlightTintAmount,
-        halation: baseHalation,
-        grainAmount: baseGrainAmount,
-        vignette: baseVignette,
-        monochrome: baseMonochrome,
-        hsl: cloneHslAdjustments(baseHsl),
-      };
-      if (targetCrop) {
-        photoToProcess.crop = targetCrop;
-      }
-
-      // 保存專屬 AI 基準快照供後續一鍵還原 (Restore AI Baseline) 與多輪迭代基準
-      const initialSnapshot = {
-        appliedProfile: targetProfile,
-        tuning: {
-          exposure: baseEv,
-          highlights: baseHighlights,
-          contrast: baseContrast,
-          shadows: baseShadows,
-          blacks: baseBlacks,
-          lutIntensity: baseLut,
-          colorTemp: baseTemp,
-          tint: baseTint,
-          vibrance: baseVibrance,
-          clarity: baseClarity,
-          sharpness: baseSharpness,
-          colorDensity: baseColorDensity,
-          shadowHue: baseShadowHue,
-          shadowTintAmount: baseShadowTintAmount,
-          highlightHue: baseHighlightHue,
-          highlightTintAmount: baseHighlightTintAmount,
-          halation: baseHalation,
-          grainAmount: baseGrainAmount,
-          vignette: baseVignette,
-          monochrome: baseMonochrome,
-          hsl: cloneHslAdjustments(baseHsl),
-        },
-        crop: targetCrop ? { ...targetCrop } : undefined,
-        appliedScope: { ...this.aiScope },
-        appliedAt: Date.now(),
-      };
-      photoToProcess.aiTuningSnapshot = initialSnapshot;
-      photoToProcess.aiLatestBaseline = {
-        ...initialSnapshot,
-        tuning: { ...initialSnapshot.tuning, hsl: cloneHslAdjustments(baseHsl) },
-        crop: initialSnapshot.crop ? { ...initialSnapshot.crop } : undefined,
-      };
-      photoToProcess.aiIterationHistory = [];
-      this.lockManualAdjustments = true;
-
-      // 若目前為聚焦相片且為手動單幀觸發，更新全域滑桿與動態動畫
-      if (isCurrentActive) {
-        if (!this.isBatchAiRunning) {
-          this.applyProfileToActivePhoto(targetProfile, false);
-          const targetAnim: {
-            exposure?: number;
-            highlights?: number;
-            contrast?: number;
-            shadows?: number;
-            blacks?: number;
-            colorTemp?: number;
-            tint?: number;
-            vibrance?: number;
-            lutIntensity?: number;
-            clarity?: number;
-            sharpness?: number;
-            colorDensity?: number;
-            shadowHue?: number;
-            shadowTintAmount?: number;
-            highlightHue?: number;
-            highlightTintAmount?: number;
-            halation?: number;
-            grainAmount?: number;
-            vignette?: number;
-            hsl?: HslAdjustments;
-          } = {};
-          if (this.aiScope.tone) {
-            targetAnim.exposure = baseEv;
-            targetAnim.highlights = baseHighlights;
-            targetAnim.contrast = baseContrast;
-            targetAnim.shadows = baseShadows;
-            targetAnim.blacks = baseBlacks;
-            targetAnim.clarity = baseClarity;
-            targetAnim.sharpness = baseSharpness;
-          }
-          if (this.aiScope.whiteBalance) {
-            targetAnim.colorTemp = baseTemp;
-            targetAnim.tint = baseTint;
-          }
-          if (applyLutIntensity) {
-            targetAnim.lutIntensity = baseLut;
-          } else {
-            darkroomState.lutIntensity = baseLut;
-          }
-          if (applyColorMixer) {
-            targetAnim.vibrance = baseVibrance;
-            targetAnim.colorDensity = baseColorDensity;
-            targetAnim.hsl = cloneHslAdjustments(baseHsl);
-          }
-          if (applySplitToning) {
-            targetAnim.shadowHue = baseShadowHue;
-            targetAnim.shadowTintAmount = baseShadowTintAmount;
-            targetAnim.highlightHue = baseHighlightHue;
-            targetAnim.highlightTintAmount = baseHighlightTintAmount;
-          }
-          if (applyFilmTexture) {
-            targetAnim.halation = baseHalation;
-            targetAnim.grainAmount = baseGrainAmount;
-            targetAnim.vignette = baseVignette;
-          }
-          darkroomState.highlights = baseHighlights;
-          darkroomState.blacks = baseBlacks;
-          darkroomState.clarity = baseClarity;
-          darkroomState.sharpness = baseSharpness;
-          darkroomState.monochrome = baseMonochrome;
-          if (applyColorMixer) {
-            darkroomState.vibrance = baseVibrance;
-            darkroomState.colorDensity = baseColorDensity;
-            darkroomState.hsl = cloneHslAdjustments(baseHsl);
-          }
-          if (applySplitToning) {
-            darkroomState.shadowHue = baseShadowHue;
-            darkroomState.shadowTintAmount = baseShadowTintAmount;
-            darkroomState.highlightHue = baseHighlightHue;
-            darkroomState.highlightTintAmount = baseHighlightTintAmount;
-          }
-          if (applyFilmTexture) {
-            darkroomState.halation = baseHalation;
-            darkroomState.grainAmount = baseGrainAmount;
-            darkroomState.vignette = baseVignette;
-          }
-          if (Object.keys(targetAnim).length > 0) {
-            this.animateAndSync(targetAnim, 650);
-          }
-          if (targetCrop) {
-            darkroomState.cropX = targetCrop.x;
-            darkroomState.cropY = targetCrop.y;
-            darkroomState.cropWidth = targetCrop.width;
-            darkroomState.cropHeight = targetCrop.height;
-            darkroomState.cropRotation = targetCrop.rotation;
-            darkroomState.keystoneV = targetCrop.keystoneV ?? 0;
-            darkroomState.keystoneH = targetCrop.keystoneH ?? 0;
-            darkroomState.cropAspectRatio = targetCrop.aspectRatio;
-            darkroomState.flipH = targetCrop.flipH;
-            darkroomState.flipV = targetCrop.flipV;
-          }
-        } else {
-          // 批次模式中直接更新全域狀態，絕不觸發高頻動畫或重繪風暴
-          darkroomState.exposure = baseEv;
-          darkroomState.highlights = baseHighlights;
-          darkroomState.contrast = baseContrast;
-          darkroomState.shadows = baseShadows;
-          darkroomState.blacks = baseBlacks;
-          darkroomState.colorTemp = baseTemp;
-          darkroomState.tint = baseTint;
-          darkroomState.vibrance = baseVibrance;
-          darkroomState.lutIntensity = baseLut;
-          darkroomState.clarity = baseClarity;
-          darkroomState.sharpness = baseSharpness;
-          darkroomState.colorDensity = baseColorDensity;
-          darkroomState.shadowHue = baseShadowHue;
-          darkroomState.shadowTintAmount = baseShadowTintAmount;
-          darkroomState.highlightHue = baseHighlightHue;
-          darkroomState.highlightTintAmount = baseHighlightTintAmount;
-          darkroomState.halation = baseHalation;
-          darkroomState.grainAmount = baseGrainAmount;
-          darkroomState.vignette = baseVignette;
-          darkroomState.monochrome = baseMonochrome;
-          darkroomState.hsl = cloneHslAdjustments(baseHsl);
-          if (targetCrop) {
-            darkroomState.cropX = targetCrop.x;
-            darkroomState.cropY = targetCrop.y;
-            darkroomState.cropWidth = targetCrop.width;
-            darkroomState.cropHeight = targetCrop.height;
-            darkroomState.cropRotation = targetCrop.rotation;
-            darkroomState.keystoneV = targetCrop.keystoneV ?? 0;
-            darkroomState.keystoneH = targetCrop.keystoneH ?? 0;
-            darkroomState.cropAspectRatio = targetCrop.aspectRatio;
-            darkroomState.flipH = targetCrop.flipH;
-            darkroomState.flipV = targetCrop.flipV;
-          }
-        }
-      }
-
-      // 更新陣列中該相片，並排程非同步離屏縮圖渲染
-      photoLibrary.photoPlates = photoLibrary.photoPlates.map((p) =>
-        p.id === photoToProcess.id ? { ...photoToProcess } : p,
-      );
-      if (
-        photoLibrary.activePhoto &&
-        photoLibrary.activePhoto.id === photoToProcess.id
-      ) {
-        photoLibrary.activePhoto = { ...photoToProcess };
-      }
-      thumbnailRenderService.enqueueThumbnailRender(photoToProcess);
 
       if (this.batchFailedPhotoIds.includes(photoToProcess.id)) {
         this.batchFailedPhotoIds = this.batchFailedPhotoIds.filter(
@@ -1094,6 +1222,9 @@ export class AiPipelineStore {
       return false;
     } finally {
       this.isAiAnalyzing = false;
+      this.analyzingPhotoId = null;
+      this.analyzingPhase = "idle";
+      this.isTwoPhaseActive = false;
     }
   }
 

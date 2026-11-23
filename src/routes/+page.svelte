@@ -11,6 +11,7 @@
   import MobileRetouchBar from "$lib/components/navigation/MobileRetouchBar.svelte";
   import MobileBottomNav from "$lib/components/navigation/MobileBottomNav.svelte";
   import PickedPreviewsRack from "$lib/components/catalog/PickedPreviewsRack.svelte";
+  import AiProgressHud from "$lib/components/AiProgressHud.svelte";
   import { toastStore } from "$lib/stores/toastStore.svelte";
   import CatalogView from "$lib/components/views/CatalogView.svelte";
   import RetouchView from "$lib/components/views/RetouchView.svelte";
@@ -1229,6 +1230,17 @@
           onGoToRetouch={goToRetouch}
         />
       {/if}
+
+      <AiProgressHud
+        {activeTab}
+        activePhotoId={activePhoto?.id}
+        onFocusPhoto={() => {
+          activeTab = "retouch";
+          requestAnimationFrame(() => {
+            triggerWebglRender();
+          });
+        }}
+      />
     </section>
 
     {#if activeTab === "retouch" || (activeTab === "catalog" && flaggedCount > 0)}

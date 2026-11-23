@@ -54,9 +54,13 @@ export interface AiSceneDecision {
   crop_rationale?: string;                     // 裁切與構圖診斷說明
 }
 
+export type AiAnalysisPhase = 'pass1_geometry' | 'pass1_color' | 'pass2_critic';
+
 export interface AnalyzeSceneOptions {
   signal?: AbortSignal;
   onLog?: (msg: string) => Promise<void> | void;
+  onPhaseChange?: (phase: AiAnalysisPhase) => void;
+  onPass1Complete?: (decision: AiSceneDecision) => Promise<void> | void;
   maxRetries?: number; // 預設 2 次自動重試（共嘗試最多 3 次）
   stylePreset?: import('./ai/types').StylePresetKey;
   styleKeywords?: import('./ai/types').StyleKeywordId[];
@@ -303,6 +307,7 @@ export class AiSceneService {
         // 【分階段智慧排程管線】
         // 若使用者指派了 scope，且幾何與調色同時需要，由 strategy 分步推論
         if (scope && needGeometry && needColor && strategy.analyzeGeometry && strategy.analyzeColorGrade) {
+          options?.onPhaseChange?.('pass1_geometry');
           if (options?.onLog) {
             await options.onLog(`> [PIPELINE: 1/2] 啟動空間幾何與構圖分析 (Stage 1)...`);
           }
@@ -345,6 +350,7 @@ export class AiSceneService {
             }
           }
 
+          options?.onPhaseChange?.('pass1_color');
           const colorDecision = await strategy.analyzeColorGrade({
             apiKey,
             modelId,
@@ -399,6 +405,7 @@ export class AiSceneService {
           };
         } else if (scope && needGeometry && !needColor && strategy.analyzeGeometry) {
           // 僅需要幾何分析
+          options?.onPhaseChange?.('pass1_geometry');
           if (options?.onLog) {
             await options.onLog(`> [PIPELINE] 僅執行空間幾何與構圖分析 (Stage 1)...`);
           }
@@ -431,9 +438,11 @@ export class AiSceneService {
           };
         } else if (scope && !needGeometry && needColor && strategy.analyzeColorGrade) {
           // 僅需要色彩與光影分析
+          options?.onPhaseChange?.('pass1_color');
           if (options?.onLog) {
             await options.onLog(`> [PIPELINE] 鎖定幾何構圖，專注執行測光與色彩階調分級 (Stage 2)...`);
           }
+          options?.onPhaseChange?.('pass1_color');
           const colorDecision = await strategy.analyzeColorGrade({
             apiKey,
             modelId,
@@ -487,6 +496,7 @@ export class AiSceneService {
           };
         } else {
           // 全量單次相容推論
+          options?.onPhaseChange?.('pass1_color');
           decision = await strategy.analyzePhoto({
             apiKey,
             modelId,
@@ -533,6 +543,17 @@ export class AiSceneService {
           const criticReady =
             criticEngine.strategy?.providerId === 'ollama' || Boolean(criticEngine.apiKey && criticEngine.apiKey.trim() !== '');
           if (criticEngine.enabled && criticEngine.strategy?.refinePhoto && criticReady && options?.renderPreview) {
+            // Pass 1 完成即刻回呼，讓 UI 與畫布在進入 Pass 2 覆審前先即時呈現初階顯影效果
+            if (options?.onPass1Complete) {
+              const pass1Snapshot: AiSceneDecision = {
+                ...decision,
+                hsl: decision.hsl ? cloneHslAdjustments(decision.hsl) : undefined,
+                crop_box: decision.crop_box ? [...decision.crop_box] : undefined,
+                tags: decision.tags ? [...decision.tags] : undefined,
+              };
+              await options.onPass1Complete(pass1Snapshot);
+            }
+            options?.onPhaseChange?.('pass2_critic');
             if (options.onLog) {
               await options.onLog(`> [AI_CRITIC] 啟動雙圖閉環覆審 (${criticEngine.modelId || criticEngine.strategy.providerName})...`);
             }
