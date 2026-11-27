@@ -67,7 +67,7 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
       throw new Error('未指定有效的模型名稱，請至右下角保險庫選擇欲指派之端點模型');
     }
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent`;
 
     const generationConfig: Record<string, any> = {
       responseMimeType: 'application/json',
@@ -97,7 +97,10 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
     try {
       response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: requestBody,
         signal,
       });
@@ -271,7 +274,7 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
       throw new Error('未指定有效的模型名稱');
     }
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent`;
     const criticPrompt = buildCriticInstructionBlock(
       firstPassDecision,
       options.stylePreset,
@@ -316,7 +319,10 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
     try {
       response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: requestBody,
         signal: options.signal,
       });
@@ -375,7 +381,7 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
     if (!cleanModel) {
       throw new Error('未指定有效的模型名稱');
     }
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent`;
 
     const systemPrompt = buildCopywritingPrompt(payload);
 
@@ -388,7 +394,10 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
 
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
       body: JSON.stringify({
         contents: [{ parts: [{ text: systemPrompt }] }],
         generationConfig: copyGenerationConfig,
@@ -418,12 +427,15 @@ export class GeminiAdapter implements IVisionStrategy, ITextStrategy {
     if (!cleanModel) {
       return { success: false, latencySec: 0, error: '未指定要測試之模型名稱' };
     }
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent`;
     const t0 = Date.now();
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify({ contents: [{ parts: [{ text: CONNECTION_PING_PROMPT }] }] }),
       });
       const latencySec = parseFloat(((Date.now() - t0) / 1000).toFixed(2));

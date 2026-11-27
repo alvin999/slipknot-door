@@ -1,0 +1,13 @@
+# Cloudflare Pages / Static Hosting Security Headers
+# 注意：本專案使用 SvelteKit adapter-static，index.html 含有內嵌啟動腳本與元件行內樣式，
+# 因此 script-src 與 style-src 保留 'unsafe-inline'，同時嚴格禁止外部未知腳本、eval 與 iframe 嵌入。
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), usb=(), payment=(), interest-cohort=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; worker-src 'self'; manifest-src 'self'; connect-src 'self' data: blob: http://localhost:* http://127.0.0.1:* https://api.anthropic.com https://generativelanguage.googleapis.com https://api.groq.com https://api.openai.com https://openrouter.ai
